@@ -86,17 +86,61 @@ class OdakEngine {
     return score;
   }
 
+  /// Türkçe alfabe sırasına uygun karşılaştırma anahtarı.
+  static String _trSortKey(String s) {
+    const map = {
+      'ç': 'c{',
+      'ğ': 'g{',
+      'ı': 'h{',
+      'ö': 'o{',
+      'ş': 's{',
+      'ü': 'u{',
+    };
+    final lower =
+        s.replaceAll('İ', 'i').replaceAll('I', 'ı').toLowerCase();
+    final b = StringBuffer();
+    for (final ch in lower.split('')) {
+      b.write(map[ch] ?? ch);
+    }
+    return b.toString();
+  }
+
   /// OdakScore'a göre büyükten küçüğe sıralar.
+  /// Eşitlik durumunda sırasıyla:
+  /// 1) Tüm sınavın genel puanı (`examScore` - tüm dersler dahil)
+  /// 2) Tüm sınavın genel toplam neti (`totalNet`)
+  /// 3) Daha az toplam yanlış, daha çok toplam doğru
+  /// 4) Türkçe alfabetik isim sırası
   static List<OdakRankedStudent> rank(
     List<OdakExamResult> results,
     Map<String, int> weights,
   ) {
+    int cmpDoubleDesc(double a, double b) {
+      if ((a - b).abs() <= 1e-6) return 0;
+      return b.compareTo(a);
+    }
+
     final scored = results
         .map((r) => MapEntry(r, calcOdakScore(r, weights)))
         .toList()
       ..sort((a, b) {
-        final c = b.value.compareTo(a.value);
-        return c != 0 ? c : a.key.student.name.compareTo(b.key.student.name);
+        final byOdak = cmpDoubleDesc(a.value, b.value);
+        if (byOdak != 0) return byOdak;
+
+        final byExamScore = cmpDoubleDesc(a.key.examScore, b.key.examScore);
+        if (byExamScore != 0) return byExamScore;
+
+        final byTotalNet = cmpDoubleDesc(a.key.totalNet, b.key.totalNet);
+        if (byTotalNet != 0) return byTotalNet;
+
+        final byWrong = a.key.totalWrong.compareTo(b.key.totalWrong);
+        if (byWrong != 0) return byWrong;
+
+        final byCorrect = b.key.totalCorrect.compareTo(a.key.totalCorrect);
+        if (byCorrect != 0) return byCorrect;
+
+        return _trSortKey(a.key.student.name)
+            .compareTo(_trSortKey(b.key.student.name));
       });
     return [
       for (var i = 0; i < scored.length; i++)
@@ -573,6 +617,7 @@ class OdakAnalyzer {
           name: s.student.name,
           rate: st.successRate,
           classRate: avg,
+          ranked: s,
         ));
       }
     }

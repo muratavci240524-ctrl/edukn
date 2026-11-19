@@ -265,6 +265,7 @@ class TermService {
       debugPrint('announcements migration hatası: $e');
     }
 
+    await deduplicateAndCleanClasses(institutionId: institutionId);
     debugPrint('Toplam $migratedCount kayıt aktif döneme atandı');
     return migratedCount;
   }
@@ -334,6 +335,350 @@ class TermService {
     return deletedCount;
   }
 
+  /// Mükerrer (aynı isimli) ve boş şubeleri tespit eder, öğrencileri/dersleri
+  /// dolu olan asıl şubede birleştirir ve mükerrer/boş kopyaları Firestore'dan siler.
+  /// Ayrıca sınıf atlatma kaynaklı String `classLevel` ('7', '8') ve eski `shortName`
+  /// alanlarını standartlaştırır.
+  Future<int> deduplicateAndCleanClasses({
+    String? institutionId,
+    String? schoolTypeId,
+    String? termId,
+  }) async {
+    try {
+      final instId = (institutionId ?? await getInstitutionId()).trim();
+      if (instId.isEmpty || instId == 'GMAIL') return 0;
+
+      final db = FirebaseFirestore.instance;
+      final activeTermId = await getActiveTermId();
+
+      // 1. Kuruma ait tüm şubeleri çek
+      var classesQuery = db
+          .collection('classes')
+          .where('institutionId', isEqualTo: instId);
+      if (schoolTypeId != null && schoolTypeId.isNotEmpty) {
+        classesQuery = classesQuery.where(
+          'schoolTypeId',
+          isEqualTo: schoolTypeId,
+        );
+      }
+      final classesSnap = await classesQuery.get();
+      if (classesSnap.docs.isEmpty) return 0;
+
+      // 2. Kuruma ait aktif öğrencileri, ders atamalarını ve ders programı slotlarını çek
+      final studentsSnap = await db
+          .collection('students')
+          .where('institutionId', isEqualTo: instId)
+          .get();
+      final assignmentsSnap = await db
+          .collection('lessonAssignments')
+          .where('institutionId', isEqualTo: instId)
+          .get();
+      final schedulesSnap = await db
+          .collection('classSchedules')
+          .where('institutionId', isEqualTo: instId)
+          .get();
+
+      // Her classId için öğrenci, ders ataması ve ders programı sayısı
+      final studentCountByClass = <String, int>{};
+      final studentDocsByClass =
+          <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+      for (final sDoc in studentsSnap.docs) {
+        final sData = sDoc.data();
+        if (sData['isActive'] == false) continue;
+        final cId = (sData['classId'] ?? '').toString().trim();
+        if (cId.isNotEmpty) {
+          studentCountByClass[cId] = (studentCountByClass[cId] ?? 0) + 1;
+          studentDocsByClass.putIfAbsent(cId, () => []).add(sDoc);
+        }
+      }
+
+      final assignmentDocsByClass =
+          <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+      for (final aDoc in assignmentsSnap.docs) {
+        final aData = aDoc.data();
+        if (aData['isActive'] == false) continue;
+        final cId = (aData['classId'] ?? '').toString().trim();
+        if (cId.isNotEmpty) {
+          assignmentDocsByClass.putIfAbsent(cId, () => []).add(aDoc);
+        }
+      }
+
+      final scheduleDocsByClass =
+          <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+      for (final schDoc in schedulesSnap.docs) {
+        final schData = schDoc.data();
+        if (schData['isActive'] == false) continue;
+        final cId = (schData['classId'] ?? '').toString().trim();
+        if (cId.isNotEmpty) {
+          scheduleDocsByClass.putIfAbsent(cId, () => []).add(schDoc);
+        }
+      }
+
+      var batch = db.batch();
+      int batchOps = 0;
+      int cleanedCount = 0;
+
+      Future<void> commitIfNeeded({bool force = false}) async {
+        if (batchOps > 0 && (force || batchOps >= 400)) {
+          await batch.commit();
+          batch = db.batch();
+          batchOps = 0;
+        }
+      }
+
+      // 3. Aktif şubelerde String olarak kalmış classLevel ('7' -> 7) ve shortName uyumsuzluklarını onar
+      for (final cDoc in classesSnap.docs) {
+        final cData = cDoc.data();
+        if (cData['isActive'] == false) continue;
+
+        final updates = <String, dynamic>{};
+        final rawLevel = cData['classLevel'];
+        if (rawLevel is String) {
+          final parsed = int.tryParse(rawLevel.trim());
+          if (parsed != null) {
+            updates['classLevel'] = parsed;
+          }
+        }
+
+        final cName = (cData['className'] ?? '').toString().trim();
+        final sName = (cData['shortName'] ?? '').toString().trim();
+        if (cName.isNotEmpty &&
+            cName.length <= 5 &&
+            sName.isNotEmpty &&
+            sName != cName &&
+            cData['copiedFrom'] != null) {
+          updates['shortName'] = cName;
+        }
+
+        if (updates.isNotEmpty) {
+          batch.update(cDoc.reference, updates);
+          batchOps++;
+          await commitIfNeeded();
+        }
+      }
+
+      // 4. Aynı (schoolTypeId, termId, className) içindeki mükerrer şubeleri grupla
+      final groupedSameTerm =
+          <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+      for (final cDoc in classesSnap.docs) {
+        final cData = cDoc.data();
+        if (cData['isActive'] == false) continue;
+        final stId = (cData['schoolTypeId'] ?? '').toString().trim();
+        final tId = (cData['termId'] ?? activeTermId ?? '').toString().trim();
+        if (termId != null && termId.isNotEmpty && tId != termId) continue;
+        final normName = (cData['className'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        if (normName.isEmpty) continue;
+
+        final key = '${stId}__${tId}__$normName';
+        groupedSameTerm.putIfAbsent(key, () => []).add(cDoc);
+      }
+
+      final deletedDocIds = <String>{};
+      // Kazanan şube haritası: '${schoolTypeId}__${termId}__${normName}' -> winnerDoc
+      final canonicalByTermAndName =
+          <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+      for (final entry in groupedSameTerm.entries) {
+        final docs = entry.value;
+        if (docs.length == 1) {
+          canonicalByTermAndName[entry.key] = docs.first;
+          continue;
+        }
+
+        // En çok öğrencisi olan, eşitse en çok ders ataması/programı olan,
+        // eşitse öğretmeni tanımlı veya int classLevel'a sahip olan şubeyi kazanan seç
+        docs.sort((a, b) {
+          final sA = studentCountByClass[a.id] ?? 0;
+          final sB = studentCountByClass[b.id] ?? 0;
+          if (sA != sB) return sB.compareTo(sA);
+
+          final aAssign =
+              (assignmentDocsByClass[a.id]?.length ?? 0) +
+              (scheduleDocsByClass[a.id]?.length ?? 0);
+          final bAssign =
+              (assignmentDocsByClass[b.id]?.length ?? 0) +
+              (scheduleDocsByClass[b.id]?.length ?? 0);
+          if (aAssign != bAssign) return bAssign.compareTo(aAssign);
+
+          final aHasTeacher =
+              (a.data()['classTeacherId'] ?? '').toString().isNotEmpty ? 1 : 0;
+          final bHasTeacher =
+              (b.data()['classTeacherId'] ?? '').toString().isNotEmpty ? 1 : 0;
+          if (aHasTeacher != bHasTeacher) {
+            return bHasTeacher.compareTo(aHasTeacher);
+          }
+
+          final aIntLvl = a.data()['classLevel'] is int ? 1 : 0;
+          final bIntLvl = b.data()['classLevel'] is int ? 1 : 0;
+          return bIntLvl.compareTo(aIntLvl);
+        });
+
+        final winner = docs.first;
+        final winnerData = winner.data();
+        final winnerName = (winnerData['className'] ?? '').toString().trim();
+        canonicalByTermAndName[entry.key] = winner;
+
+        final winnerUpdates = <String, dynamic>{};
+        if (winnerData['classLevel'] is String) {
+          final parsed = int.tryParse(winnerData['classLevel'].toString());
+          if (parsed != null) winnerUpdates['classLevel'] = parsed;
+        }
+
+        for (int i = 1; i < docs.length; i++) {
+          final loser = docs[i];
+          final loserData = loser.data();
+
+          // Kazanan şubede eksik olan öğretmen/sınıf tipi bilgisini yedekten tamamla
+          if ((winnerData['classTeacherId'] == null ||
+                  winnerData['classTeacherId'].toString().isEmpty) &&
+              loserData['classTeacherId'] != null &&
+              loserData['classTeacherId'].toString().isNotEmpty) {
+            winnerUpdates['classTeacherId'] = loserData['classTeacherId'];
+            winnerUpdates['classTeacherName'] = loserData['classTeacherName'];
+          }
+          if ((winnerData['classTypeId'] == null ||
+                  winnerData['classTypeId'].toString().isEmpty) &&
+              loserData['classTypeId'] != null &&
+              loserData['classTypeId'].toString().isNotEmpty) {
+            winnerUpdates['classTypeId'] = loserData['classTypeId'];
+            winnerUpdates['classTypeName'] = loserData['classTypeName'];
+          }
+
+          // Kaybeden şubeye bağlı öğrencileri kazanana taşı
+          for (final sDoc in studentDocsByClass[loser.id] ?? const []) {
+            batch.update(sDoc.reference, {
+              'classId': winner.id,
+              'className': winnerName,
+            });
+            batchOps++;
+            await commitIfNeeded();
+          }
+
+          // Kaybeden şubeye bağlı ders atamalarını kazanana taşı
+          for (final aDoc in assignmentDocsByClass[loser.id] ?? const []) {
+            batch.update(aDoc.reference, {
+              'classId': winner.id,
+              'className': winnerName,
+            });
+            batchOps++;
+            await commitIfNeeded();
+          }
+
+          // Kaybeden şubeye bağlı ders programı slotlarını kazanana taşı
+          for (final schDoc in scheduleDocsByClass[loser.id] ?? const []) {
+            batch.update(schDoc.reference, {
+              'classId': winner.id,
+              'className': winnerName,
+            });
+            batchOps++;
+            await commitIfNeeded();
+          }
+
+          // Mükerrer / boş şubeyi tamamen sil
+          batch.delete(loser.reference);
+          deletedDocIds.add(loser.id);
+          cleanedCount++;
+          batchOps++;
+          await commitIfNeeded();
+        }
+
+        if (winnerUpdates.isNotEmpty) {
+          batch.update(winner.reference, winnerUpdates);
+          batchOps++;
+          await commitIfNeeded();
+        }
+      }
+
+      // 5. Aktif dönemde aynı isimli şubesi bulunan fakat eski/farklı dönemde
+      // hiç öğrencisi olmayan (0 öğrenci) boş mükerrer şubeleri de temizle
+      if (activeTermId != null && activeTermId.isNotEmpty) {
+        final activeClassNamesBySchoolType = <String, Set<String>>{};
+        for (final cDoc in classesSnap.docs) {
+          if (deletedDocIds.contains(cDoc.id)) continue;
+          final cData = cDoc.data();
+          if (cData['isActive'] == false) continue;
+          final tId = (cData['termId'] ?? '').toString().trim();
+          if (tId != activeTermId) continue;
+          final stId = (cData['schoolTypeId'] ?? '').toString().trim();
+          final normName = (cData['className'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase();
+          if (normName.isNotEmpty) {
+            activeClassNamesBySchoolType
+                .putIfAbsent(stId, () => <String>{})
+                .add(normName);
+          }
+        }
+
+        for (final cDoc in classesSnap.docs) {
+          if (deletedDocIds.contains(cDoc.id)) continue;
+          final cData = cDoc.data();
+          final tId = (cData['termId'] ?? '').toString().trim();
+          if (tId == activeTermId) continue;
+
+          final stId = (cData['schoolTypeId'] ?? '').toString().trim();
+          final normName = (cData['className'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase();
+          final sCount = studentCountByClass[cDoc.id] ?? 0;
+          final hasActiveCounterpart =
+              activeClassNamesBySchoolType[stId]?.contains(normName) ?? false;
+
+          // Öğrencisi olmayan (boş) ve aktif dönemde karşılığı olan şubeyi sil
+          if (sCount == 0 && hasActiveCounterpart) {
+            batch.delete(cDoc.reference);
+            deletedDocIds.add(cDoc.id);
+            cleanedCount++;
+            batchOps++;
+            await commitIfNeeded();
+          }
+        }
+      }
+
+      // 6. Öğrencilerin className'i dolu olup classId'si silinmiş veya farklı şubeyi
+      // gösteriyorsa kendi dönemindeki kanonik şube ID'si ile eşleştir
+      for (final sDoc in studentsSnap.docs) {
+        final sData = sDoc.data();
+        if (sData['isActive'] == false) continue;
+        final stId = (sData['schoolTypeId'] ?? '').toString().trim();
+        final tId = (sData['termId'] ?? activeTermId ?? '').toString().trim();
+        final cName = (sData['className'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        if (cName.isEmpty || cName == 'mezun') continue;
+
+        final canonicalDoc = canonicalByTermAndName['${stId}__${tId}__$cName'];
+        if (canonicalDoc != null && sData['classId'] != canonicalDoc.id) {
+          batch.update(sDoc.reference, {
+            'classId': canonicalDoc.id,
+            'className': (canonicalDoc.data()['className'] ?? '')
+                .toString()
+                .trim(),
+          });
+          batchOps++;
+          await commitIfNeeded();
+        }
+      }
+
+      await commitIfNeeded(force: true);
+      if (cleanedCount > 0) {
+        debugPrint(
+          '🧹 deduplicateAndCleanClasses: $cleanedCount mükerrer/boş şube temizlendi.',
+        );
+      }
+      return cleanedCount;
+    } catch (e) {
+      debugPrint('deduplicateAndCleanClasses hatası: $e');
+      return 0;
+    }
+  }
+
   /// Veritabanı bütünlük taraması ve onarımı
   Future<void> healDatabaseMismatches() async {
     try {
@@ -342,6 +687,9 @@ class TermService {
         debugPrint('ℹ️ Oturum açılmamış veya geçersiz kurum, bütünlük taraması atlanıyor.');
         return;
       }
+
+      // Önce mükerrer ve boş şubeleri birleştirip temizle
+      await deduplicateAndCleanClasses(institutionId: institutionId);
       
       final db = FirebaseFirestore.instance;
       debugPrint('=== STARTING DATABASE INTEGRITY SCAN & HEALING ===');

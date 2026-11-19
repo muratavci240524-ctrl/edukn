@@ -168,7 +168,7 @@ class _ExternalExamSeatingListScreenState
             child: Row(
               children: [
                 DropdownButton<String>(
-                  value: _selectedGrade,
+                  value: grades.contains(_selectedGrade) ? _selectedGrade : null,
                   hint: Text('Tüm Sınıflar', style: GoogleFonts.inter(fontSize: 13)),
                   items: [
                     const DropdownMenuItem<String>(value: null, child: Text('Tüm Sınıflar')),
@@ -178,7 +178,7 @@ class _ExternalExamSeatingListScreenState
                 ),
                 const SizedBox(width: 16),
                 DropdownButton<String>(
-                  value: _selectedRoom,
+                  value: rooms.contains(_selectedRoom) ? _selectedRoom : null,
                   hint: Text('Tüm Salonlar', style: GoogleFonts.inter(fontSize: 13)),
                   items: [
                     const DropdownMenuItem<String>(value: null, child: Text('Tüm Salonlar')),
@@ -230,6 +230,17 @@ class _ExternalExamSeatingListScreenState
         .firstWhere((a) => a.gradeLevel == reg.gradeLevel, orElse: () => GradeClassroomAssignment(gradeLevel: reg.gradeLevel, rooms: []))
         .rooms;
 
+    // Açılır listede her salon tek kez ve öğrencinin mevcut salonu mutlaka listede olsun
+    // (aksi halde DropdownButton 'tam olarak bir öğe' hatası verir).
+    final roomItems = <String, String>{};
+    for (final r in gradeRooms) {
+      roomItems.putIfAbsent(r.classroomId, () => r.classroomName);
+    }
+    final currentRoomId = reg.assignedRoomId;
+    if (currentRoomId != null && !roomItems.containsKey(currentRoomId)) {
+      roomItems[currentRoomId] = reg.assignedRoomName ?? 'Salon';
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -280,7 +291,8 @@ class _ExternalExamSeatingListScreenState
             width: 160,
             child: DropdownButtonHideUnderline(
               child: DropdownButtonFormField<String?>(
-                initialValue: reg.assignedRoomId,
+                key: ValueKey('swap_${reg.id}_${reg.assignedRoomId}'),
+                initialValue: currentRoomId,
                 isExpanded: true,
                 decoration: InputDecoration(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -293,10 +305,10 @@ class _ExternalExamSeatingListScreenState
                     value: null,
                     child: Text('Salondan Çıkar', style: GoogleFonts.inter(fontSize: 12, color: Colors.red)),
                   ),
-                  ...gradeRooms.map(
-                    (room) => DropdownMenuItem<String?>(
-                      value: room.classroomId,
-                      child: Text(room.classroomName, style: GoogleFonts.inter(fontSize: 12)),
+                  ...roomItems.entries.map(
+                    (e) => DropdownMenuItem<String?>(
+                      value: e.key,
+                      child: Text(e.value, style: GoogleFonts.inter(fontSize: 12)),
                     ),
                   ),
                 ],
@@ -658,11 +670,11 @@ class _ExternalExamSeatingListScreenState
                 columnWidths: {
                   0: const pw.FixedColumnWidth(30),
                   1: const pw.FlexColumnWidth(3),
-                  2: const pw.FixedColumnWidth(65),
-                  3: const pw.FixedColumnWidth(55),
-                  4: const pw.FlexColumnWidth(2.5),
-                  5: const pw.FlexColumnWidth(2.5),
-                  6: const pw.FixedColumnWidth(45),
+                  2: const pw.FixedColumnWidth(100),
+                  3: const pw.FixedColumnWidth(52),
+                  4: const pw.FlexColumnWidth(2),
+                  5: const pw.FlexColumnWidth(4),
+                  6: const pw.FixedColumnWidth(40),
                 },
                 children: [
                   pw.TableRow(
@@ -687,7 +699,7 @@ class _ExternalExamSeatingListScreenState
                       children: [
                         _pdfDataCell('${idx + 1}', font, fontBold, align: pw.TextAlign.center),
                         _pdfDataCell(s.fullName, font, fontBold, isBold: true),
-                        _pdfDataCell(s.examEntryCode ?? '-', font, fontBold, isBold: true, align: pw.TextAlign.center),
+                        _pdfCodeCell(s.examEntryCode ?? '-', fontBold),
                         _pdfDataCell(s.gradeLevel == 'Mezun' ? 'Mezun' : '${s.gradeLevel}. Sınıf', font, fontBold, align: pw.TextAlign.center),
                         _pdfDataCell(s.assignedRoomName ?? 'Salonsuz (Atanmadı)', font, fontBold, isBold: true, align: pw.TextAlign.center),
                         _pdfDataCell(s.currentSchool, font, fontBold),
@@ -748,6 +760,19 @@ class _ExternalExamSeatingListScreenState
         ),
       );
 
+  /// Giriş kodu: asla ikinci satıra geçmez; hücreye sığmazsa yazı otomatik küçülür.
+  pw.Widget _pdfCodeCell(String text, pw.Font fontBold) => pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        child: pw.FittedBox(
+          fit: pw.BoxFit.scaleDown,
+          child: pw.Text(
+            text,
+            maxLines: 1,
+            style: pw.TextStyle(font: fontBold, fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#0f172a')),
+          ),
+        ),
+      );
+
   pw.Widget _pdfDataCell(String text, pw.Font font, pw.Font fontBold, {bool isBold = false, pw.TextAlign align = pw.TextAlign.left}) => pw.Padding(
         padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 6),
         child: pw.Text(
@@ -759,7 +784,8 @@ class _ExternalExamSeatingListScreenState
             color: PdfColor.fromHex('#0f172a'),
           ),
           textAlign: align,
-          maxLines: 2,
+          maxLines: 1,
+          overflow: pw.TextOverflow.clip,
         ),
       );
 

@@ -7,6 +7,9 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../firebase_options.dart';
 import '../../constants/app_modules.dart';
+import '../../constants/turkey_address_data.dart';
+import '../../services/school_module_guard.dart';
+import '../../widgets/super_admin/school_module_hierarchy_selector.dart';
 
 class AddSchoolScreen extends StatefulWidget {
   final String? schoolId; // Düzenleme modu için okul ID'si
@@ -38,6 +41,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
   final _schoolAddressController = TextEditingController();
   String? _selectedCity;
   String? _selectedDistrict;
+  String? _selectedRegion;
 
   // ADIM 2: Yetkili Bilgileri
   final _adminFullNameController = TextEditingController();
@@ -48,153 +52,72 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
 
   // ADIM 3: Kota ve Modüller
   double _studentQuota = 250; // Başlangıç kotası
+  late final ValueNotifier<double> _quotaNotifier = ValueNotifier<double>(250);
 
   // ADIM 4: Lisans Ayarları
   DateTime? _licenseStartDate;
   DateTime? _licenseEndDate;
   bool _isSchoolActive = true; // Okul başlangıçta aktif
 
-  // Modüllerin durumu - AppModules'den otomatik doldurulacak
-  late final Map<String, bool> _modules;
+  // Hiyerarşik modül seçimi durumları
+  Set<String> _activeModuleSet = AppModules.allModuleKeys.toSet();
+  Set<String> _disabledSubModuleSet = <String>{};
 
-  // Türkiye illeri
-  final List<String> _cities = [
-    'Adana',
-    'Adıyaman',
-    'Afyonkarahisar',
-    'Ağrı',
-    'Aksaray',
-    'Amasya',
-    'Ankara',
-    'Antalya',
-    'Ardahan',
-    'Artvin',
-    'Aydın',
-    'Balıkesir',
-    'Bartın',
-    'Batman',
-    'Bayburt',
-    'Bilecik',
-    'Bingöl',
-    'Bitlis',
-    'Bolu',
-    'Burdur',
-    'Bursa',
-    'Çanakkale',
-    'Çankırı',
-    'Çorum',
-    'Denizli',
-    'Diyarbakır',
-    'Düzce',
-    'Edirne',
-    'Elazığ',
-    'Erzincan',
-    'Erzurum',
-    'Eskişehir',
-    'Gaziantep',
-    'Giresun',
-    'Gümüşhane',
-    'Hakkari',
-    'Hatay',
-    'Iğdır',
-    'Isparta',
-    'İstanbul',
-    'İzmir',
-    'Kahramanmaraş',
-    'Karabük',
-    'Karaman',
-    'Kars',
-    'Kastamonu',
-    'Kayseri',
-    'Kırıkkale',
-    'Kırklareli',
-    'Kırşehir',
-    'Kilis',
-    'Kocaeli',
-    'Konya',
-    'Kütahya',
-    'Malatya',
-    'Manisa',
-    'Mardin',
-    'Mersin',
-    'Muğla',
-    'Muş',
-    'Nevşehir',
-    'Niğde',
-    'Ordu',
-    'Osmaniye',
-    'Rize',
-    'Sakarya',
-    'Samsun',
-    'Siirt',
-    'Sinop',
-    'Sivas',
-    'Şanlıurfa',
-    'Şırnak',
-    'Tekirdağ',
-    'Tokat',
-    'Trabzon',
-    'Tunceli',
-    'Uşak',
-    'Van',
-    'Yalova',
-    'Yozgat',
-    'Zonguldak',
-  ];
-
-  // İlçeler (basit bir örnek, il seçildikçe doldurulabilir)
-  List<String> get _districts {
-    if (_selectedCity == 'İstanbul') {
-      return [
-        'Kadıköy',
-        'Beşiktaş',
-        'Üsküdar',
-        'Şişli',
-        'Beyoğlu',
-        'Fatih',
-        'Bakırköy',
-        'Diğer',
-      ];
-    } else if (_selectedCity == 'Ankara') {
-      return [
-        'Çankaya',
-        'Keçiören',
-        'Yenimahalle',
-        'Mamak',
-        'Etimesgut',
-        'Altındağ',
-        'Diğer',
-      ];
-    } else if (_selectedCity == 'İzmir') {
-      return [
-        'Konak',
-        'Karşıyaka',
-        'Bornova',
-        'Buca',
-        'Çiğli',
-        'Balçova',
-        'Diğer',
-      ];
+  // 81 İl listesi (geriye dönük kayıtlı özel değer varsa güvenli şekilde eklenir)
+  List<String> get _availableCities {
+    final list = List<String>.from(TurkeyAddressData.cities);
+    if (_selectedCity != null &&
+        _selectedCity!.isNotEmpty &&
+        !list.contains(_selectedCity)) {
+      list.insert(0, _selectedCity!);
     }
-    return ['Merkez', 'Diğer'];
+    return list;
+  }
+
+  // Seçili ile ait gerçek ilçeler (geriye dönük kayıtlı özel değer varsa güvenli şekilde eklenir)
+  List<String> get _availableDistricts {
+    if (_selectedCity == null || _selectedCity!.isEmpty) {
+      if (_selectedDistrict != null && _selectedDistrict!.isNotEmpty) {
+        return <String>[_selectedDistrict!];
+      }
+      return const <String>[];
+    }
+    final list = List<String>.from(
+      TurkeyAddressData.getDistricts(_selectedCity!),
+    );
+    if (_selectedDistrict != null &&
+        _selectedDistrict!.isNotEmpty &&
+        !list.contains(_selectedDistrict)) {
+      list.insert(0, _selectedDistrict!);
+    }
+    return list;
+  }
+
+  // Coğrafi bölgeler listesi
+  List<String> get _availableRegions {
+    final list = <String>[...TurkeyAddressData.regions, 'Diğer'];
+    if (_selectedRegion != null &&
+        _selectedRegion!.isNotEmpty &&
+        !list.contains(_selectedRegion)) {
+      list.insert(0, _selectedRegion!);
+    }
+    return list;
   }
 
   @override
   void initState() {
     super.initState();
-    // Merkezi modül sisteminden tüm modülleri al
-    _modules = Map.fromEntries(
-      AppModules.allModuleKeys.map((key) => MapEntry(key, true)),
-    );
-      _isEditMode = widget.schoolId != null;
+    _activeModuleSet = AppModules.allModuleKeys.toSet();
+    _disabledSubModuleSet = <String>{};
+    _isEditMode = widget.schoolId != null;
 
-      if (_isEditMode && widget.schoolData != null) {
-        // Düzenleme modunda mevcut verileri doldur
-        final data = widget.schoolData!;
+    if (_isEditMode && widget.schoolData != null) {
+      // Düzenleme modunda mevcut verileri doldur
+      final data = widget.schoolData!;
 
-        debugPrint('📝 Okul düzenleme modu - Veriler yükleniyor...');
+      debugPrint('📝 Okul düzenleme modu - Veriler yükleniyor...');
 
-        // WidgetsBinding ile frame sonrası yükle - UI'ın hazır olmasını bekle
+      // WidgetsBinding ile frame sonrası yükle - UI'ın hazır olmasını bekle
       WidgetsBinding.instance.addPostFrameCallback((_) {
         setState(() {
           _schoolNameController.text = data['schoolName'] ?? '';
@@ -202,15 +125,34 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           _schoolEmailController.text = data['schoolEmail'] ?? '';
           _schoolPhoneController.text = data['schoolPhone'] ?? '';
           _schoolAddressController.text = data['schoolAddress'] ?? '';
-          _selectedCity = data['city'];
-          _selectedDistrict = data['district'];
+
+          final rawCity = data['city']?.toString().trim();
+          _selectedCity = (rawCity != null && rawCity.isNotEmpty)
+              ? TurkeyAddressData.toUpperTr(rawCity)
+              : null;
+
+          final rawDistrict = data['district']?.toString().trim();
+          _selectedDistrict = (rawDistrict != null && rawDistrict.isNotEmpty)
+              ? TurkeyAddressData.toUpperTr(rawDistrict)
+              : null;
+
+          final rawRegion = data['region']?.toString().trim();
+          if (rawRegion != null &&
+              rawRegion.isNotEmpty &&
+              rawRegion != 'Belirtilmemiş') {
+            _selectedRegion = rawRegion;
+          } else if (_selectedCity != null) {
+            _selectedRegion = TurkeyAddressData.getRegion(_selectedCity);
+          }
 
           debugPrint('🏫 Okul: ${_schoolNameController.text}');
           debugPrint('🆔 Kurum ID: ${_institutionIdController.text}');
           debugPrint('📧 Email: ${_schoolEmailController.text}');
           debugPrint('📞 Telefon: ${_schoolPhoneController.text}');
           debugPrint('🏠 Adres: ${_schoolAddressController.text}');
-          debugPrint('📍 Şehir/İlçe: $_selectedCity / $_selectedDistrict');
+          debugPrint(
+            '📍 Şehir/İlçe/Bölge: $_selectedCity / $_selectedDistrict / $_selectedRegion',
+          );
 
           _adminFullNameController.text = data['adminFullName'] ?? '';
           _adminUsernameController.text = data['adminUsername'] ?? '';
@@ -223,21 +165,24 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           debugPrint('📧 Yetkili Email: ${_adminEmailController.text}');
           debugPrint('📞 Yetkili Telefon: ${_adminPhoneController.text}');
 
-          _studentQuota = (data['studentQuota'] ?? 250).toDouble();
+          final rawQuota = ((data['studentQuota'] as num?) ?? 250).toDouble();
+          _studentQuota = rawQuota < 0 ? 0 : rawQuota;
+          _quotaNotifier.value = _studentQuota;
           _isSchoolActive = data['isActive'] ?? true;
 
           debugPrint('👥 Öğrenci Kotası: ${_studentQuota.toInt()}');
           debugPrint('✅ Okul Durumu: ${_isSchoolActive ? "Aktif" : "Pasif"}');
 
-          // Modülleri doldur
-          if (data['activeModules'] != null) {
-            final List<dynamic> activeModules = data['activeModules'];
-            _modules.forEach((key, value) {
-              _modules[key] = activeModules.contains(key);
-            });
-            debugPrint('📦 Aktif Modüller: ${activeModules.join(", ")}');
-          } else {
-            debugPrint('📦 Aktif Modüller: Varsayılan');
+          // Hiyerarşik modül ve alt başlık durumlarını doldur
+          _activeModuleSet = SchoolModuleGuard.extractActiveModules(data);
+          _disabledSubModuleSet = SchoolModuleGuard.extractDisabledSubModules(
+            data,
+          );
+          debugPrint('📦 Aktif Modüller: ${_activeModuleSet.join(", ")}');
+          if (_disabledSubModuleSet.isNotEmpty) {
+            debugPrint(
+              '🚫 Kapatılan Alt Başlıklar (${_disabledSubModuleSet.length}): ${_disabledSubModuleSet.join(", ")}',
+            );
           }
 
           // Lisans tarihlerini doldur
@@ -296,6 +241,22 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
     }
   }
 
+  @override
+  void dispose() {
+    _schoolNameController.dispose();
+    _institutionIdController.dispose();
+    _schoolEmailController.dispose();
+    _schoolPhoneController.dispose();
+    _schoolAddressController.dispose();
+    _adminFullNameController.dispose();
+    _adminUsernameController.dispose();
+    _adminEmailController.dispose();
+    _adminPhoneController.dispose();
+    _adminPasswordController.dispose();
+    _quotaNotifier.dispose();
+    super.dispose();
+  }
+
   // Firebase Auth kullanıcısı oluştur
   Future<String?> _createAuthUser(String email, String password) async {
     try {
@@ -332,9 +293,13 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
 
   // Mevcut bir Firebase Auth kullanıcısının şifresini güncelle
   // Önce eski email/şifre ile giriş yap, sonra idToken ile şifreyi değiştir
-  Future<bool> _updateAuthPassword(String email, String oldPasswordHint, String newPassword) async {
+  Future<bool> _updateAuthPassword(
+    String email,
+    String oldPasswordHint,
+    String newPassword,
+  ) async {
     final apiKey = DefaultFirebaseOptions.currentPlatform.apiKey;
-    
+
     // Firestore'dan kayıtlı şifreyi al (varsa)
     try {
       final userQuery = await FirebaseFirestore.instance
@@ -342,14 +307,16 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           .where('email', isEqualTo: email)
           .limit(1)
           .get();
-      
+
       String? storedPassword;
       if (userQuery.docs.isNotEmpty) {
-        storedPassword = userQuery.docs.first.data()['_tempPassword'] as String?;
+        storedPassword =
+            userQuery.docs.first.data()['_tempPassword'] as String?;
       }
-      
+
       // Mevcut şifre ile giriş yap (kayıtlı temp şifre ya da hint)
-      final signInUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$apiKey';
+      final signInUrl =
+          'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$apiKey';
       final signInResp = await http.post(
         Uri.parse(signInUrl),
         headers: {'Content-Type': 'application/json'},
@@ -359,22 +326,27 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           'returnSecureToken': true,
         }),
       );
-      
+
       if (signInResp.statusCode != 200) {
-        debugPrint('⚠️ Mevcut şifre ile giriş yapılamadı, şifre güncellenemiyor');
+        debugPrint(
+          '⚠️ Mevcut şifre ile giriş yapılamadı, şifre güncellenemiyor',
+        );
         // Yine de yeni şifreyi Firestore'da sakla - kullanıcı ilk girişte kendi güncelleyecek
         if (userQuery.docs.isNotEmpty) {
-          await userQuery.docs.first.reference.update({'_tempPassword': newPassword});
+          await userQuery.docs.first.reference.update({
+            '_tempPassword': newPassword,
+          });
           debugPrint('💾 Yeni şifre geçici olarak Firestore\'a kaydedildi');
         }
         return false;
       }
-      
+
       final signInData = json.decode(signInResp.body);
       final idToken = signInData['idToken'] as String;
-      
+
       // idToken ile şifreyi güncelle
-      final updateUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:update?key=$apiKey';
+      final updateUrl =
+          'https://identitytoolkit.googleapis.com/v1/accounts:update?key=$apiKey';
       final updateResp = await http.post(
         Uri.parse(updateUrl),
         headers: {'Content-Type': 'application/json'},
@@ -384,12 +356,14 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           'returnSecureToken': false,
         }),
       );
-      
+
       if (updateResp.statusCode == 200) {
         debugPrint('✅ Firebase Auth şifresi başarıyla güncellendi');
         // Temp şifreyi temizle
         if (userQuery.docs.isNotEmpty) {
-          await userQuery.docs.first.reference.update({'_tempPassword': FieldValue.delete()});
+          await userQuery.docs.first.reference.update({
+            '_tempPassword': FieldValue.delete(),
+          });
         }
         return true;
       } else {
@@ -403,11 +377,19 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
   }
 
   // Cloud Function üzerinden kullanıcı şifresini güncelle (Admin SDK)
-  Future<bool> _updatePasswordViaCloudFunction(String uid, String newPassword) async {
+  Future<bool> _updatePasswordViaCloudFunction(
+    String uid,
+    String newPassword,
+  ) async {
     try {
       debugPrint('🔑 Cloud Function ile şifre güncelleniyor: uid=$uid');
-      final callable = FirebaseFunctions.instance.httpsCallable('updateUserCredentials');
-      final result = await callable.call({'uid': uid, 'newPassword': newPassword});
+      final callable = FirebaseFunctions.instance.httpsCallable(
+        'updateUserCredentials',
+      );
+      final result = await callable.call({
+        'uid': uid,
+        'newPassword': newPassword,
+      });
       final status = result.data['status'];
       debugPrint('✅ Cloud Function sonuç: $status');
       return status == 'success';
@@ -434,7 +416,9 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('📧 Şifre sıfırlama e-postası $email adresine gönderildi.'),
+            content: Text(
+              '📧 Şifre sıfırlama e-postası $email adresine gönderildi.',
+            ),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 4),
           ),
@@ -619,11 +603,17 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
 
     setState(() => _isLoading = true);
 
-    // Seçili modülleri al
-    final List<String> selectedModules = [];
-    _modules.forEach((key, value) {
-      if (value) selectedModules.add(key);
-    });
+    // Seçili ana modülleri ve kapatılan alt başlıkları al
+    final List<String> selectedModules = [
+      ...AppModules.allModuleKeys.where(_activeModuleSet.contains),
+      ..._activeModuleSet.where((k) => !AppModules.modules.containsKey(k)),
+    ];
+    final List<String> disabledSubModules = _disabledSubModuleSet.toList()
+      ..sort();
+    final String effectiveRegion =
+        (_selectedRegion != null && _selectedRegion!.trim().isNotEmpty)
+        ? _selectedRegion!.trim()
+        : TurkeyAddressData.getRegion(_selectedCity);
 
     try {
       // ŞİMDİLİK DİREKT FİRESTORE'A YAZIYORUZ (Cloud Function yerine)
@@ -633,10 +623,9 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
       final username = _adminUsernameController.text.trim().toLowerCase();
       final institutionId = _institutionIdController.text.trim().toUpperCase();
       final generatedEmail = '$username@$institutionId.edukn'.toLowerCase();
-      final adminEmail = _adminEmailController.text.trim().isNotEmpty 
-          ? _adminEmailController.text.trim() 
+      final adminEmail = _adminEmailController.text.trim().isNotEmpty
+          ? _adminEmailController.text.trim()
           : generatedEmail;
-      final password = _adminPasswordController.text; // Şifre
 
       final Map<String, dynamic> data = {
         'schoolName': _schoolNameController.text.trim(),
@@ -646,12 +635,14 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
         'schoolAddress': _schoolAddressController.text.trim(),
         'city': _selectedCity,
         'district': _selectedDistrict,
+        'region': effectiveRegion,
         'adminFullName': _adminFullNameController.text.trim(),
         'adminUsername': username,
         'adminEmail': adminEmail, // İletişim veya otomatik e-posta
         'adminPhone': _adminPhoneController.text.trim(),
-        'studentQuota': _studentQuota.toInt(),
+        'studentQuota': _quotaNotifier.value.round(),
         'activeModules': selectedModules,
+        'disabledSubModules': disabledSubModules,
         'licenseStartDate': _licenseStartDate != null
             ? Timestamp.fromDate(_licenseStartDate!)
             : FieldValue.serverTimestamp(),
@@ -686,6 +677,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
       debugPrint('  • Adres: ${data['schoolAddress']}');
       debugPrint('  • Şehir: ${data['city']}');
       debugPrint('  • İlçe: ${data['district']}');
+      debugPrint('  • Bölge: ${data['region']}');
       debugPrint('-' * 50);
       debugPrint('👤 YETKİLİ BİLGİLERİ:');
       debugPrint('  • Ad Soyad: ${data['adminFullName']}');
@@ -698,9 +690,14 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
       debugPrint('📊 KOTA VE MODÜLLER:');
       debugPrint('  • Öğrenci Kotası: ${data['studentQuota']}');
       debugPrint('  • Aktif Modüller: ${data['activeModules'].join(", ")}');
+      debugPrint(
+        '  • Kapatılan Alt Başlıklar (${disabledSubModules.length}): ${disabledSubModules.isEmpty ? "Yok" : disabledSubModules.join(", ")}',
+      );
       debugPrint('-' * 50);
       debugPrint('📅 LİSANS BİLGİLERİ:');
-      debugPrint('  • Başlangıç (licenseStartDate): ${data['licenseStartDate']}');
+      debugPrint(
+        '  • Başlangıç (licenseStartDate): ${data['licenseStartDate']}',
+      );
       debugPrint('  • Bitiş (licenseExpiresAt): ${data['licenseExpiresAt']}');
       debugPrint(
         '  • Okul Durumu (isActive): ${data['isActive'] ? "AKTİF ✅" : "PASİF ❌"}',
@@ -723,19 +720,24 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
         // ✅ Admin bilgilerini users koleksiyonunda da güncelle
         final adminUserId = widget.schoolData?['adminUserId'];
         String? currentAuthId = adminUserId;
-        
+
         // E-posta değişti mi veya AuthID eksik mi?
-        final bool isEmailChanged = widget.schoolData?['adminEmail'] != adminEmail;
-        
+        final bool isEmailChanged =
+            widget.schoolData?['adminEmail'] != adminEmail;
+
         // Sadece AuthID yoksa yeni hesap oluştur. Email değişse bile önce mevcut hesabı
         // bul; bulamazsan oluştur. Email değiştiğinde ESKİ DOKÜMAN SİLİNMELİ.
         if (currentAuthId == null || isEmailChanged) {
           String? newAuthId;
           try {
-            debugPrint('🔍 Auth hesabı kontrol ediliyor/oluşturuluyor: $adminEmail');
+            debugPrint(
+              '🔍 Auth hesabı kontrol ediliyor/oluşturuluyor: $adminEmail',
+            );
             newAuthId = await _createAuthUser(
               adminEmail,
-              _adminPasswordController.text.isNotEmpty ? _adminPasswordController.text : '123456',
+              _adminPasswordController.text.isNotEmpty
+                  ? _adminPasswordController.text
+                  : '123456',
             );
             debugPrint('✅ Yeni Auth hesabı başarıyla oluşturuldu: $newAuthId');
           } catch (e) {
@@ -752,7 +754,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                 debugPrint('✅ Mevcut authUserId bulundu: $newAuthId');
               }
             } else if (mounted) {
-               ScaffoldMessenger.of(context).showSnackBar(
+              ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Giriş hesabı oluşturulamadı: $e'),
                   backgroundColor: Colors.orange,
@@ -760,18 +762,24 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
               );
             }
           }
-          
+
           // Eğer email değişti ve yeni bir Auth ID elde edildiyse,
           // ESKİ Firestore dokümanını sil (duplicate önleme)
-          if (isEmailChanged && newAuthId != null && adminUserId != null && adminUserId != newAuthId) {
+          if (isEmailChanged &&
+              newAuthId != null &&
+              adminUserId != null &&
+              adminUserId != newAuthId) {
             try {
-              await FirebaseFirestore.instance.collection('users').doc(adminUserId).delete();
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(adminUserId)
+                  .delete();
               debugPrint('🗑️ Eski admin dokümanı silindi: $adminUserId');
             } catch (e) {
               debugPrint('⚠️ Eski doküman silinirken hata: $e');
             }
           }
-          
+
           if (newAuthId != null) currentAuthId = newAuthId;
         }
 
@@ -791,7 +799,9 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
               .set({
                 ...adminUpdateData,
                 'role': 'genel_mudur',
-                'institutionId': _institutionIdController.text.trim(),
+                'institutionId': _institutionIdController.text
+                    .trim()
+                    .toUpperCase(),
                 'schoolId': widget.schoolId,
                 'isActive': true,
               }, SetOptions(merge: true));
@@ -804,14 +814,21 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                 .update({'adminUserId': currentAuthId});
           }
 
-          debugPrint('✅ Admin kullanıcı bilgileri güncellendi ve senkronize edildi');
+          debugPrint(
+            '✅ Admin kullanıcı bilgileri güncellendi ve senkronize edildi',
+          );
         }
 
         // Şifre değiştirildiğinde Cloud Function ile Auth'u güncelle
-        if (data.containsKey('adminPassword') && data['adminPassword'].toString().isNotEmpty && currentAuthId != null) {
+        if (data.containsKey('adminPassword') &&
+            data['adminPassword'].toString().isNotEmpty &&
+            currentAuthId != null) {
           final newPass = data['adminPassword'].toString();
           debugPrint('🔑 Şifre Cloud Function ile güncelleniyor...');
-          final updated = await _updatePasswordViaCloudFunction(currentAuthId, newPass);
+          final updated = await _updatePasswordViaCloudFunction(
+            currentAuthId,
+            newPass,
+          );
           if (updated) {
             debugPrint('✅ Auth şifresi başarıyla güncellendi');
             if (mounted) {
@@ -824,7 +841,9 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
               );
             }
           } else {
-            debugPrint('⚠️ Şifre güncellenemedi, Firestore _tempPassword fallback deneniyor...');
+            debugPrint(
+              '⚠️ Şifre güncellenemedi, Firestore _tempPassword fallback deneniyor...',
+            );
             bool fallbackSaved = false;
             try {
               await FirebaseFirestore.instance
@@ -832,16 +851,20 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                   .doc(currentAuthId)
                   .update({'_tempPassword': newPass});
               fallbackSaved = true;
-              debugPrint('💾 Şifre geçici olarak Firestore\'a kaydedildi (_tempPassword)');
+              debugPrint(
+                '💾 Şifre geçici olarak Firestore\'a kaydedildi (_tempPassword)',
+              );
             } catch (e) {
               debugPrint('❌ Geçici şifre Firestore\'a kaydedilemedi: $e');
             }
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text(fallbackSaved 
-                      ? '⚠️ Şifre Auth sunucusunda güncellenemedi ama geçici şifre olarak kaydedildi.' 
-                      : '⚠️ Şifre güncellenemedi. Lütfen tekrar deneyin.'),
+                  content: Text(
+                    fallbackSaved
+                        ? '⚠️ Şifre Auth sunucusunda güncellenemedi ama geçici şifre olarak kaydedildi.'
+                        : '⚠️ Şifre güncellenemedi. Lütfen tekrar deneyin.',
+                  ),
                   backgroundColor: Colors.orange,
                   duration: const Duration(seconds: 4),
                 ),
@@ -884,7 +907,9 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
         debugPrint('✅ Admin kullanıcısı Firebase Auth\'a eklendi!');
 
         // ✅ ÖNEMLİ: Admin kullanıcıyı users koleksiyonuna da ekle
-        debugPrint('\n👤 Admin kullanıcı kaydı users koleksiyonuna ekleniyor...');
+        debugPrint(
+          '\n👤 Admin kullanıcı kaydı users koleksiyonuna ekleniyor...',
+        );
         final adminUserData = {
           'authUserId': authUserId,
           'institutionId': institutionId,
@@ -1148,89 +1173,124 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           SizedBox(height: 16),
           LayoutBuilder(
             builder: (context, constraints) {
-              // Dar ekranlarda alt alta, geniş ekranlarda yan yana
-              if (constraints.maxWidth < 600) {
+              final cities = _availableCities;
+              final districts = _availableDistricts;
+              final regions = _availableRegions;
+              final autoRegion = _selectedCity != null
+                  ? TurkeyAddressData.getRegion(_selectedCity)
+                  : null;
+
+              Widget buildCityField() {
+                return DropdownButtonFormField<String>(
+                  key: ValueKey('city_$_selectedCity'),
+                  initialValue: cities.contains(_selectedCity)
+                      ? _selectedCity
+                      : null,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'İl (81 İl) *',
+                    prefixIcon: Icon(Icons.location_city),
+                  ),
+                  items: cities
+                      .map(
+                        (city) => DropdownMenuItem<String>(
+                          value: city,
+                          child: Text(city, overflow: TextOverflow.ellipsis),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedCity = value;
+                      _selectedDistrict = null;
+                      _selectedRegion = value != null
+                          ? TurkeyAddressData.getRegion(value)
+                          : null;
+                    });
+                  },
+                  validator: (v) => v == null || v.isEmpty ? 'İl seçin' : null,
+                );
+              }
+
+              Widget buildDistrictField() {
+                return DropdownButtonFormField<String>(
+                  key: ValueKey('district_${_selectedCity}_$_selectedDistrict'),
+                  initialValue: districts.contains(_selectedDistrict)
+                      ? _selectedDistrict
+                      : null,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'İlçe *',
+                    prefixIcon: const Icon(Icons.location_on),
+                    hintText: _selectedCity == null ? 'Önce il seçin' : null,
+                  ),
+                  items: districts
+                      .map(
+                        (district) => DropdownMenuItem<String>(
+                          value: district,
+                          child: Text(
+                            district,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: _selectedCity == null
+                      ? null
+                      : (value) => setState(() => _selectedDistrict = value),
+                  validator: (v) =>
+                      v == null || v.isEmpty ? 'İlçe seçin' : null,
+                );
+              }
+
+              Widget buildRegionField() {
+                return DropdownButtonFormField<String>(
+                  key: ValueKey('region_${_selectedCity}_$_selectedRegion'),
+                  initialValue: regions.contains(_selectedRegion)
+                      ? _selectedRegion
+                      : null,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Coğrafi Bölge',
+                    prefixIcon: const Icon(Icons.public),
+                    helperText: autoRegion != null
+                        ? 'Otomatik: $autoRegion'
+                        : 'İl seçildiğinde otomatik atanır',
+                  ),
+                  items: regions
+                      .map(
+                        (region) => DropdownMenuItem<String>(
+                          value: region,
+                          child: Text(region, overflow: TextOverflow.ellipsis),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) => setState(() => _selectedRegion = value),
+                );
+              }
+
+              // Dar ekranlarda alt alta
+              if (constraints.maxWidth < 680) {
                 return Column(
                   children: [
-                    DropdownButtonFormField<String>(
-                      initialValue: _selectedCity,
-                      decoration: InputDecoration(
-                        labelText: 'İl *',
-                        prefixIcon: Icon(Icons.location_city),
-                      ),
-                      items: _cities.map((city) {
-                        return DropdownMenuItem(value: city, child: Text(city));
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedCity = value;
-                          _selectedDistrict = null;
-                        });
-                      },
-                      validator: (v) => v == null ? 'İl seçin' : null,
-                    ),
-                    SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      initialValue: _selectedDistrict,
-                      decoration: InputDecoration(
-                        labelText: 'İlçe *',
-                        prefixIcon: Icon(Icons.location_on),
-                      ),
-                      items: _districts.map((district) {
-                        return DropdownMenuItem(
-                          value: district,
-                          child: Text(district),
-                        );
-                      }).toList(),
-                      onChanged: (value) =>
-                          setState(() => _selectedDistrict = value),
-                      validator: (v) => v == null ? 'İlçe seçin' : null,
-                    ),
+                    buildCityField(),
+                    const SizedBox(height: 16),
+                    buildDistrictField(),
+                    const SizedBox(height: 16),
+                    buildRegionField(),
                   ],
                 );
               }
 
-              // Geniş ekranda yan yana
+              // Geniş ekranda 3 sütun yan yana (İl - İlçe - Coğrafi Bölge)
               return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _selectedCity,
-                      decoration: InputDecoration(
-                        labelText: 'İl *',
-                        prefixIcon: Icon(Icons.location_city),
-                      ),
-                      items: _cities.map((city) {
-                        return DropdownMenuItem(value: city, child: Text(city));
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedCity = value;
-                          _selectedDistrict = null;
-                        });
-                      },
-                      validator: (v) => v == null ? 'İl seçin' : null,
-                    ),
-                  ),
-                  SizedBox(width: 16),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _selectedDistrict,
-                      decoration: InputDecoration(
-                        labelText: 'İlçe *',
-                        prefixIcon: Icon(Icons.location_on),
-                      ),
-                      items: _districts.map((district) {
-                        return DropdownMenuItem(
-                          value: district,
-                          child: Text(district),
-                        );
-                      }).toList(),
-                      onChanged: (value) =>
-                          setState(() => _selectedDistrict = value),
-                      validator: (v) => v == null ? 'İlçe seçin' : null,
-                    ),
-                  ),
+                  Expanded(child: buildCityField()),
+                  const SizedBox(width: 16),
+                  Expanded(child: buildDistrictField()),
+                  const SizedBox(width: 16),
+                  Expanded(child: buildRegionField()),
                 ],
               );
             },
@@ -1363,7 +1423,9 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
               ),
               style: OutlinedButton.styleFrom(
                 side: BorderSide(color: Colors.indigo.shade200),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               ),
             ),
@@ -1394,73 +1456,81 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
             elevation: 2,
             child: Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: ValueListenableBuilder<double>(
+                valueListenable: _quotaNotifier,
+                builder: (context, quotaVal, _) {
+                  final maxQuota = quotaVal > 10000 ? quotaVal : 10000.0;
+                  final safeQuota = quotaVal.clamp(0.0, maxQuota);
+                  return Column(
                     children: [
-                      Text('Kayıt Kapasitesi:'),
-                      Text(
-                        '${_studentQuota.toInt()} öğrenci',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).primaryColor,
-                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Kayıt Kapasitesi:'),
+                          Text(
+                            '${safeQuota.round()} öğrenci',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).primaryColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Slider(
+                        value: safeQuota,
+                        min: 0,
+                        max: maxQuota,
+                        divisions: 200,
+                        label: safeQuota.round().toString(),
+                        onChanged: (value) {
+                          _studentQuota = value;
+                          _quotaNotifier.value = value;
+                        },
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            '0',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                          Text(
+                            maxQuota > 10000 ? '${maxQuota.round()}' : '10,000',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
-                  ),
-                  Slider(
-                    value: _studentQuota,
-                    min: 250,
-                    max: 10000,
-                    divisions: 195, // (10000-250)/50 = 195 adım
-                    label: _studentQuota.toInt().toString(),
-                    onChanged: (value) => setState(() => _studentQuota = value),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '250',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                      Text(
-                        '10,000',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                ],
+                  );
+                },
               ),
             ),
           ),
-          SizedBox(height: 24),
-          Text(
-            'Aktif Modüller',
+          const SizedBox(height: 24),
+          const Text(
+            'Kurum Modül ve Alt Başlık Yetkileri',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
-          SizedBox(height: 8),
-          ..._modules.keys.map((key) {
-            final moduleInfo = AppModules.getModule(key);
-            return CheckboxListTile(
-              title: Row(
-                children: [
-                  if (moduleInfo != null) ...[
-                    Icon(moduleInfo.icon, size: 18, color: moduleInfo.color),
-                    SizedBox(width: 8),
-                  ],
-                  Text(AppModules.getModuleName(key)),
-                ],
-              ),
-              subtitle: moduleInfo != null
-                  ? Text(moduleInfo.category, style: TextStyle(fontSize: 11))
-                  : null,
-              value: _modules[key],
-              onChanged: (value) => setState(() => _modules[key] = value!),
-              controlAffinity: ListTileControlAffinity.leading,
-            );
-          }).toList(),
+          const SizedBox(height: 4),
+          Text(
+            'Ana modülleri veya modül içindeki belirli alt başlıkları / alt özellikleri kurum bazında açıp kapatabilirsiniz.',
+            style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 12),
+          SchoolModuleHierarchySelector(
+            activeModules: _activeModuleSet,
+            disabledSubModules: _disabledSubModuleSet,
+            onChanged: (active, disabledSub) {
+              setState(() {
+                _activeModuleSet = active;
+                _disabledSubModuleSet = disabledSub;
+              });
+            },
+          ),
         ],
       ),
     );
@@ -1620,16 +1690,25 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
               icon: Icon(Icons.edit_calendar),
               label: Text('Özel Tarih Seç'),
               onPressed: () async {
+                final now = DateTime.now();
+                final startVal = _licenseStartDate ?? now;
+                final rawEndVal =
+                    _licenseEndDate ?? now.add(const Duration(days: 365));
+                final endVal = rawEndVal.isBefore(startVal)
+                    ? startVal.add(const Duration(days: 365))
+                    : rawEndVal;
+                final earliest = startVal.isBefore(DateTime(2020, 1, 1))
+                    ? startVal.subtract(const Duration(days: 365))
+                    : DateTime(2020, 1, 1);
+                final latest =
+                    endVal.isAfter(now.add(const Duration(days: 3650)))
+                    ? endVal.add(const Duration(days: 365))
+                    : now.add(const Duration(days: 3650));
                 final DateTimeRange? picked = await showDateRangePicker(
                   context: context,
-                  firstDate: DateTime.now(),
-                  lastDate: DateTime.now().add(Duration(days: 3650)), // 10 yıl
-                  initialDateRange: DateTimeRange(
-                    start: _licenseStartDate ?? DateTime.now(),
-                    end:
-                        _licenseEndDate ??
-                        DateTime.now().add(Duration(days: 365)),
-                  ),
+                  firstDate: earliest,
+                  lastDate: latest,
+                  initialDateRange: DateTimeRange(start: startVal, end: endVal),
                   builder: (context, child) {
                     return Theme(
                       data: Theme.of(context).copyWith(

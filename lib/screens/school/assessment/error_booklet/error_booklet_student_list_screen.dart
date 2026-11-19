@@ -9,10 +9,12 @@ import '../../../../services/error_booklet_generator_service.dart';
 class ErrorBookletStudentListScreen extends StatefulWidget {
   final List<TrialExam> exams;
 
-  const ErrorBookletStudentListScreen({Key? key, required this.exams}) : super(key: key);
+  const ErrorBookletStudentListScreen({Key? key, required this.exams})
+    : super(key: key);
 
   @override
-  State<ErrorBookletStudentListScreen> createState() => _ErrorBookletStudentListScreenState();
+  State<ErrorBookletStudentListScreen> createState() =>
+      _ErrorBookletStudentListScreenState();
 }
 
 class _StudentInfo {
@@ -30,13 +32,15 @@ class _StudentInfo {
   }) : isSelected = false;
 }
 
-class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListScreen> {
+class _ErrorBookletStudentListScreenState
+    extends State<ErrorBookletStudentListScreen> {
   List<_StudentInfo> _allStudents = [];
   List<_StudentInfo> _filteredStudents = [];
-  
+
   bool _isLoading = true;
   final bool _isGeneratingBulk = false;
-  final ErrorBookletGeneratorService _generatorService = ErrorBookletGeneratorService();
+  final ErrorBookletGeneratorService _generatorService =
+      ErrorBookletGeneratorService();
 
   // Progress State for Premium Loading Overlay
   bool _showProgress = false;
@@ -52,6 +56,39 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
   List<String> _availableLevels = [];
   List<String> _availableBranches = [];
 
+  static String _normalizeStudentLevel(
+    String rawLevel,
+    String fallbackExamLevel,
+    String branch,
+  ) {
+    String candidate = rawLevel.trim();
+    if (candidate.isEmpty) candidate = fallbackExamLevel.trim();
+    if (candidate.isEmpty && branch.trim().isNotEmpty) {
+      final m = RegExp(r'^(1[0-2]|[1-9])(?![0-9])').firstMatch(branch.trim());
+      if (m != null) candidate = m.group(1)!;
+    }
+    if (candidate.isEmpty) return '';
+    final numMatch = RegExp(
+      r'^(\d{1,2})\s*\.?\s*(sınıf|sinif)?$',
+      caseSensitive: false,
+    ).firstMatch(candidate.replaceAll('İ', 'i').replaceAll('I', 'ı'));
+    if (numMatch != null) {
+      return '${numMatch.group(1)!}. Sınıf';
+    }
+    return candidate;
+  }
+
+  static int _compareLevelLabels(String a, String b) {
+    final ma = RegExp(r'^(\d+)').firstMatch(a);
+    final mb = RegExp(r'^(\d+)').firstMatch(b);
+    if (ma != null && mb != null) {
+      return int.parse(ma.group(1)!).compareTo(int.parse(mb.group(1)!));
+    }
+    if (ma != null) return -1;
+    if (mb != null) return 1;
+    return a.compareTo(b);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -62,38 +99,64 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
     Map<String, _StudentInfo> aggregated = {};
 
     for (int i = 0; i < widget.exams.length; i++) {
-        final exam = widget.exams[i];
-        if (exam.resultsJson != null && exam.resultsJson!.isNotEmpty) {
-          try {
-            final decoded = jsonDecode(exam.resultsJson!);
-            if (decoded is List) {
-              for (var res in decoded) {
-                final studentRes = Map<String, dynamic>.from(res);
-                final name = (studentRes['studentName'] ?? studentRes['name'] ?? 'İsimsiz').toString().trim().toUpperCase();
-                final branch = (studentRes['branch'] ?? studentRes['className'] ?? studentRes['sube'] ?? 'Bilinmeyen').toString();
-                final level = (studentRes['classLevel'] ?? studentRes['level'] ?? studentRes['sinif'] ?? '').toString();
-                
-                if (!aggregated.containsKey(name)) {
-                  aggregated[name] = _StudentInfo(
-                    name: name,
-                    branch: branch,
-                    level: level,
-                    results: List.generate(widget.exams.length, (index) => null),
-                  );
-                }
-                
-                // Fix potential backend missing keys by standardizing
-                studentRes['studentName'] = name;
-                studentRes['branch'] = branch;
-                studentRes['booklet'] = (studentRes['booklet'] ?? studentRes['kitapcik'] ?? studentRes['Kitapçık'] ?? studentRes['bookletType'] ?? 'A').toString().toUpperCase(); // guarantee booklet
-                
-                aggregated[name]!.results[i] = studentRes;
+      final exam = widget.exams[i];
+      if (exam.resultsJson != null && exam.resultsJson!.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(exam.resultsJson!);
+          if (decoded is List) {
+            for (var res in decoded) {
+              final studentRes = Map<String, dynamic>.from(res);
+              final name =
+                  (studentRes['studentName'] ?? studentRes['name'] ?? 'İsimsiz')
+                      .toString()
+                      .trim()
+                      .toUpperCase();
+              final branch =
+                  (studentRes['branch'] ??
+                          studentRes['className'] ??
+                          studentRes['sube'] ??
+                          'Bilinmeyen')
+                      .toString();
+              final rawLevel =
+                  (studentRes['classLevel'] ??
+                          studentRes['level'] ??
+                          studentRes['sinif'] ??
+                          '')
+                      .toString();
+              final level = _normalizeStudentLevel(
+                rawLevel,
+                exam.classLevel,
+                branch,
+              );
+
+              if (!aggregated.containsKey(name)) {
+                aggregated[name] = _StudentInfo(
+                  name: name,
+                  branch: branch,
+                  level: level,
+                  results: List.generate(widget.exams.length, (index) => null),
+                );
               }
+
+              // Fix potential backend missing keys by standardizing
+              studentRes['studentName'] = name;
+              studentRes['branch'] = branch;
+              studentRes['booklet'] =
+                  (studentRes['booklet'] ??
+                          studentRes['kitapcik'] ??
+                          studentRes['Kitapçık'] ??
+                          studentRes['bookletType'] ??
+                          'A')
+                      .toString()
+                      .toUpperCase(); // guarantee booklet
+
+              aggregated[name]!.results[i] = studentRes;
             }
-          } catch (e) {
-            debugPrint('Error parsing results: $e');
           }
+        } catch (e) {
+          debugPrint('Error parsing results: $e');
         }
+      }
     }
 
     final list = aggregated.values.toList();
@@ -102,8 +165,16 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
     setState(() {
       _allStudents = list;
       _filteredStudents = list;
-      _availableLevels = list.map((e) => e.level).where((e) => e.isNotEmpty).toSet().toList()..sort();
-      _availableBranches = list.map((e) => e.branch).where((e) => e.isNotEmpty && e != 'Bilinmeyen').toSet().toList()..sort();
+      _availableLevels =
+          list.map((e) => e.level).where((e) => e.isNotEmpty).toSet().toList()
+            ..sort(_compareLevelLabels);
+      _availableBranches =
+          list
+              .map((e) => e.branch)
+              .where((e) => e.isNotEmpty && e != 'Bilinmeyen')
+              .toSet()
+              .toList()
+            ..sort();
       _isLoading = false;
     });
   }
@@ -111,9 +182,14 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
   void _applyFilters() {
     setState(() {
       _filteredStudents = _allStudents.where((student) {
-        final matchesSearch = student.name.toLowerCase().contains(_searchQuery.toLowerCase());
-        final matchesLevel = _selectedLevels.isEmpty || _selectedLevels.contains(student.level);
-        final matchesBranch = _selectedBranches.isEmpty || _selectedBranches.contains(student.branch);
+        final matchesSearch = student.name.toLowerCase().contains(
+          _searchQuery.toLowerCase(),
+        );
+        final matchesLevel =
+            _selectedLevels.isEmpty || _selectedLevels.contains(student.level);
+        final matchesBranch =
+            _selectedBranches.isEmpty ||
+            _selectedBranches.contains(student.branch);
         return matchesSearch && matchesLevel && matchesBranch;
       }).toList();
     });
@@ -129,7 +205,13 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
   }
 
   void _showCriteriaBottomSheet({
-    required Function(bool prioritizeCritical, int? maxQuestions, bool fillFromPool, bool individualPDFs) onGenerate,
+    required Function(
+      bool prioritizeCritical,
+      int? maxQuestions,
+      bool fillFromPool,
+      bool individualPDFs,
+    )
+    onGenerate,
   }) {
     bool prioritizeCritical = true;
     bool hasMaxLimit = false;
@@ -148,7 +230,9 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return AnimatedPadding(
-              padding: MediaQuery.of(context).viewInsets + const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              padding:
+                  MediaQuery.of(context).viewInsets +
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               duration: const Duration(milliseconds: 100),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -173,7 +257,11 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                           color: Colors.indigo.shade50,
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Icon(Icons.tune_rounded, color: Colors.indigo.shade600, size: 22),
+                        child: Icon(
+                          Icons.tune_rounded,
+                          color: Colors.indigo.shade600,
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Text(
@@ -195,7 +283,11 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                           color: Colors.indigo.shade50,
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Icon(Icons.picture_as_pdf_rounded, color: Colors.indigo.shade600, size: 22),
+                        child: Icon(
+                          Icons.picture_as_pdf_rounded,
+                          color: Colors.indigo.shade600,
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Text(
@@ -220,30 +312,51 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                       children: [
                         Expanded(
                           child: InkWell(
-                            onTap: () => setSheetState(() => individualPDFs = false),
+                            onTap: () =>
+                                setSheetState(() => individualPDFs = false),
                             borderRadius: BorderRadius.circular(10),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 200),
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               decoration: BoxDecoration(
-                                color: !individualPDFs ? Colors.white : Colors.transparent,
+                                color: !individualPDFs
+                                    ? Colors.white
+                                    : Colors.transparent,
                                 borderRadius: BorderRadius.circular(10),
                                 boxShadow: !individualPDFs
-                                    ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))]
+                                    ? [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.05,
+                                          ),
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ]
                                     : [],
                               ),
                               child: Center(
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.library_books_rounded, size: 16, color: !individualPDFs ? Colors.indigo.shade700 : Colors.grey.shade600),
+                                    Icon(
+                                      Icons.library_books_rounded,
+                                      size: 16,
+                                      color: !individualPDFs
+                                          ? Colors.indigo.shade700
+                                          : Colors.grey.shade600,
+                                    ),
                                     const SizedBox(width: 8),
                                     Text(
                                       'Tek Birleşik PDF',
                                       style: GoogleFonts.inter(
                                         fontSize: 12,
-                                        fontWeight: !individualPDFs ? FontWeight.bold : FontWeight.normal,
-                                        color: !individualPDFs ? Colors.indigo.shade900 : Colors.grey.shade700,
+                                        fontWeight: !individualPDFs
+                                            ? FontWeight.bold
+                                            : FontWeight.normal,
+                                        color: !individualPDFs
+                                            ? Colors.indigo.shade900
+                                            : Colors.grey.shade700,
                                       ),
                                     ),
                                   ],
@@ -254,30 +367,51 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                         ),
                         Expanded(
                           child: InkWell(
-                            onTap: () => setSheetState(() => individualPDFs = true),
+                            onTap: () =>
+                                setSheetState(() => individualPDFs = true),
                             borderRadius: BorderRadius.circular(10),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 200),
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               decoration: BoxDecoration(
-                                color: individualPDFs ? Colors.white : Colors.transparent,
+                                color: individualPDFs
+                                    ? Colors.white
+                                    : Colors.transparent,
                                 borderRadius: BorderRadius.circular(10),
                                 boxShadow: individualPDFs
-                                    ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))]
+                                    ? [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.05,
+                                          ),
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ]
                                     : [],
                               ),
                               child: Center(
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.person_pin_rounded, size: 16, color: individualPDFs ? Colors.indigo.shade700 : Colors.grey.shade600),
+                                    Icon(
+                                      Icons.person_pin_rounded,
+                                      size: 16,
+                                      color: individualPDFs
+                                          ? Colors.indigo.shade700
+                                          : Colors.grey.shade600,
+                                    ),
                                     const SizedBox(width: 8),
                                     Text(
                                       'Kişiye Özel PDF',
                                       style: GoogleFonts.inter(
                                         fontSize: 12,
-                                        fontWeight: individualPDFs ? FontWeight.bold : FontWeight.normal,
-                                        color: individualPDFs ? Colors.indigo.shade900 : Colors.grey.shade700,
+                                        fontWeight: individualPDFs
+                                            ? FontWeight.bold
+                                            : FontWeight.normal,
+                                        color: individualPDFs
+                                            ? Colors.indigo.shade900
+                                            : Colors.grey.shade700,
                                       ),
                                     ),
                                   ],
@@ -291,7 +425,10 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                   ),
                   const SizedBox(height: 20),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.grey.shade50,
                       borderRadius: BorderRadius.circular(16),
@@ -334,7 +471,10 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                   ),
                   const SizedBox(height: 12),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.grey.shade50,
                       borderRadius: BorderRadius.circular(16),
@@ -401,22 +541,30 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                                   controller: textController,
                                   keyboardType: TextInputType.number,
                                   textAlign: TextAlign.center,
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                   decoration: InputDecoration(
                                     contentPadding: EdgeInsets.zero,
                                     filled: true,
                                     fillColor: Colors.white,
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(10),
-                                      borderSide: BorderSide(color: Colors.grey.shade300),
+                                      borderSide: BorderSide(
+                                        color: Colors.grey.shade300,
+                                      ),
                                     ),
                                     enabledBorder: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(10),
-                                      borderSide: BorderSide(color: Colors.grey.shade300),
+                                      borderSide: BorderSide(
+                                        color: Colors.grey.shade300,
+                                      ),
                                     ),
                                     focusedBorder: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(10),
-                                      borderSide: BorderSide(color: Colors.indigo.shade600),
+                                      borderSide: BorderSide(
+                                        color: Colors.indigo.shade600,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -471,8 +619,15 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                     child: FilledButton(
                       onPressed: () {
                         Navigator.pop(context);
-                        final int? maxQ = hasMaxLimit ? int.tryParse(textController.text) : null;
-                        onGenerate(prioritizeCritical, maxQ, fillFromPool, individualPDFs);
+                        final int? maxQ = hasMaxLimit
+                            ? int.tryParse(textController.text)
+                            : null;
+                        onGenerate(
+                          prioritizeCritical,
+                          maxQ,
+                          fillFromPool,
+                          individualPDFs,
+                        );
                       },
                       style: FilledButton.styleFrom(
                         backgroundColor: Colors.indigo.shade600,
@@ -503,62 +658,97 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
     if (selectedStudents.isEmpty) return;
 
     _showCriteriaBottomSheet(
-      onGenerate: (prioritizeCritical, maxQuestions, fillFromPool, individualPDFs) async {
-        setState(() {
-          _showProgress = true;
-          _progressCurrent = 0;
-          _progressTotal = selectedStudents.length;
-          _progressStudentName = 'Hazırlanıyor...';
-        });
+      onGenerate:
+          (
+            prioritizeCritical,
+            maxQuestions,
+            fillFromPool,
+            individualPDFs,
+          ) async {
+            setState(() {
+              _showProgress = true;
+              _progressCurrent = 0;
+              _progressTotal = selectedStudents.length;
+              _progressStudentName = 'Hazırlanıyor...';
+            });
 
-        try {
-          final bulkData = selectedStudents.map((s) => s.results.map((r) => r ?? {}).toList()).toList();
-          await _generatorService.generateBulkBooklets(
-            exams: widget.exams,
-            bulkStudentResults: bulkData,
-            prioritizeCritical: prioritizeCritical,
-            maxQuestions: maxQuestions,
-            fillFromPool: fillFromPool,
-            individualPDFs: individualPDFs,
-            onProgress: (current, total, studentName) {
-              if (mounted) {
-                setState(() {
-                  _progressCurrent = current;
-                  _progressTotal = total;
-                  _progressStudentName = studentName;
-                });
-              }
-            },
-          );
-        } catch (e) {
-          debugPrint('Error generating bulk booklet: $e');
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
-        } finally {
-          if (mounted) setState(() => _showProgress = false);
-        }
-      },
+            try {
+              final bulkData = selectedStudents
+                  .map((s) => s.results.map((r) => r ?? {}).toList())
+                  .toList();
+              await _generatorService.generateBulkBooklets(
+                exams: widget.exams,
+                bulkStudentResults: bulkData,
+                prioritizeCritical: prioritizeCritical,
+                maxQuestions: maxQuestions,
+                fillFromPool: fillFromPool,
+                individualPDFs: individualPDFs,
+                onProgress: (current, total, studentName) {
+                  if (mounted) {
+                    setState(() {
+                      _progressCurrent = current;
+                      _progressTotal = total;
+                      _progressStudentName = studentName;
+                    });
+                  }
+                },
+              );
+            } catch (e) {
+              debugPrint('Error generating bulk booklet: $e');
+              if (mounted)
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Hata: $e')));
+            } finally {
+              if (mounted) setState(() => _showProgress = false);
+            }
+          },
     );
   }
 
-  void _showFilterSheet(String title, List<String> items, Set<String> currentSelected, Function(Set<String>) onApply) {
+  void _showFilterSheet(
+    String title,
+    List<String> items,
+    Set<String> currentSelected,
+    Function(Set<String>) onApply,
+  ) {
     Set<String> tempSelected = Set.from(currentSelected);
 
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       backgroundColor: Colors.white,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return SafeArea(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 16,
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(10))),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
                     const SizedBox(height: 16),
-                    Text('$title Filtresi', style: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.indigo.shade900)),
+                    Text(
+                      '$title Filtresi',
+                      style: GoogleFonts.outfit(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.indigo.shade900,
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     Wrap(
                       spacing: 8,
@@ -569,18 +759,31 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                         return FilterChip(
                           label: Text(item),
                           labelStyle: TextStyle(
-                            color: isSelected ? Colors.white : Colors.indigo.shade900,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            color: isSelected
+                                ? Colors.white
+                                : Colors.indigo.shade900,
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.normal,
                           ),
                           backgroundColor: Colors.grey.shade100,
                           selectedColor: Colors.indigo.shade500,
                           checkmarkColor: Colors.white,
                           selected: isSelected,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: isSelected ? Colors.transparent : Colors.grey.shade300)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(
+                              color: isSelected
+                                  ? Colors.transparent
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
                           onSelected: (val) {
                             setSheetState(() {
-                              if (val) tempSelected.add(item);
-                              else tempSelected.remove(item);
+                              if (val)
+                                tempSelected.add(item);
+                              else
+                                tempSelected.remove(item);
                             });
                           },
                         );
@@ -597,35 +800,45 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                         style: FilledButton.styleFrom(
                           backgroundColor: Colors.indigo,
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
-                        child: const Text('Uygula', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        child: const Text(
+                          'Uygula',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
             );
-          }
+          },
         );
-      }
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final selectedCount = _allStudents.where((s) => s.isSelected).length;
-    final isAllSelected = _filteredStudents.isNotEmpty && _filteredStudents.every((s) => s.isSelected);
+    final isAllSelected =
+        _filteredStudents.isNotEmpty &&
+        _filteredStudents.every((s) => s.isSelected);
 
     return Stack(
       children: [
         Scaffold(
           backgroundColor: const Color(0xFFF8FAFC),
           appBar: EduknAppBar(
-        title: widget.exams.length == 1 
-                ? 'Öğrenci Listesi' 
+            title: widget.exams.length == 1
+                ? 'Öğrenci Listesi'
                 : 'Karma Kitapçık: ${widget.exams.length} Sınav',
-      ),
+          ),
           body: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : Column(
@@ -635,19 +848,34 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                     _buildActionRow(isAllSelected),
                     Expanded(
                       child: _filteredStudents.isEmpty
-                          ? Center(child: Text('Arama kriterlerine uygun öğrenci bulunamadı.', style: GoogleFonts.inter(color: Colors.grey)))
+                          ? Center(
+                              child: Text(
+                                'Arama kriterlerine uygun öğrenci bulunamadı.',
+                                style: GoogleFonts.inter(color: Colors.grey),
+                              ),
+                            )
                           : ListView.builder(
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                              padding: const EdgeInsets.fromLTRB(
+                                16,
+                                0,
+                                16,
+                                100,
+                              ),
                               itemCount: _filteredStudents.length,
                               itemBuilder: (context, index) {
-                                return _buildStudentCard(_filteredStudents[index]);
+                                return _buildStudentCard(
+                                  _filteredStudents[index],
+                                );
                               },
                             ),
                     ),
                   ],
                 ),
-          floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-          floatingActionButton: selectedCount > 0 ? _buildBulkActionBar(selectedCount) : null,
+          floatingActionButtonLocation:
+              FloatingActionButtonLocation.centerDocked,
+          floatingActionButton: selectedCount > 0
+              ? _buildBulkActionBar(selectedCount)
+              : null,
         ),
         if (_showProgress) _buildProgressOverlay(),
       ],
@@ -655,7 +883,9 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
   }
 
   Widget _buildProgressOverlay() {
-    final percent = _progressTotal > 0 ? (_progressCurrent / _progressTotal) : 0.0;
+    final percent = _progressTotal > 0
+        ? (_progressCurrent / _progressTotal)
+        : 0.0;
     final displayPercent = (percent * 100).toInt();
 
     return Material(
@@ -699,9 +929,12 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                         Positioned.fill(
                           child: CircularProgressIndicator(
                             value: percent,
-                            strokeWidth: 6.0, // Clean, sleek stroke width for the large circle
+                            strokeWidth:
+                                6.0, // Clean, sleek stroke width for the large circle
                             backgroundColor: Colors.indigo.shade50,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.indigo.shade600),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.indigo.shade600,
+                            ),
                           ),
                         ),
                         Text(
@@ -755,7 +988,9 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                       value: percent,
                       minHeight: 6,
                       backgroundColor: Colors.grey.shade100,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.indigo.shade400),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Colors.indigo.shade400,
+                      ),
                     ),
                   ),
                 ],
@@ -777,13 +1012,29 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
             decoration: InputDecoration(
               hintText: 'Öğrenci Ara...',
               hintStyle: TextStyle(color: Colors.grey.shade400),
-              prefixIcon: Icon(Icons.search, color: Colors.grey.shade400, size: 22),
+              prefixIcon: Icon(
+                Icons.search,
+                color: Colors.grey.shade400,
+                size: 22,
+              ),
               filled: true,
               fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 20),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Colors.grey.shade200)),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.indigo)),
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 0,
+                horizontal: 20,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Colors.indigo),
+              ),
             ),
             onChanged: (val) {
               _searchQuery = val;
@@ -798,22 +1049,33 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                   child: _buildFilterPill(
                     title: 'Sınıf Seviyesi',
                     selectedCount: _selectedLevels.length,
-                    onTap: () => _showFilterSheet('Sınıf', _availableLevels, _selectedLevels, (val) {
-                      setState(() => _selectedLevels = val);
-                      _applyFilters();
-                    }),
+                    onTap: () => _showFilterSheet(
+                      'Sınıf',
+                      _availableLevels,
+                      _selectedLevels,
+                      (val) {
+                        setState(() => _selectedLevels = val);
+                        _applyFilters();
+                      },
+                    ),
                   ),
                 ),
-              if (_availableLevels.isNotEmpty && _availableBranches.isNotEmpty) const SizedBox(width: 12),
+              if (_availableLevels.isNotEmpty && _availableBranches.isNotEmpty)
+                const SizedBox(width: 12),
               if (_availableBranches.isNotEmpty)
                 Expanded(
                   child: _buildFilterPill(
                     title: 'Şube',
                     selectedCount: _selectedBranches.length,
-                    onTap: () => _showFilterSheet('Şube', _availableBranches, _selectedBranches, (val) {
-                      setState(() => _selectedBranches = val);
-                      _applyFilters();
-                    }),
+                    onTap: () => _showFilterSheet(
+                      'Şube',
+                      _availableBranches,
+                      _selectedBranches,
+                      (val) {
+                        setState(() => _selectedBranches = val);
+                        _applyFilters();
+                      },
+                    ),
                   ),
                 ),
             ],
@@ -823,7 +1085,11 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
     );
   }
 
-  Widget _buildFilterPill({required String title, required int selectedCount, required VoidCallback onTap}) {
+  Widget _buildFilterPill({
+    required String title,
+    required int selectedCount,
+    required VoidCallback onTap,
+  }) {
     final bool isActive = selectedCount > 0;
     return InkWell(
       onTap: onTap,
@@ -833,7 +1099,9 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
         decoration: BoxDecoration(
           color: isActive ? Colors.indigo.shade50 : Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: isActive ? Colors.indigo.shade300 : Colors.grey.shade200),
+          border: Border.all(
+            color: isActive ? Colors.indigo.shade300 : Colors.grey.shade200,
+          ),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -843,13 +1111,19 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                 isActive ? '$title ($selectedCount)' : title,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.inter(
-                  color: isActive ? Colors.indigo.shade700 : Colors.grey.shade700,
+                  color: isActive
+                      ? Colors.indigo.shade700
+                      : Colors.grey.shade700,
                   fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
                   fontSize: 14,
                 ),
               ),
             ),
-            Icon(Icons.keyboard_arrow_down_rounded, color: isActive ? Colors.indigo : Colors.grey.shade500, size: 20),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: isActive ? Colors.indigo : Colors.grey.shade500,
+              size: 20,
+            ),
           ],
         ),
       ),
@@ -864,7 +1138,11 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
         children: [
           Text(
             '${_filteredStudents.length} Öğrenci',
-            style: GoogleFonts.inter(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w600),
+            style: GoogleFonts.inter(
+              color: Colors.grey.shade600,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           if (_filteredStudents.isNotEmpty)
             InkWell(
@@ -874,17 +1152,32 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 child: Row(
                   children: [
-                    Text('Tümünü Seç', style: GoogleFonts.inter(color: Colors.indigo.shade700, fontSize: 13, fontWeight: FontWeight.w600)),
+                    Text(
+                      'Tümünü Seç',
+                      style: GoogleFonts.inter(
+                        color: Colors.indigo.shade700,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(width: 8),
                     Container(
                       width: 20,
                       height: 20,
                       decoration: BoxDecoration(
-                        color: isAllSelected ? Colors.indigo : Colors.transparent,
+                        color: isAllSelected
+                            ? Colors.indigo
+                            : Colors.transparent,
                         border: Border.all(color: Colors.indigo, width: 2),
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: isAllSelected ? const Icon(Icons.check, size: 14, color: Colors.white) : null,
+                      child: isAllSelected
+                          ? const Icon(
+                              Icons.check,
+                              size: 14,
+                              color: Colors.white,
+                            )
+                          : null,
                     ),
                   ],
                 ),
@@ -898,15 +1191,26 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
   Widget _buildStudentCard(_StudentInfo student) {
     final enterCount = student.results.where((r) => r != null).length;
     final isSelected = student.isSelected;
-    
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: isSelected ? Colors.indigo.withValues(alpha: 0.03) : Colors.white,
+        color: isSelected
+            ? Colors.indigo.withValues(alpha: 0.03)
+            : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isSelected ? Colors.indigo.shade300 : Colors.grey.withValues(alpha: 0.15), width: isSelected ? 1.5 : 1),
+        border: Border.all(
+          color: isSelected
+              ? Colors.indigo.shade300
+              : Colors.grey.withValues(alpha: 0.15),
+          width: isSelected ? 1.5 : 1,
+        ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: Material(
@@ -914,7 +1218,9 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
           onTap: () {
-            setState(() { student.isSelected = !student.isSelected; });
+            setState(() {
+              student.isSelected = !student.isSelected;
+            });
           },
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -925,12 +1231,18 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                   radius: 20,
                   backgroundColor: Colors.indigo.shade50,
                   child: Text(
-                    student.name.isNotEmpty ? student.name.substring(0, 1) : '?',
-                    style: TextStyle(color: Colors.indigo.shade700, fontWeight: FontWeight.bold, fontSize: 16),
+                    student.name.isNotEmpty
+                        ? student.name.substring(0, 1)
+                        : '?',
+                    style: TextStyle(
+                      color: Colors.indigo.shade700,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
-                
+
                 // Info
                 Expanded(
                   child: Column(
@@ -938,22 +1250,48 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                     children: [
                       Text(
                         student.name,
-                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15, color: Colors.black87),
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: Colors.black87,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          if (student.level.isNotEmpty || student.branch != 'Bilinmeyen')
+                          if (student.level.isNotEmpty ||
+                              student.branch != 'Bilinmeyen')
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
-                              child: Text('${student.level} - ${student.branch}', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade700, fontWeight: FontWeight.w500)),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '${student.level} - ${student.branch}',
+                                style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                             ),
-                          if (student.level.isNotEmpty || student.branch != 'Bilinmeyen')
+                          if (student.level.isNotEmpty ||
+                              student.branch != 'Bilinmeyen')
                             const SizedBox(width: 8),
-                          Text('$enterCount Sınav', style: GoogleFonts.inter(fontSize: 12, color: Colors.indigo.shade400, fontWeight: FontWeight.w600)),
+                          Text(
+                            '$enterCount Sınav',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.indigo.shade400,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -964,44 +1302,63 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                 IconButton(
                   onPressed: () {
                     _showCriteriaBottomSheet(
-                      onGenerate: (prioritizeCritical, maxQuestions, fillFromPool, individualPDFs) async {
-                        setState(() {
-                          _showProgress = true;
-                          _progressCurrent = 0;
-                          _progressTotal = 1;
-                          _progressStudentName = student.name;
-                        });
-                        try {
-                          await _generatorService.generateBulkBooklets(
-                            exams: widget.exams,
-                            bulkStudentResults: [student.results.map((r) => r ?? {}).toList()],
-                            prioritizeCritical: prioritizeCritical,
-                            maxQuestions: maxQuestions,
-                            fillFromPool: fillFromPool,
-                            individualPDFs: individualPDFs,
-                            onProgress: (current, total, studentName) {
-                              if (mounted) {
-                                setState(() {
-                                  _progressCurrent = current;
-                                  _progressTotal = total;
-                                  _progressStudentName = studentName;
-                                });
-                              }
-                            },
-                          );
-                        } catch (e) {
-                          debugPrint('Error: $e');
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
-                        } finally {
-                          if (mounted) setState(() => _showProgress = false);
-                        }
-                      },
+                      onGenerate:
+                          (
+                            prioritizeCritical,
+                            maxQuestions,
+                            fillFromPool,
+                            individualPDFs,
+                          ) async {
+                            setState(() {
+                              _showProgress = true;
+                              _progressCurrent = 0;
+                              _progressTotal = 1;
+                              _progressStudentName = student.name;
+                            });
+                            try {
+                              await _generatorService.generateBulkBooklets(
+                                exams: widget.exams,
+                                bulkStudentResults: [
+                                  student.results.map((r) => r ?? {}).toList(),
+                                ],
+                                prioritizeCritical: prioritizeCritical,
+                                maxQuestions: maxQuestions,
+                                fillFromPool: fillFromPool,
+                                individualPDFs: individualPDFs,
+                                onProgress: (current, total, studentName) {
+                                  if (mounted) {
+                                    setState(() {
+                                      _progressCurrent = current;
+                                      _progressTotal = total;
+                                      _progressStudentName = studentName;
+                                    });
+                                  }
+                                },
+                              );
+                            } catch (e) {
+                              debugPrint('Error: $e');
+                              if (mounted)
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Hata: $e')),
+                                );
+                            } finally {
+                              if (mounted)
+                                setState(() => _showProgress = false);
+                            }
+                          },
                     );
                   },
                   icon: Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(10)),
-                    child: Icon(Icons.auto_awesome, color: Colors.indigo.shade600, size: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      Icons.auto_awesome,
+                      color: Colors.indigo.shade600,
+                      size: 20,
+                    ),
                   ),
                   tooltip: 'Bu öğrenci için oluştur',
                 ),
@@ -1018,10 +1375,16 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [Colors.indigo.shade600, Colors.indigo.shade900]),
+        gradient: LinearGradient(
+          colors: [Colors.indigo.shade600, Colors.indigo.shade900],
+        ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
-          BoxShadow(color: Colors.indigo.shade200, blurRadius: 20, offset: const Offset(0, 10)),
+          BoxShadow(
+            color: Colors.indigo.shade200,
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
         ],
       ),
       child: Row(
@@ -1031,23 +1394,52 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Toplu İşlem', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500)),
-              Text('$selectedCount Öğrenci Seçili', style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              Text(
+                'Toplu İşlem',
+                style: GoogleFonts.inter(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                '$selectedCount Öğrenci Seçili',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
           ),
           _isGeneratingBulk
-            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-            : FilledButton.icon(
-                onPressed: _generateBulk,
-                icon: const Icon(Icons.picture_as_pdf, size: 18),
-                label: const Text('ÜRET', style: TextStyle(fontWeight: FontWeight.bold)),
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.indigo.shade900,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  ),
+                )
+              : FilledButton.icon(
+                  onPressed: _generateBulk,
+                  icon: const Icon(Icons.picture_as_pdf, size: 18),
+                  label: const Text(
+                    'ÜRET',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.indigo.shade900,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
-              ),
         ],
       ),
     );

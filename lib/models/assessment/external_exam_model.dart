@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'external_exam_result_model.dart';
 
 DateTime? _parseDateTime(dynamic val) {
   if (val == null) return null;
@@ -262,6 +263,11 @@ class ExternalExam {
   final bool showRegulation;
   final String? termId; // Dönem ID'si
 
+  /// Sınıf seviyesi → sınav tanımı (optik form, dersler, cevap anahtarı, puanlama).
+  /// Firestore'a yalnızca dolu olduğunda yazılır; tanımlar ayrıca
+  /// `levelDefinitions.<sınıf>` yoluyla güncellenir (bkz. ExternalExamResultService).
+  final Map<String, ExternalLevelDefinition> levelDefinitions;
+
   const ExternalExam({
     this.id,
     required this.institutionId,
@@ -285,6 +291,7 @@ class ExternalExam {
     this.showResults = true,
     this.showRegulation = true,
     this.termId,
+    this.levelDefinitions = const {},
   });
 
   String get examTypeName {
@@ -351,6 +358,10 @@ class ExternalExam {
       'showResults': showResults,
       'showRegulation': showRegulation,
       'termId': termId,
+      if (levelDefinitions.isNotEmpty)
+        'levelDefinitions': levelDefinitions.map(
+          (k, v) => MapEntry(k, v.toMap()),
+        ),
     };
   }
 
@@ -399,6 +410,12 @@ class ExternalExam {
       showResults: map['showResults'] ?? true,
       showRegulation: map['showRegulation'] ?? true,
       termId: map['termId'],
+      levelDefinitions: (map['levelDefinitions'] as Map? ?? {}).map(
+        (k, v) => MapEntry(
+          k.toString(),
+          ExternalLevelDefinition.fromMap(Map<String, dynamic>.from(v as Map)),
+        ),
+      ),
     );
   }
 }

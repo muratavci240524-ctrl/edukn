@@ -43,8 +43,8 @@ service firebase.storage {
     match /exam_booklets/{allPaths=**} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated()
-        && (isPdfFile() || isImageFile())
-        && isValidFileSize();
+        && (request.resource == null || isPdfFile() || isImageFile())
+        && (request.resource == null || isValidFileSize());
     }
 
     // ─── Ödev Ekleri ──────────────────────────────────────────────
@@ -86,6 +86,14 @@ service firebase.storage {
         && request.resource.size < 100 * 1024 * 1024; // Max 100MB
     }
 
+    // ─── Ders notları (akıllı tahta): lesson_notes/{kurum}/{öğretmen}/{not}/... ───
+    match /lesson_notes/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && (request.resource == null || isPdfFile() || isImageFile())
+        && (request.resource == null || isValidFileSize());
+    }
+
     // ─── Deneme Sınavı Optik Dosyaları (TXT/DAT) ─────────────────
     match /trial_exams/{allPaths=**} {
       allow read: if isAuthenticated();
@@ -94,6 +102,38 @@ service firebase.storage {
             || (request.resource.contentType.matches('text/.*')
                 || request.resource.contentType == 'application/octet-stream'))
         && (request.resource == null || request.resource.size < 20 * 1024 * 1024);
+    }
+
+    // ─── Mağaza Ürün Görselleri ───────────────────────────────────
+    match /store_products/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && (request.resource == null || isImageFile())
+        && (request.resource == null || request.resource.size < 15 * 1024 * 1024);
+    }
+
+    // ─── Kantin Ürün Görselleri ───────────────────────────────────
+    match /canteen_products/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && (request.resource == null || isImageFile())
+        && (request.resource == null || request.resource.size < 15 * 1024 * 1024);
+    }
+
+    // ─── Genel Merkez Deneme Raporları & Kitapçıkları ─────────────
+    match /central_exams/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && (request.resource == null || isPdfFile() || isImageFile())
+        && (request.resource == null || isValidFileSize());
+    }
+
+    // ─── Fokus Kitap (Kişiye Özel Soru Bankası) Dosyaları ─────────
+    match /personalized_books/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && (request.resource == null || isPdfFile() || isImageFile())
+        && (request.resource == null || isValidFileSize());
     }
 
     // ─── Default: Her şeyi reddet ─────────────────────────────────

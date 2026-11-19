@@ -602,7 +602,7 @@ class PdfService {
             style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
           ),
           _buildFileRow('Nüfus Cüzdanı', isUploaded(official, 'id_copy')),
-          _buildFileRow('İkametgÃ¢h', isUploaded(official, 'residence')),
+          _buildFileRow('İkametgâh', isUploaded(official, 'residence')),
           _buildFileRow(
             'Adli Sicil Kaydı',
             isUploaded(official, 'criminal_record'),
@@ -856,7 +856,7 @@ class PdfService {
 
     return pw.TableHelper.fromTextArray(
       context: null,
-      headers: ['Sıra', 'Öğrenci Adı', 'Åube', 'Ort. Puan'],
+      headers: ['Sıra', 'Öğrenci Adı', 'Şube', 'Ort. Puan'],
       data: top10.asMap().entries.map((e) {
         double avg = 0;
         final exams = e.value['exams'] as Map;
@@ -888,7 +888,7 @@ class PdfService {
   pw.Widget _buildRisingStarsTable(List<Map<String, dynamic>> stars) {
     return pw.TableHelper.fromTextArray(
       context: null,
-      headers: ['Öğrenci', 'Åube', 'İlk Net', 'Son Net', 'Gelişim'],
+      headers: ['Öğrenci', 'Şube', 'İlk Net', 'Son Net', 'Gelişim'],
       data: stars
           .map(
             (s) => [
@@ -958,7 +958,7 @@ class PdfService {
             _buildPdfSectionTitle('Genel Puan ve Net Gelişimi'),
             _buildExamParticipationTable(exams, examStats),
             pw.SizedBox(height: 30),
-            _buildPdfSectionTitle('Åube Bazlı İlerleme Özeti'),
+            _buildPdfSectionTitle('Şube Bazlı İlerleme Özeti'),
             _buildBranchTrendTable(exams, branchExamStats),
           ];
         },
@@ -984,11 +984,11 @@ class PdfService {
         build: (pw.Context context) {
           return [
             _buildReportHeader(
-              'Åube Analiz Raporu',
-              'Åubeler Arası Akademik Kıyaslama',
+              'Şube Analiz Raporu',
+              'Şubeler Arası Akademik Kıyaslama',
             ),
             pw.SizedBox(height: 20),
-            _buildPdfSectionTitle('Åube Performans Tablosu'),
+            _buildPdfSectionTitle('Şube Performans Tablosu'),
             _buildDetailedBranchTable(branches, subjects, subjectExamStats),
           ];
         },
@@ -1101,7 +1101,7 @@ class PdfService {
 
     return pw.TableHelper.fromTextArray(
       context: null,
-      headers: ['Åube', ...exams.map((e) => 'S${exams.indexOf(e) + 1}')],
+      headers: ['Şube', ...exams.map((e) => 'S${exams.indexOf(e) + 1}')],
       data: branches.map((b) {
         return [
           b,
@@ -1124,7 +1124,7 @@ class PdfService {
   ) {
     return pw.TableHelper.fromTextArray(
       context: null,
-      headers: ['Åube', ...subjects],
+      headers: ['Şube', ...subjects],
       data: branches.where((b) => b != 'Tümü').map((b) {
         return [
           b,
@@ -1185,7 +1185,7 @@ class PdfService {
 
     return pw.TableHelper.fromTextArray(
       context: null,
-      headers: ['Sıra', 'İsim', 'Åube', 'Toplam $mode', 'Ort. $mode'],
+      headers: ['Sıra', 'İsim', 'Şube', 'Toplam $mode', 'Ort. $mode'],
       data: sorted.asMap().entries.map((e) {
         final st = e.value;
         final exams = st['exams'] as Map;
@@ -1938,7 +1938,7 @@ class PdfService {
                               ),
                             ),
                           if (group.driverPhone != null)
-                            pw.Text('Åoför: ${group.driverPhone}'),
+                            pw.Text('Şoför: ${group.driverPhone}'),
                         ],
                       ),
                     ),

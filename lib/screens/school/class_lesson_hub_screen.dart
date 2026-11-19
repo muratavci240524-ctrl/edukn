@@ -10,6 +10,7 @@ import 'homework/homework_list_tab.dart';
 import 'class_lesson_plan_entry_dialog.dart';
 import 'class_lesson_plan_list_tab.dart';
 import 'grades/grade_list_tab.dart';
+import 'class_lesson_notes_tab.dart';
 
 class ClassLessonHubScreen extends StatefulWidget {
   final String institutionId;
@@ -143,7 +144,8 @@ class _ClassLessonHubScreenState extends State<ClassLessonHubScreen> {
                                     availableLessonHours:
                                         widget.availableLessonHours,
                                     combinedClassIds: widget.combinedClassIds,
-                                    combinedClassNames: widget.combinedClassNames,
+                                    combinedClassNames:
+                                        widget.combinedClassNames,
                                     courseGroupId: widget.courseGroupId,
                                     subGroupId: widget.subGroupId,
                                     subGroupName: widget.subGroupName,
@@ -244,10 +246,11 @@ class _ClassLessonHubScreenState extends State<ClassLessonHubScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: EduknAppBar(
-          title: '${widget.combinedClassNames != null ? widget.combinedClassNames!.join('/') : widget.className} • ${widget.lessonName}',
+          title:
+              '${widget.combinedClassNames != null ? widget.combinedClassNames!.join('/') : widget.className} • ${widget.lessonName}',
           subtitle: 'Ders Sayfası',
           actions: [
             IconButton(
@@ -280,6 +283,7 @@ class _ClassLessonHubScreenState extends State<ClassLessonHubScreen> {
               Tab(text: 'Ders Planları'),
               Tab(text: 'Ödevler'),
               Tab(text: 'Notlar'),
+              Tab(text: 'Ders Notları'),
             ],
           ),
         ),
@@ -306,6 +310,14 @@ class _ClassLessonHubScreenState extends State<ClassLessonHubScreen> {
             GradeListTab(
               institutionId: widget.institutionId,
               classId: widget.classId,
+              lessonId: widget.lessonId,
+              lessonName: widget.lessonName,
+            ),
+            ClassLessonNotesTab(
+              institutionId: widget.institutionId,
+              schoolTypeId: widget.schoolTypeId,
+              classId: widget.classId,
+              className: widget.className,
               lessonId: widget.lessonId,
               lessonName: widget.lessonName,
             ),

@@ -13,6 +13,7 @@ import 'external_exam_venue_screen.dart';
 import 'external_exam_messaging_screen.dart';
 import 'external_exam_entry_card_screen.dart';
 import 'external_exam_attendance_stats_screen.dart';
+import 'external_exam_levels_tab.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../../screens/public/external_exam_attendance_screen.dart';
 import 'package:edukn/widgets/safe_stream_builder.dart';
@@ -160,8 +161,11 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
                 institutionId: widget.institutionId,
               ),
 
-              // Tab 5: Sınav Seviyeleri
-              _buildExamLevelsTab(exam),
+              // Tab 5: Sınav Seviyeleri (sınav tanımı + optik okuma + karne)
+              ExternalExamLevelsTab(
+                exam: exam,
+                institutionId: widget.institutionId,
+              ),
             ],
           ),
         );
@@ -380,6 +384,11 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
   }
 
   Widget _buildExamLevelsTab(ExternalExam exam) {
+    // Eski "TrialExam bağla" görünümü; yerine ExternalExamLevelsTab kullanılıyor.
+    return ExternalExamLevelsTab(exam: exam, institutionId: widget.institutionId);
+  }
+
+  Widget _legacyExamLevelsTabUnused(ExternalExam exam) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(

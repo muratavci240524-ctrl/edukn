@@ -128,6 +128,12 @@ class ExamReportCardService {
     Map<String, int> branchStudentCounts = const {},
     bool isRankingVisible = true,
     List<String>? definedSubjectOrder,
+    /// Öğrenci TC/anahtarı -> burs durumu metni (varsa karneye banner olarak basılır).
+    Map<String, String> scholarshipNotes = const {},
+    /// Öğrenci TC/anahtarı -> burs kazandı mı (renk için).
+    Map<String, bool> scholarshipWon = const {},
+    /// İlerleme bildirimi (biten, toplam) — uzun PDF'lerde ekranda animasyon göstermek için.
+    void Function(int done, int total)? onProgress,
   }) async {
     final pdf = pw.Document();
     final theme = await _loadTheme();
@@ -135,7 +141,8 @@ class ExamReportCardService {
     final orderedSubjects = sortSubjectsList(subjects, definedOrder: definedSubjectOrder);
 
     for (int i = 0; i < students.length; i++) {
-      if (i > 0 && i % 4 == 0) {
+      if (i % 2 == 0) {
+        onProgress?.call(i, students.length);
         await Future.delayed(Duration.zero);
       }
       final student = students[i];
@@ -169,6 +176,11 @@ class ExamReportCardService {
                 ),
                 pw.SizedBox(height: 6),
 
+                if (scholarshipNotes[student.tcNo] != null) ...[
+                  _buildScholarshipNotePdf(scholarshipNotes[student.tcNo]!, scholarshipWon[student.tcNo] ?? false),
+                  pw.SizedBox(height: 6),
+                ],
+
                 // 3. Ders Başarı ve Net Tablosu
                 _buildStudentScoreTable(student, orderedSubjects),
                 pw.SizedBox(height: 6),
@@ -191,7 +203,28 @@ class ExamReportCardService {
       );
     }
 
+    onProgress?.call(students.length, students.length);
+    await Future.delayed(const Duration(milliseconds: 60));
     return pdf.save();
+  }
+
+  pw.Widget _buildScholarshipNotePdf(String text, bool won) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: pw.BoxDecoration(
+        color: won ? PdfColors.amber100 : PdfColors.blueGrey50,
+        border: pw.Border.all(color: won ? PdfColors.amber700 : PdfColors.blueGrey200, width: 1),
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+      ),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(
+          fontWeight: won ? pw.FontWeight.bold : pw.FontWeight.normal,
+          fontSize: 8.5,
+          color: won ? PdfColors.amber900 : PdfColors.blueGrey800,
+        ),
+      ),
+    );
   }
 
   String _resolveSchoolType(String? instName, String classLevel) {

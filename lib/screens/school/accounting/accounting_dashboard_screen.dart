@@ -8,11 +8,13 @@ import 'package:intl/intl.dart';
 import '../../../services/user_permission_service.dart';
 import '../../../services/financial_report_service.dart';
 import '../../../widgets/custom_date_range_picker.dart';
+import '../../../widgets/school_pos_settings_dialog.dart';
 import 'student_payment_plan_widget.dart';
 
 class AccountingDashboardScreen extends StatefulWidget {
   final int initialTabIndex;
-  const AccountingDashboardScreen({Key? key, this.initialTabIndex = 0}) : super(key: key);
+  const AccountingDashboardScreen({Key? key, this.initialTabIndex = 0})
+    : super(key: key);
 
   @override
   _AccountingDashboardScreenState createState() =>
@@ -22,8 +24,11 @@ class AccountingDashboardScreen extends StatefulWidget {
 class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final NumberFormat _currencyFormat =
-      NumberFormat.currency(locale: 'tr_TR', symbol: '₺', decimalDigits: 2);
+  final NumberFormat _currencyFormat = NumberFormat.currency(
+    locale: 'tr_TR',
+    symbol: '₺',
+    decimalDigits: 2,
+  );
   final DateFormat _dateFormat = DateFormat('dd.MM.yyyy');
 
   bool _isLoading = true;
@@ -79,8 +84,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
       if (mounted) setState(() => userData = data);
 
       final email = user.email ?? '';
-      _institutionId =
-          await UserPermissionService.resolveInstitutionId(email, userData: userData);
+      _institutionId = await UserPermissionService.resolveInstitutionId(
+        email,
+        userData: userData,
+      );
 
       await _refreshData();
     } catch (e) {
@@ -136,8 +143,9 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
           .limit(100)
           .get();
 
-      final transList =
-          transQuery.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+      final transList = transQuery.docs
+          .map((doc) => {'id': doc.id, ...doc.data()})
+          .toList();
 
       // 3. Tüm Öğrenci Ödeme Planları (Payment Plans)
       final plansQuery = await FirebaseFirestore.instance
@@ -166,7 +174,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
         double thisPlanCollected = downPaymentPaid ? downPayment : 0.0;
 
         final installments = List<Map<String, dynamic>>.from(
-            (data['installments'] as List? ?? []).map((e) => Map<String, dynamic>.from(e)));
+          (data['installments'] as List? ?? []).map(
+            (e) => Map<String, dynamic>.from(e),
+          ),
+        );
 
         for (int i = 0; i < installments.length; i++) {
           final inst = installments[i];
@@ -178,10 +189,18 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
             if (dueDateStr.contains('.')) {
               final parts = dueDateStr.split('.');
               if (parts.length == 3) {
-                dueDate = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
+                dueDate = DateTime(
+                  int.parse(parts[2]),
+                  int.parse(parts[1]),
+                  int.parse(parts[0]),
+                );
               }
             }
-          } catch (silentError) { debugPrint('[accounting_dashboard_screen] hata yutuldu: $silentError'); }
+          } catch (silentError) {
+            debugPrint(
+              '[accounting_dashboard_screen] hata yutuldu: $silentError',
+            );
+          }
 
           if (isPaid) {
             thisPlanCollected += amount;
@@ -222,7 +241,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
         }
 
         totalCollected += thisPlanCollected;
-        final thisRemaining = (net - thisPlanCollected).clamp(0.0, double.infinity);
+        final thisRemaining = (net - thisPlanCollected).clamp(
+          0.0,
+          double.infinity,
+        );
 
         return {
           'id': planId,
@@ -237,18 +259,32 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
               if (dStr.contains('.')) {
                 final parts = dStr.split('.');
                 if (parts.length == 3) {
-                  final d = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
+                  final d = DateTime(
+                    int.parse(parts[2]),
+                    int.parse(parts[1]),
+                    int.parse(parts[0]),
+                  );
                   return d.isBefore(today);
                 }
               }
-            } catch (silentError) { debugPrint('[accounting_dashboard_screen] hata yutuldu: $silentError'); }
+            } catch (silentError) {
+              debugPrint(
+                '[accounting_dashboard_screen] hata yutuldu: $silentError',
+              );
+            }
             return false;
           }),
         };
       }).toList();
 
-      overdueList.sort((a, b) => (b['overdueDays'] as int).compareTo(a['overdueDays'] as int));
-      upcomingList.sort((a, b) => (a['dueDateTime'] as DateTime).compareTo(b['dueDateTime'] as DateTime));
+      overdueList.sort(
+        (a, b) => (b['overdueDays'] as int).compareTo(a['overdueDays'] as int),
+      );
+      upcomingList.sort(
+        (a, b) => (a['dueDateTime'] as DateTime).compareTo(
+          b['dueDateTime'] as DateTime,
+        ),
+      );
 
       if (mounted) {
         setState(() {
@@ -258,7 +294,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
           _allPaymentPlans = plans;
           _totalStudentContract = totalContract;
           _totalStudentCollected = totalCollected;
-          _totalStudentRemaining = (totalContract - totalCollected).clamp(0.0, double.infinity);
+          _totalStudentRemaining = (totalContract - totalCollected).clamp(
+            0.0,
+            double.infinity,
+          );
           _totalStudentOverdue = totalOverdue;
           _overdueInstallmentsList = overdueList;
           _upcomingInstallmentsList = upcomingList;
@@ -283,41 +322,105 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: EduknAppBar(
-        title: isMobileScreen ? 'Mali İşler' : 'Mali İşler & Öğrenci Finans Merkezi',
+        title: isMobileScreen
+            ? 'Mali İşler'
+            : 'Mali İşler & Öğrenci Finans Merkezi',
         subtitle: '${_overdueInstallmentsList.length}',
         actions: [
+          if (_institutionId != null && _institutionId!.trim().isNotEmpty)
+            Container(
+              margin: EdgeInsets.only(right: isMobileScreen ? 4 : 8),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0F766E), Color(0xFF14B8A6)],
+                ),
+                borderRadius: BorderRadius.circular(isMobileScreen ? 10 : 12),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0F766E).withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: IconButton(
+                icon: Icon(
+                  Icons.point_of_sale_rounded,
+                  color: Colors.white,
+                  size: isMobileScreen ? 18 : 22,
+                ),
+                onPressed: () => SchoolPosSettingsDialog.show(
+                  context,
+                  institutionId: _institutionId!,
+                  initialTab: 0,
+                ),
+                tooltip: 'Sanal POS Yapılandırması (Okul / Mağaza / Kantin)',
+                padding: const EdgeInsets.all(8),
+                constraints: isMobileScreen
+                    ? const BoxConstraints(minWidth: 36, minHeight: 36)
+                    : null,
+              ),
+            ),
           Container(
             margin: EdgeInsets.only(right: isMobileScreen ? 4 : 8),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFF6366F1)]),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+              ),
               borderRadius: BorderRadius.circular(isMobileScreen ? 10 : 12),
               boxShadow: [
-                BoxShadow(color: const Color(0xFF4F46E5).withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 2)),
+                BoxShadow(
+                  color: const Color(0xFF4F46E5).withValues(alpha: 0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
               ],
             ),
             child: IconButton(
-              icon: Icon(Icons.add_card_rounded, color: Colors.white, size: isMobileScreen ? 18 : 22),
+              icon: Icon(
+                Icons.add_card_rounded,
+                color: Colors.white,
+                size: isMobileScreen ? 18 : 22,
+              ),
               onPressed: () => _openAddKasaDialog(),
               tooltip: 'Yeni Kasa / Hesap Tanımla',
-              padding: isMobileScreen ? const EdgeInsets.all(8) : const EdgeInsets.all(8),
-              constraints: isMobileScreen ? const BoxConstraints(minWidth: 36, minHeight: 36) : null,
+              padding: isMobileScreen
+                  ? const EdgeInsets.all(8)
+                  : const EdgeInsets.all(8),
+              constraints: isMobileScreen
+                  ? const BoxConstraints(minWidth: 36, minHeight: 36)
+                  : null,
             ),
           ),
           Container(
             margin: EdgeInsets.only(right: isMobileScreen ? 8 : 12),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFF6366F1)]),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+              ),
               borderRadius: BorderRadius.circular(isMobileScreen ? 10 : 12),
               boxShadow: [
-                BoxShadow(color: const Color(0xFF4F46E5).withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 2)),
+                BoxShadow(
+                  color: const Color(0xFF4F46E5).withValues(alpha: 0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
               ],
             ),
             child: IconButton(
-              icon: Icon(Icons.print_rounded, color: Colors.white, size: isMobileScreen ? 18 : 22),
+              icon: Icon(
+                Icons.print_rounded,
+                color: Colors.white,
+                size: isMobileScreen ? 18 : 22,
+              ),
               onPressed: () => _openReportingCenterDialog(),
               tooltip: 'Finans ve Muhasebe Raporları (PDF & Excel)',
-              padding: isMobileScreen ? const EdgeInsets.all(8) : const EdgeInsets.all(8),
-              constraints: isMobileScreen ? const BoxConstraints(minWidth: 36, minHeight: 36) : null,
+              padding: isMobileScreen
+                  ? const EdgeInsets.all(8)
+                  : const EdgeInsets.all(8),
+              constraints: isMobileScreen
+                  ? const BoxConstraints(minWidth: 36, minHeight: 36)
+                  : null,
             ),
           ),
         ],
@@ -327,13 +430,27 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
           tabAlignment: TabAlignment.start,
           labelColor: const Color(0xFF4F46E5),
           unselectedLabelColor: const Color(0xFF64748B),
-          labelStyle: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: isMobileScreen ? 11 : 13),
-          unselectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w500, fontSize: isMobileScreen ? 11 : 13),
-          labelPadding: EdgeInsets.symmetric(horizontal: isMobileScreen ? 10 : 16),
+          labelStyle: GoogleFonts.inter(
+            fontWeight: FontWeight.w700,
+            fontSize: isMobileScreen ? 11 : 13,
+          ),
+          unselectedLabelStyle: GoogleFonts.inter(
+            fontWeight: FontWeight.w500,
+            fontSize: isMobileScreen ? 11 : 13,
+          ),
+          labelPadding: EdgeInsets.symmetric(
+            horizontal: isMobileScreen ? 10 : 16,
+          ),
           indicatorColor: const Color(0xFF4F46E5),
           indicatorWeight: 3,
           tabs: [
-            Tab(icon: Icon(Icons.dashboard_rounded, size: isMobileScreen ? 16 : 18), text: 'Genel Finans Özeti'),
+            Tab(
+              icon: Icon(
+                Icons.dashboard_rounded,
+                size: isMobileScreen ? 16 : 18,
+              ),
+              text: 'Genel Finans Özeti',
+            ),
             Tab(
               icon: Icon(Icons.school_rounded, size: isMobileScreen ? 16 : 18),
               text: 'Öğrenci Taksit Takibi (${_allPaymentPlans.length})',
@@ -343,11 +460,20 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                 isLabelVisible: _overdueInstallmentsList.isNotEmpty,
                 label: Text('${_overdueInstallmentsList.length}'),
                 backgroundColor: const Color(0xFFEF4444),
-                child: Icon(Icons.warning_amber_rounded, size: isMobileScreen ? 16 : 18),
+                child: Icon(
+                  Icons.warning_amber_rounded,
+                  size: isMobileScreen ? 16 : 18,
+                ),
               ),
               text: 'Geciken Taksitler',
             ),
-            Tab(icon: Icon(Icons.account_balance_wallet_rounded, size: isMobileScreen ? 16 : 18), text: 'Kasa & Hareketler'),
+            Tab(
+              icon: Icon(
+                Icons.account_balance_wallet_rounded,
+                size: isMobileScreen ? 16 : 18,
+              ),
+              text: 'Kasa & Hareketler',
+            ),
           ],
         ),
       ),
@@ -367,7 +493,9 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
   // 1. SEKME: GENEL FİNANS ÖZETİ
   // ═══════════════════════════════════════════════════════════════════════════
   Widget _buildGeneralDashboardTab() {
-    final progress = _totalStudentContract > 0 ? (_totalStudentCollected / _totalStudentContract).clamp(0.0, 1.0) : 0.0;
+    final progress = _totalStudentContract > 0
+        ? (_totalStudentCollected / _totalStudentContract).clamp(0.0, 1.0)
+        : 0.0;
     final isMobile = MediaQuery.of(context).size.width < 900;
 
     return SingleChildScrollView(
@@ -380,13 +508,21 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
             padding: EdgeInsets.all(isMobile ? 18 : 24),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF1E1B4B), Color(0xFF312E81), Color(0xFF4338CA)],
+                colors: [
+                  Color(0xFF1E1B4B),
+                  Color(0xFF312E81),
+                  Color(0xFF4338CA),
+                ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(24),
               boxShadow: [
-                BoxShadow(color: const Color(0xFF312E81).withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 8)),
+                BoxShadow(
+                  color: const Color(0xFF312E81).withValues(alpha: 0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
               ],
             ),
             child: Column(
@@ -396,20 +532,42 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Öğrenci Sözleşme ve Tahsilat Durumu', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16, color: Colors.white)),
+                      Text(
+                        'Öğrenci Sözleşme ve Tahsilat Durumu',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          color: Colors.white,
+                        ),
+                      ),
                       const SizedBox(height: 4),
-                      Text('Kurum geneli aktif sözleşmeler ve alacak durumu', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFC7D2FE))),
+                      Text(
+                        'Kurum geneli aktif sözleşmeler ve alacak durumu',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: const Color(0xFFC7D2FE),
+                        ),
+                      ),
                       const SizedBox(height: 12),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.2),
+                          ),
                         ),
                         child: Text(
                           'Tahsilat Oranı: %${(progress * 100).toStringAsFixed(1)}',
-                          style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 12, color: Colors.white),
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ],
@@ -421,21 +579,43 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Öğrenci Sözleşme ve Tahsilat Durumu', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 18, color: Colors.white)),
+                          Text(
+                            'Öğrenci Sözleşme ve Tahsilat Durumu',
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                              color: Colors.white,
+                            ),
+                          ),
                           const SizedBox(height: 4),
-                          Text('Kurum geneli aktif sözleşmeler, nakit akışı ve alacak durumu', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFFC7D2FE))),
+                          Text(
+                            'Kurum geneli aktif sözleşmeler, nakit akışı ve alacak durumu',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: const Color(0xFFC7D2FE),
+                            ),
+                          ),
                         ],
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.2),
+                          ),
                         ),
                         child: Text(
                           'Tahsilat Oranı: %${(progress * 100).toStringAsFixed(1)}',
-                          style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13, color: Colors.white),
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ],
@@ -447,7 +627,9 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                     value: progress,
                     minHeight: 12,
                     backgroundColor: Colors.white.withValues(alpha: 0.2),
-                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                      Color(0xFF10B981),
+                    ),
                   ),
                 ),
               ],
@@ -491,13 +673,21 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   icon: Icons.warning_rounded,
                   color: const Color(0xFFEF4444),
                   bgColor: const Color(0xFFFEF2F2),
-                  subtitle: '${_overdueInstallmentsList.length} Taksit Gecikmede',
+                  subtitle:
+                      '${_overdueInstallmentsList.length} Taksit Gecikmede',
                 ),
               ];
 
               if (isVeryNarrow) {
                 return Column(
-                  children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 12), child: c)).toList(),
+                  children: cards
+                      .map(
+                        (c) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: c,
+                        ),
+                      )
+                      .toList(),
                 );
               }
 
@@ -514,7 +704,16 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
               }
 
               return Row(
-                children: cards.map((c) => Expanded(child: Padding(padding: const EdgeInsets.only(right: 12), child: c))).toList(),
+                children: cards
+                    .map(
+                      (c) => Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 12),
+                          child: c,
+                        ),
+                      ),
+                    )
+                    .toList(),
               );
             },
           ),
@@ -553,7 +752,12 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10)],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -564,11 +768,31 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
             alignment: WrapAlignment.spaceBetween,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Text('Kasa & Banka Bakiyeleri', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF1E293B))),
+              Text(
+                'Kasa & Banka Bakiyeleri',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                  color: const Color(0xFF1E293B),
+                ),
+              ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(8)),
-                child: Text('Toplam: ${_currencyFormat.format(_totalCashBalance)}', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 12, color: const Color(0xFF059669))),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Toplam: ${_currencyFormat.format(_totalCashBalance)}',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                    color: const Color(0xFF059669),
+                  ),
+                ),
               ),
             ],
           ),
@@ -577,7 +801,13 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 20),
               child: Center(
-                child: Text('Tanımlı kasa bulunamadı', style: GoogleFonts.inter(color: const Color(0xFF94A3B8), fontSize: 13)),
+                child: Text(
+                  'Tanımlı kasa bulunamadı',
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFF94A3B8),
+                    fontSize: 13,
+                  ),
+                ),
               ),
             )
           else
@@ -598,22 +828,51 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: isBank ? const Color(0xFFEEF2FF) : const Color(0xFFFEF3C7),
+                        color: isBank
+                            ? const Color(0xFFEEF2FF)
+                            : const Color(0xFFFEF3C7),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Icon(isBank ? Icons.account_balance_rounded : Icons.payments_rounded, color: isBank ? const Color(0xFF4F46E5) : const Color(0xFFD97706), size: 20),
+                      child: Icon(
+                        isBank
+                            ? Icons.account_balance_rounded
+                            : Icons.payments_rounded,
+                        color: isBank
+                            ? const Color(0xFF4F46E5)
+                            : const Color(0xFFD97706),
+                        size: 20,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(k['name'] ?? '', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13)),
-                          Text(isBank ? 'Banka / POS Hesabı' : 'Nakit Kasa', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B))),
+                          Text(
+                            k['name'] ?? '',
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                          Text(
+                            isBank ? 'Banka / POS Hesabı' : 'Nakit Kasa',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: const Color(0xFF64748B),
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                    Text(_currencyFormat.format(bal), style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 15, color: const Color(0xFF1E293B))),
+                    Text(
+                      _currencyFormat.format(bal),
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        color: const Color(0xFF1E293B),
+                      ),
+                    ),
                   ],
                 ),
               );
@@ -630,7 +889,12 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10)],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -641,11 +905,31 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
             alignment: WrapAlignment.spaceBetween,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Text('Yaklaşan Taksitler (30 Gün)', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF1E293B))),
+              Text(
+                'Yaklaşan Taksitler (30 Gün)',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                  color: const Color(0xFF1E293B),
+                ),
+              ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)),
-                child: Text('${_upcomingInstallmentsList.length} Taksit', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12, color: const Color(0xFF64748B))),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${_upcomingInstallmentsList.length} Taksit',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                    color: const Color(0xFF64748B),
+                  ),
+                ),
               ),
             ],
           ),
@@ -654,7 +938,13 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 24),
               child: Center(
-                child: Text('Önümüzdeki 30 gün içinde vadesi gelen taksit bulunmuyor.', style: GoogleFonts.inter(color: const Color(0xFF94A3B8), fontSize: 13)),
+                child: Text(
+                  'Önümüzdeki 30 gün içinde vadesi gelen taksit bulunmuyor.',
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFF94A3B8),
+                    fontSize: 13,
+                  ),
+                ),
               ),
             )
           else
@@ -674,19 +964,45 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                     CircleAvatar(
                       radius: 16,
                       backgroundColor: const Color(0xFFEEF2FF),
-                      child: Text('${daysLeft}g', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 11, color: const Color(0xFF4F46E5))),
+                      child: Text(
+                        '${daysLeft}g',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                          color: const Color(0xFF4F46E5),
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(item['studentName'], style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13)),
-                          Text('${item['installment']['title']} • Vade: ${item['dueDate']}', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B))),
+                          Text(
+                            item['studentName'],
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                          Text(
+                            '${item['installment']['title']} • Vade: ${item['dueDate']}',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: const Color(0xFF64748B),
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                    Text(_currencyFormat.format(item['amount']), style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 14, color: const Color(0xFF1E293B))),
+                    Text(
+                      _currencyFormat.format(item['amount']),
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        color: const Color(0xFF1E293B),
+                      ),
+                    ),
                   ],
                 ),
               );
@@ -710,7 +1026,9 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8)],
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -721,11 +1039,23 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
             children: [
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(12)),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 child: Icon(icon, color: color, size: 22),
               ),
               Flexible(
-                child: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 11, color: const Color(0xFF64748B))),
+                child: Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 11,
+                    color: const Color(0xFF64748B),
+                  ),
+                ),
               ),
             ],
           ),
@@ -733,12 +1063,26 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 12, color: const Color(0xFF64748B))),
+              Text(
+                title,
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                  color: const Color(0xFF64748B),
+                ),
+              ),
               const SizedBox(height: 4),
               FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
-                child: Text(value, style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18, color: const Color(0xFF1E293B))),
+                child: Text(
+                  value,
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                    color: const Color(0xFF1E293B),
+                  ),
+                ),
               ),
             ],
           ),
@@ -771,10 +1115,7 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
     return Row(
       children: [
         // Sol Liste Paneli: 360px Genişlik
-        SizedBox(
-          width: 360,
-          child: _buildStudentListView(isMobile: false),
-        ),
+        SizedBox(width: 360, child: _buildStudentListView(isMobile: false)),
 
         // Sağ Detay Paneli: Geriye Kalan Tüm Alan
         Expanded(
@@ -795,9 +1136,11 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
 
       if (!matchesQuery) return false;
 
-      if (_studentStatusFilter == 'has_debt') return (plan['_remaining'] as double) > 0;
+      if (_studentStatusFilter == 'has_debt')
+        return (plan['_remaining'] as double) > 0;
       if (_studentStatusFilter == 'overdue') return plan['_hasOverdue'] == true;
-      if (_studentStatusFilter == 'paid') return (plan['_remaining'] as double) <= 0;
+      if (_studentStatusFilter == 'paid')
+        return (plan['_remaining'] as double) <= 0;
 
       return true;
     }).toList();
@@ -805,7 +1148,9 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        border: isMobile ? null : const Border(right: BorderSide(color: Color(0xFFE2E8F0))),
+        border: isMobile
+            ? null
+            : const Border(right: BorderSide(color: Color(0xFFE2E8F0))),
       ),
       child: Column(
         children: [
@@ -824,19 +1169,37 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(color: const Color(0xFFE2E8F0)),
                     boxShadow: [
-                      BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4, offset: const Offset(0, 2)),
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.02),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
                     ],
                   ),
                   child: TextField(
                     controller: _searchCtrl,
-                    style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600),
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                     decoration: InputDecoration(
                       hintText: 'Öğrenci adı veya no ile ara...',
-                      hintStyle: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
-                      prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF4F46E5), size: 20),
+                      hintStyle: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: const Color(0xFF94A3B8),
+                      ),
+                      prefixIcon: const Icon(
+                        Icons.search_rounded,
+                        color: Color(0xFF4F46E5),
+                        size: 20,
+                      ),
                       suffixIcon: _studentSearchQuery.isNotEmpty
                           ? IconButton(
-                              icon: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF64748B)),
+                              icon: const Icon(
+                                Icons.close_rounded,
+                                size: 18,
+                                color: Color(0xFF64748B),
+                              ),
                               onPressed: () {
                                 _searchCtrl.clear();
                                 setState(() => _studentSearchQuery = '');
@@ -844,9 +1207,13 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                             )
                           : null,
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 14,
+                      ),
                     ),
-                    onChanged: (val) => setState(() => _studentSearchQuery = val),
+                    onChanged: (val) =>
+                        setState(() => _studentSearchQuery = val),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -864,7 +1231,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                     physics: const BouncingScrollPhysics(),
                     child: Row(
                       children: [
-                        _buildFilterChip('all', 'Tümü (${_allPaymentPlans.length})'),
+                        _buildFilterChip(
+                          'all',
+                          'Tümü (${_allPaymentPlans.length})',
+                        ),
                         const SizedBox(width: 6),
                         _buildFilterChip('has_debt', 'Borcu Olan'),
                         const SizedBox(width: 6),
@@ -888,11 +1258,28 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.search_off_rounded, size: 44, color: Color(0xFFCBD5E1)),
+                          const Icon(
+                            Icons.search_off_rounded,
+                            size: 44,
+                            color: Color(0xFFCBD5E1),
+                          ),
                           const SizedBox(height: 12),
-                          Text('Öğrenci bulunamadı', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: const Color(0xFF64748B))),
+                          Text(
+                            'Öğrenci bulunamadı',
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF64748B),
+                            ),
+                          ),
                           const SizedBox(height: 4),
-                          Text('Farklı bir arama terimi veya filtre deneyebilirsiniz.', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)), textAlign: TextAlign.center),
+                          Text(
+                            'Farklı bir arama terimi veya filtre deneyebilirsiniz.',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: const Color(0xFF94A3B8),
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
                         ],
                       ),
                     ),
@@ -904,7 +1291,8 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                     itemBuilder: (context, idx) {
                       final plan = filteredPlans[idx];
                       final studentId = plan['studentId'] as String;
-                      final isSelected = !isMobile && _selectedStudentIdForDetail == studentId;
+                      final isSelected =
+                          !isMobile && _selectedStudentIdForDetail == studentId;
                       final remaining = (plan['_remaining'] as double);
                       final hasOverdue = plan['_hasOverdue'] == true;
 
@@ -924,20 +1312,37 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                         child: Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: isSelected ? const Color(0xFFEEF2FF) : Colors.white,
+                            color: isSelected
+                                ? const Color(0xFFEEF2FF)
+                                : Colors.white,
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+                              color: isSelected
+                                  ? const Color(0xFF4F46E5)
+                                  : const Color(0xFFE2E8F0),
                               width: isSelected ? 2 : 1,
                             ),
-                            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4)],
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.02),
+                                blurRadius: 4,
+                              ),
+                            ],
                           ),
                           child: Row(
                             children: [
                               CircleAvatar(
                                 radius: 18,
-                                backgroundColor: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFF1F5F9),
-                                child: Icon(Icons.person_rounded, color: isSelected ? Colors.white : const Color(0xFF64748B), size: 18),
+                                backgroundColor: isSelected
+                                    ? const Color(0xFF4F46E5)
+                                    : const Color(0xFFF1F5F9),
+                                child: Icon(
+                                  Icons.person_rounded,
+                                  color: isSelected
+                                      ? Colors.white
+                                      : const Color(0xFF64748B),
+                                  size: 18,
+                                ),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
@@ -951,12 +1356,24 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                                             plan['studentName'] ?? 'Öğrenci',
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
-                                            style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13),
+                                            style: GoogleFonts.inter(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 13,
+                                            ),
                                           ),
                                         ),
-                                        if (plan['studentNo'] != null && plan['studentNo'].toString().isNotEmpty) ...[
+                                        if (plan['studentNo'] != null &&
+                                            plan['studentNo']
+                                                .toString()
+                                                .isNotEmpty) ...[
                                           const SizedBox(width: 4),
-                                          Text('(${plan['studentNo']})', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B))),
+                                          Text(
+                                            '(${plan['studentNo']})',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 11,
+                                              color: const Color(0xFF64748B),
+                                            ),
+                                          ),
                                         ],
                                       ],
                                     ),
@@ -965,7 +1382,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                                       plan['name'] ?? 'Ödeme Sözleşmesi',
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        color: const Color(0xFF64748B),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -974,27 +1394,71 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
-                                  Text(_currencyFormat.format(plan['netTotal']), style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13, color: const Color(0xFF1E293B))),
+                                  Text(
+                                    _currencyFormat.format(plan['netTotal']),
+                                    style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 13,
+                                      color: const Color(0xFF1E293B),
+                                    ),
+                                  ),
                                   const SizedBox(height: 2),
                                   if (remaining <= 0)
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(4)),
-                                      child: Text('ÖDENDİ', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.bold, color: const Color(0xFF059669))),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFECFDF5),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        'ÖDENDİ',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                          color: const Color(0xFF059669),
+                                        ),
+                                      ),
                                     )
                                   else if (hasOverdue)
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(4)),
-                                      child: Text('GECİKMEDE', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.bold, color: const Color(0xFFDC2626))),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFEF2F2),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        'GECİKMEDE',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                          color: const Color(0xFFDC2626),
+                                        ),
+                                      ),
                                     )
                                   else
-                                    Text('Kalan: ${_currencyFormat.format(remaining)}', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: const Color(0xFF4F46E5))),
+                                    Text(
+                                      'Kalan: ${_currencyFormat.format(remaining)}',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: const Color(0xFF4F46E5),
+                                      ),
+                                    ),
                                 ],
                               ),
                               if (isMobile) ...[
                                 const SizedBox(width: 6),
-                                const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF94A3B8)),
+                                const Icon(
+                                  Icons.arrow_forward_ios_rounded,
+                                  size: 14,
+                                  color: Color(0xFF94A3B8),
+                                ),
                               ],
                             ],
                           ),
@@ -1015,7 +1479,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
         children: [
           // Detay Başlık Çubuğu
           Container(
-            padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 20, vertical: 12),
+            padding: EdgeInsets.symmetric(
+              horizontal: isMobile ? 12 : 20,
+              vertical: 12,
+            ),
             decoration: const BoxDecoration(
               color: Color(0xFFF8FAFC),
               border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
@@ -1024,8 +1491,13 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
               children: [
                 if (isMobile) ...[
                   IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
-                    onPressed: () => setState(() => _selectedStudentIdForDetail = null),
+                    icon: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      size: 20,
+                      color: Colors.indigo,
+                    ),
+                    onPressed: () =>
+                        setState(() => _selectedStudentIdForDetail = null),
                     tooltip: 'Listeye Geri Dön',
                   ),
                   const SizedBox(width: 4),
@@ -1036,7 +1508,11 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                     color: const Color(0xFFEEF2FF),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.account_balance_wallet_rounded, size: 18, color: Color(0xFF4F46E5)),
+                  child: const Icon(
+                    Icons.account_balance_wallet_rounded,
+                    size: 18,
+                    color: Color(0xFF4F46E5),
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -1044,14 +1520,22 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _selectedStudentDataForDetail?['fullName'] ?? 'Öğrenci Finans Kartı',
-                        style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 14, color: const Color(0xFF1E293B)),
+                        _selectedStudentDataForDetail?['fullName'] ??
+                            'Öğrenci Finans Kartı',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                          color: const Color(0xFF1E293B),
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                       Text(
                         'Öğrenci No: ${_selectedStudentDataForDetail?['studentNo'] ?? '-'} • Taksit & Tahsilat Dökümü',
-                        style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: const Color(0xFF64748B),
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1060,8 +1544,13 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                 ),
                 if (!isMobile)
                   IconButton(
-                    icon: const Icon(Icons.close_rounded, size: 20, color: Color(0xFF64748B)),
-                    onPressed: () => setState(() => _selectedStudentIdForDetail = null),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      size: 20,
+                      color: Color(0xFF64748B),
+                    ),
+                    onPressed: () =>
+                        setState(() => _selectedStudentIdForDetail = null),
                     tooltip: 'Kapat',
                   ),
               ],
@@ -1088,13 +1577,34 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
           children: [
             Container(
               padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(color: Color(0xFFEEF2FF), shape: BoxShape.circle),
-              child: const Icon(Icons.touch_app_rounded, size: 48, color: Color(0xFF4F46E5)),
+              decoration: const BoxDecoration(
+                color: Color(0xFFEEF2FF),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.touch_app_rounded,
+                size: 48,
+                color: Color(0xFF4F46E5),
+              ),
             ),
             const SizedBox(height: 16),
-            Text('Öğrenci Finans Kartını Görüntüleyin', style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B))),
+            Text(
+              'Öğrenci Finans Kartını Görüntüleyin',
+              style: GoogleFonts.inter(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF1E293B),
+              ),
+            ),
             const SizedBox(height: 6),
-            Text('Taksit dökümünü incelemek, tahsilat almak veya sözleşme yazdırmak için sol listeden bir öğrenci seçiniz.', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)), textAlign: TextAlign.center),
+            Text(
+              'Taksit dökümünü incelemek, tahsilat almak veya sözleşme yazdırmak için sol listeden bir öğrenci seçiniz.',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: const Color(0xFF64748B),
+              ),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
@@ -1129,19 +1639,40 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
           children: [
             Container(
               padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(color: Color(0xFFECFDF5), shape: BoxShape.circle),
-              child: const Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 48),
+              decoration: const BoxDecoration(
+                color: Color(0xFFECFDF5),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.verified_rounded,
+                color: Color(0xFF10B981),
+                size: 48,
+              ),
             ),
             const SizedBox(height: 16),
-            Text('Harika! Vadesi Geçmiş Taksit Yok', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 18, color: const Color(0xFF1E293B))),
+            Text(
+              'Harika! Vadesi Geçmiş Taksit Yok',
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+                color: const Color(0xFF1E293B),
+              ),
+            ),
             const SizedBox(height: 6),
-            Text('Kurumdaki tüm öğrencilerin ödeme planları güncel durumdadır.', style: GoogleFonts.inter(color: const Color(0xFF64748B), fontSize: 13)),
+            Text(
+              'Kurumdaki tüm öğrencilerin ödeme planları güncel durumdadır.',
+              style: GoogleFonts.inter(
+                color: const Color(0xFF64748B),
+                fontSize: 13,
+              ),
+            ),
           ],
         ),
       );
     }
 
-    final isAllSelected = _selectedOverdueIndices.length == _overdueInstallmentsList.length;
+    final isAllSelected =
+        _selectedOverdueIndices.length == _overdueInstallmentsList.length;
 
     final isMobile = MediaQuery.of(context).size.width < 900;
 
@@ -1154,24 +1685,53 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Vadesi Geçmiş Taksitler & Veli Bildirimi', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF1E293B))),
+                Text(
+                  'Vadesi Geçmiş Taksitler & Veli Bildirimi',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    color: const Color(0xFF1E293B),
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text('Toplam ${_overdueInstallmentsList.length} adet taksitte gecikme bulunmaktadır.', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
+                Text(
+                  'Toplam ${_overdueInstallmentsList.length} adet taksitte gecikme bulunmaktadır.',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: const Color(0xFF64748B),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFFECACA))),
-                      child: Text('Toplam: ${_currencyFormat.format(_totalStudentOverdue)}', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13, color: const Color(0xFFDC2626))),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFFECACA)),
+                      ),
+                      child: Text(
+                        'Toplam: ${_currencyFormat.format(_totalStudentOverdue)}',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                          color: const Color(0xFFDC2626),
+                        ),
+                      ),
                     ),
                     ElevatedButton.icon(
                       onPressed: () {
                         final itemsToSend = _selectedOverdueIndices.isEmpty
                             ? _overdueInstallmentsList
-                            : _selectedOverdueIndices.map((i) => _overdueInstallmentsList[i]).toList();
+                            : _selectedOverdueIndices
+                                  .map((i) => _overdueInstallmentsList[i])
+                                  .toList();
                         _openSendOverdueNotificationDialog(itemsToSend);
                       },
                       icon: const Icon(Icons.send_rounded, size: 16),
@@ -1179,13 +1739,21 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                         _selectedOverdueIndices.isEmpty
                             ? 'Tümüne Bildirim / SMS'
                             : 'Seçilenlere (${_selectedOverdueIndices.length}) Gönder',
-                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12),
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF4F46E5),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                         elevation: 0,
                       ),
                     ),
@@ -1200,9 +1768,22 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Vadesi Geçmiş Taksitler & Veli Bildirimi', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 18, color: const Color(0xFF1E293B))),
+                    Text(
+                      'Vadesi Geçmiş Taksitler & Veli Bildirimi',
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                        color: const Color(0xFF1E293B),
+                      ),
+                    ),
                     const SizedBox(height: 4),
-                    Text('Toplam ${_overdueInstallmentsList.length} adet taksitte gecikme bulunmaktadır.', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B))),
+                    Text(
+                      'Toplam ${_overdueInstallmentsList.length} adet taksitte gecikme bulunmaktadır.',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: const Color(0xFF64748B),
+                      ),
+                    ),
                   ],
                 ),
                 Wrap(
@@ -1211,15 +1792,31 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFFECACA))),
-                      child: Text('Toplam Geciken: ${_currencyFormat.format(_totalStudentOverdue)}', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 14, color: const Color(0xFFDC2626))),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFFECACA)),
+                      ),
+                      child: Text(
+                        'Toplam Geciken: ${_currencyFormat.format(_totalStudentOverdue)}',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                          color: const Color(0xFFDC2626),
+                        ),
+                      ),
                     ),
                     ElevatedButton.icon(
                       onPressed: () {
                         final itemsToSend = _selectedOverdueIndices.isEmpty
                             ? _overdueInstallmentsList
-                            : _selectedOverdueIndices.map((i) => _overdueInstallmentsList[i]).toList();
+                            : _selectedOverdueIndices
+                                  .map((i) => _overdueInstallmentsList[i])
+                                  .toList();
                         _openSendOverdueNotificationDialog(itemsToSend);
                       },
                       icon: const Icon(Icons.send_rounded, size: 18),
@@ -1232,8 +1829,13 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF4F46E5),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         elevation: 0,
                       ),
                     ),
@@ -1254,23 +1856,36 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
               children: [
                 // Başlık & Toplu Seçim Çubuğu
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: const BoxDecoration(
                     color: Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                    border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(20),
+                    ),
+                    border: Border(
+                      bottom: BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
                   ),
                   child: Row(
                     children: [
                       Checkbox(
                         value: isAllSelected,
                         activeColor: const Color(0xFF4F46E5),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                         onChanged: (val) {
                           setState(() {
                             if (val == true) {
                               _selectedOverdueIndices.clear();
-                              for (int i = 0; i < _overdueInstallmentsList.length; i++) {
+                              for (
+                                int i = 0;
+                                i < _overdueInstallmentsList.length;
+                                i++
+                              ) {
                                 _selectedOverdueIndices.add(i);
                               }
                             } else {
@@ -1281,13 +1896,23 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        isAllSelected ? 'Tümünü Kaldır' : 'Tümünü Seç (${_overdueInstallmentsList.length})',
-                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155)),
+                        isAllSelected
+                            ? 'Tümünü Kaldır'
+                            : 'Tümünü Seç (${_overdueInstallmentsList.length})',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: const Color(0xFF334155),
+                        ),
                       ),
                       const Spacer(),
                       Text(
                         'Seçilen: ${_selectedOverdueIndices.length} / ${_overdueInstallmentsList.length}',
-                        style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF64748B),
+                        ),
                       ),
                     ],
                   ),
@@ -1297,7 +1922,8 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: _overdueInstallmentsList.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                  separatorBuilder: (_, __) =>
+                      const Divider(height: 1, color: Color(0xFFF1F5F9)),
                   itemBuilder: (context, idx) {
                     final item = _overdueInstallmentsList[idx];
                     final overdueDays = item['overdueDays'] as int;
@@ -1315,7 +1941,9 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                           });
                         },
                         child: Container(
-                          color: isSelected ? const Color(0xFFEEF2FF).withValues(alpha: 0.5) : Colors.transparent,
+                          color: isSelected
+                              ? const Color(0xFFEEF2FF).withValues(alpha: 0.5)
+                              : Colors.transparent,
                           padding: const EdgeInsets.all(14),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1325,7 +1953,9 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                                   Checkbox(
                                     value: isSelected,
                                     activeColor: const Color(0xFF4F46E5),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
                                     onChanged: (val) {
                                       setState(() {
                                         if (val == true) {
@@ -1339,38 +1969,84 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                                   const SizedBox(width: 6),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        Text(item['studentName'], style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 14)),
-                                        Text('${item['installment']['title']} • Vade: ${item['dueDate']}', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B))),
+                                        Text(
+                                          item['studentName'],
+                                          style: GoogleFonts.inter(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        Text(
+                                          '${item['installment']['title']} • Vade: ${item['dueDate']}',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 11,
+                                            color: const Color(0xFF64748B),
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ),
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                    decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(6)),
-                                    child: Text('$overdueDays Gün Gecikti', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 10, color: const Color(0xFFDC2626))),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFEF2F2),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      '$overdueDays Gün Gecikti',
+                                      style: GoogleFonts.inter(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 10,
+                                        color: const Color(0xFFDC2626),
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 10),
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(_currencyFormat.format(item['amount']), style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 15, color: const Color(0xFF1E293B))),
+                                  Text(
+                                    _currencyFormat.format(item['amount']),
+                                    style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 15,
+                                      color: const Color(0xFF1E293B),
+                                    ),
+                                  ),
                                   Row(
                                     children: [
                                       IconButton(
-                                        onPressed: () => _openSendOverdueNotificationDialog([item]),
-                                        icon: const Icon(Icons.send_rounded, color: Color(0xFF4F46E5), size: 18),
+                                        onPressed: () =>
+                                            _openSendOverdueNotificationDialog([
+                                              item,
+                                            ]),
+                                        icon: const Icon(
+                                          Icons.send_rounded,
+                                          color: Color(0xFF4F46E5),
+                                          size: 18,
+                                        ),
                                         tooltip: 'SMS / Bildirim',
-                                        style: IconButton.styleFrom(backgroundColor: const Color(0xFFEEF2FF)),
+                                        style: IconButton.styleFrom(
+                                          backgroundColor: const Color(
+                                            0xFFEEF2FF,
+                                          ),
+                                        ),
                                       ),
                                       const SizedBox(width: 8),
                                       ElevatedButton(
                                         onPressed: () {
                                           setState(() {
-                                            _selectedStudentIdForDetail = item['studentId'];
+                                            _selectedStudentIdForDetail =
+                                                item['studentId'];
                                             _selectedStudentDataForDetail = {
                                               'id': item['studentId'],
                                               'fullName': item['studentName'],
@@ -1380,7 +2056,17 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                                             _tabController.animateTo(1);
                                           });
                                         },
-                                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5), foregroundColor: Colors.white, elevation: 0, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(
+                                            0xFF4F46E5,
+                                          ),
+                                          foregroundColor: Colors.white,
+                                          elevation: 0,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ),
+                                        ),
                                         child: const Text('Detay'),
                                       ),
                                     ],
@@ -1404,14 +2090,18 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                         });
                       },
                       child: Container(
-                        color: isSelected ? const Color(0xFFEEF2FF).withValues(alpha: 0.5) : Colors.transparent,
+                        color: isSelected
+                            ? const Color(0xFFEEF2FF).withValues(alpha: 0.5)
+                            : Colors.transparent,
                         padding: const EdgeInsets.all(16),
                         child: Row(
                           children: [
                             Checkbox(
                               value: isSelected,
                               activeColor: const Color(0xFF4F46E5),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(4),
+                              ),
                               onChanged: (val) {
                                 setState(() {
                                   if (val == true) {
@@ -1425,49 +2115,102 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                             const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(12)),
-                              child: const Icon(Icons.error_outline_rounded, color: Color(0xFFDC2626), size: 24),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEF2F2),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.error_outline_rounded,
+                                color: Color(0xFFDC2626),
+                                size: 24,
+                              ),
                             ),
                             const SizedBox(width: 14),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(item['studentName'], style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 14)),
+                                  Text(
+                                    item['studentName'],
+                                    style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                    ),
+                                  ),
                                   const SizedBox(height: 2),
-                                  Text('${item['installment']['title']} • Vade: ${item['dueDate']}', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
+                                  Text(
+                                    '${item['installment']['title']} • Vade: ${item['dueDate']}',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      color: const Color(0xFF64748B),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(8)),
-                              child: Text('$overdueDays Gün Gecikti', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 11, color: const Color(0xFFDC2626))),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEF2F2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '$overdueDays Gün Gecikti',
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 11,
+                                  color: const Color(0xFFDC2626),
+                                ),
+                              ),
                             ),
                             const SizedBox(width: 20),
-                            Text(_currencyFormat.format(item['amount']), style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 15, color: const Color(0xFF1E293B))),
+                            Text(
+                              _currencyFormat.format(item['amount']),
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                                color: const Color(0xFF1E293B),
+                              ),
+                            ),
                             const SizedBox(width: 12),
                             IconButton(
-                              onPressed: () => _openSendOverdueNotificationDialog([item]),
-                              icon: const Icon(Icons.send_rounded, color: Color(0xFF4F46E5), size: 20),
+                              onPressed: () =>
+                                  _openSendOverdueNotificationDialog([item]),
+                              icon: const Icon(
+                                Icons.send_rounded,
+                                color: Color(0xFF4F46E5),
+                                size: 20,
+                              ),
                               tooltip: 'Bu Veliye Bildirim / SMS Gönder',
-                              style: IconButton.styleFrom(backgroundColor: const Color(0xFFEEF2FF)),
+                              style: IconButton.styleFrom(
+                                backgroundColor: const Color(0xFFEEF2FF),
+                              ),
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton(
                               onPressed: () {
                                 setState(() {
-                                  _selectedStudentIdForDetail = item['studentId'];
+                                  _selectedStudentIdForDetail =
+                                      item['studentId'];
                                   _selectedStudentDataForDetail = {
                                     'id': item['studentId'],
                                     'fullName': item['studentName'],
                                     'studentNo': item['studentNo'],
                                     'institutionId': _institutionId,
                                   };
-                                  _tabController.animateTo(1); // Öğrenci sekmesine geç
+                                  _tabController.animateTo(
+                                    1,
+                                  ); // Öğrenci sekmesine geç
                                 });
                               },
-                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5), foregroundColor: Colors.white, elevation: 0),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF4F46E5),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                              ),
                               child: const Text('Öğrenciye Git'),
                             ),
                           ],
@@ -1486,12 +2229,19 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
 
   void _openSendOverdueNotificationDialog(List<Map<String, dynamic>> items) {
     if (items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lütfen bildirim göndermek için en az bir geciken taksit seçiniz.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Lütfen bildirim göndermek için en az bir geciken taksit seçiniz.',
+          ),
+        ),
+      );
       return;
     }
 
     final templateCtrl = TextEditingController(
-      text: 'Sayın Velimiz, {ogrenci_adi} isimli öğrencimizin {vade_tarihi} vadeli {tutar} tutarındaki taksit ödemesi {gecikme_gunu} gündür gecikmededir. Ödemenizi gerçekleştirmenizi veya kurumumuz muhasebe birimi ile iletişime geçmenizi rica ederiz.',
+      text:
+          'Sayın Velimiz, {ogrenci_adi} isimli öğrencimizin {vade_tarihi} vadeli {tutar} tutarındaki taksit ödemesi {gecikme_gunu} gündür gecikmededir. Ödemenizi gerçekleştirmenizi veya kurumumuz muhasebe birimi ile iletişime geçmenizi rica ederiz.',
     );
     bool sendAppNotification = true;
     bool sendSms = true;
@@ -1506,7 +2256,13 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
           decoration: const BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 30, offset: Offset(0, -10))],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 30,
+                offset: Offset(0, -10),
+              ),
+            ],
           ),
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
@@ -1523,7 +2279,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   width: 48,
                   height: 5,
                   margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(10)),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
               Row(
@@ -1538,26 +2297,56 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: const Color(0xFFFECACA)),
                         ),
-                        child: const Icon(Icons.notifications_active_rounded, color: Color(0xFFDC2626), size: 24),
+                        child: const Icon(
+                          Icons.notifications_active_rounded,
+                          color: Color(0xFFDC2626),
+                          size: 24,
+                        ),
                       ),
                       const SizedBox(width: 14),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Veliye Gecikme Bildirimi & SMS Gönder', style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B))),
+                          Text(
+                            'Veliye Gecikme Bildirimi & SMS Gönder',
+                            style: GoogleFonts.inter(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFF1E293B),
+                            ),
+                          ),
                           const SizedBox(height: 2),
-                          Text('${items.length} adet geciken taksit velisine hatırlatma gönderilecek', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
+                          Text(
+                            '${items.length} adet geciken taksit velisine hatırlatma gönderilecek',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: const Color(0xFF64748B),
+                            ),
+                          ),
                         ],
                       ),
                     ],
                   ),
-                  IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B))),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
 
               // Gönderim Kanalları
-              Text('Gönderim Kanalları (Sadece Veli Hesabına Gider)', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
+              Text(
+                'Gönderim Kanalları (Sadece Veli Hesabına Gider)',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: const Color(0xFF334155),
+                ),
+              ),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -1565,10 +2354,32 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                     child: SwitchListTile(
                       value: sendAppNotification,
                       activeThumbColor: const Color(0xFF4F46E5),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: sendAppNotification ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0))),
-                      title: Text('Mobil & Web Bildirimi', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13)),
-                      subtitle: Text('Veli hesabına düşer', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B))),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: sendAppNotification
+                              ? const Color(0xFF4F46E5)
+                              : const Color(0xFFE2E8F0),
+                        ),
+                      ),
+                      title: Text(
+                        'Mobil & Web Bildirimi',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Veli hesabına düşer',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: const Color(0xFF64748B),
+                        ),
+                      ),
                       onChanged: (v) => setModal(() => sendAppNotification = v),
                     ),
                   ),
@@ -1577,10 +2388,32 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                     child: SwitchListTile(
                       value: sendSms,
                       activeThumbColor: const Color(0xFF10B981),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: sendSms ? const Color(0xFF10B981) : const Color(0xFFE2E8F0))),
-                      title: Text('SMS Hatırlatması', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13)),
-                      subtitle: Text('Veli telefonuna SMS', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B))),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: sendSms
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFFE2E8F0),
+                        ),
+                      ),
+                      title: Text(
+                        'SMS Hatırlatması',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Veli telefonuna SMS',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: const Color(0xFF64748B),
+                        ),
+                      ),
                       onChanged: (v) => setModal(() => sendSms = v),
                     ),
                   ),
@@ -1592,8 +2425,22 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Mesaj Metni & Şablonu', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
-                  Text('Etiketler: {ogrenci_adi}, {tutar}, {vade_tarihi}, {gecikme_gunu}', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: const Color(0xFF4F46E5))),
+                  Text(
+                    'Mesaj Metni & Şablonu',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: const Color(0xFF334155),
+                    ),
+                  ),
+                  Text(
+                    'Etiketler: {ogrenci_adi}, {tutar}, {vade_tarihi}, {gecikme_gunu}',
+                    style: GoogleFonts.inter(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF4F46E5),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 6),
@@ -1604,10 +2451,25 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   hintText: 'Mesaj metnini düzenleyiniz...',
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 2)),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF4F46E5),
+                      width: 2,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -1621,7 +2483,13 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                       ? null
                       : () async {
                           if (!sendAppNotification && !sendSms) {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lütfen en az bir gönderim kanalı seçiniz.')));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Lütfen en az bir gönderim kanalı seçiniz.',
+                                ),
+                              ),
+                            );
                             return;
                           }
                           setModal(() => isSending = true);
@@ -1630,10 +2498,14 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                           final rawTemplate = templateCtrl.text.trim();
 
                           for (final item in items) {
-                            final studentName = item['studentName'] ?? 'Öğrenci';
+                            final studentName =
+                                item['studentName'] ?? 'Öğrenci';
                             final dueDateStr = item['dueDate'] ?? '';
-                            final amountStr = _currencyFormat.format(item['amount']);
-                            final overdueDays = item['overdueDays']?.toString() ?? '0';
+                            final amountStr = _currencyFormat.format(
+                              item['amount'],
+                            );
+                            final overdueDays =
+                                item['overdueDays']?.toString() ?? '0';
 
                             final msgBody = rawTemplate
                                 .replaceAll('{ogrenci_adi}', studentName)
@@ -1643,57 +2515,81 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
 
                             // 1. Veliye Bildirim Kaydı Ekle (notifications koleksiyonu)
                             if (sendAppNotification) {
-                              await FirebaseFirestore.instance.collection('notifications').add({
-                                'institutionId': _institutionId,
-                                'studentId': item['studentId'],
-                                'studentName': studentName,
-                                'targetRole': 'parent',
-                                'type': 'overdue_payment_reminder',
-                                'title': '⚠️ Geciken Taksit Ödeme Hatırlatması',
-                                'body': msgBody,
-                                'amount': item['amount'],
-                                'dueDate': dueDateStr,
-                                'overdueDays': item['overdueDays'],
-                                'createdAt': FieldValue.serverTimestamp(),
-                                'isRead': false,
-                              });
+                              await FirebaseFirestore.instance
+                                  .collection('notifications')
+                                  .add({
+                                    'institutionId': _institutionId,
+                                    'studentId': item['studentId'],
+                                    'studentName': studentName,
+                                    'targetRole': 'parent',
+                                    'type': 'overdue_payment_reminder',
+                                    'title':
+                                        '⚠️ Geciken Taksit Ödeme Hatırlatması',
+                                    'body': msgBody,
+                                    'amount': item['amount'],
+                                    'dueDate': dueDateStr,
+                                    'overdueDays': item['overdueDays'],
+                                    'createdAt': FieldValue.serverTimestamp(),
+                                    'isRead': false,
+                                  });
                             }
 
                             // 2. SMS Kaydı Ekle (sms_queue koleksiyonu)
                             if (sendSms) {
-                              await FirebaseFirestore.instance.collection('sms_queue').add({
-                                'institutionId': _institutionId,
-                                'studentId': item['studentId'],
-                                'studentName': studentName,
-                                'targetRole': 'parent',
-                                'type': 'overdue_payment_reminder',
-                                'message': msgBody,
-                                'status': 'queued',
-                                'createdAt': FieldValue.serverTimestamp(),
-                              });
+                              await FirebaseFirestore.instance
+                                  .collection('sms_queue')
+                                  .add({
+                                    'institutionId': _institutionId,
+                                    'studentId': item['studentId'],
+                                    'studentName': studentName,
+                                    'targetRole': 'parent',
+                                    'type': 'overdue_payment_reminder',
+                                    'message': msgBody,
+                                    'status': 'queued',
+                                    'createdAt': FieldValue.serverTimestamp(),
+                                  });
                             }
 
                             count++;
                           }
 
                           if (mounted) Navigator.pop(ctx);
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('✓ Toplam $count adet veliye gecikme bildirimi başarıyla iletildi.'),
-                              backgroundColor: const Color(0xFF10B981),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
+                          if (mounted)
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  '✓ Toplam $count adet veliye gecikme bildirimi başarıyla iletildi.',
+                                ),
+                                backgroundColor: const Color(0xFF10B981),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
                         },
-                  icon: isSending ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.send_rounded, size: 20),
+                  icon: isSending
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Icon(Icons.send_rounded, size: 20),
                   label: Text(
-                    isSending ? 'BİLDİRİMLER GÖNDERİLİYOR...' : 'BİLDİRİMLERİ VE SMS\'LERİ GÖNDER (${items.length} VELİ)',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 14),
+                    isSending
+                        ? 'BİLDİRİMLER GÖNDERİLİYOR...'
+                        : 'BİLDİRİMLERİ VE SMS\'LERİ GÖNDER (${items.length} VELİ)',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF4F46E5),
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                     elevation: 0,
                   ),
                 ),
@@ -1720,7 +2616,14 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Kasa & Genel Hareketler', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF1E293B))),
+                Text(
+                  'Kasa & Genel Hareketler',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    color: const Color(0xFF1E293B),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -1729,7 +2632,11 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                         onPressed: () => _openTransactionDialog('income'),
                         icon: const Icon(Icons.add_rounded, size: 18),
                         label: const Text('Gelir Ekle'),
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), foregroundColor: Colors.white, elevation: 0),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF10B981),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1738,7 +2645,11 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                         onPressed: () => _openTransactionDialog('expense'),
                         icon: const Icon(Icons.remove_rounded, size: 18),
                         label: const Text('Gider Ekle'),
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444), foregroundColor: Colors.white, elevation: 0),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFEF4444),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                        ),
                       ),
                     ),
                   ],
@@ -1749,7 +2660,14 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Kasa & Genel Hareketler', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 18, color: const Color(0xFF1E293B))),
+                Text(
+                  'Kasa & Genel Hareketler',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                    color: const Color(0xFF1E293B),
+                  ),
+                ),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -1758,13 +2676,21 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                       onPressed: () => _openTransactionDialog('income'),
                       icon: const Icon(Icons.add_rounded, size: 18),
                       label: const Text('Gelir Ekle'),
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), foregroundColor: Colors.white, elevation: 0),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10B981),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                      ),
                     ),
                     ElevatedButton.icon(
                       onPressed: () => _openTransactionDialog('expense'),
                       icon: const Icon(Icons.remove_rounded, size: 18),
                       label: const Text('Gider Ekle'),
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444), foregroundColor: Colors.white, elevation: 0),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFEF4444),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                      ),
                     ),
                   ],
                 ),
@@ -1783,32 +2709,63 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   final isBank = k['type'] == 'bank';
 
                   return Container(
-                    width: constraints.maxWidth > 800 ? (constraints.maxWidth - 24) / 3 : constraints.maxWidth,
+                    width: constraints.maxWidth > 800
+                        ? (constraints.maxWidth - 24) / 3
+                        : constraints.maxWidth,
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
-                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6)],
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 6,
+                        ),
+                      ],
                     ),
                     child: Row(
                       children: [
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: isBank ? const Color(0xFFEEF2FF) : const Color(0xFFFEF3C7),
+                            color: isBank
+                                ? const Color(0xFFEEF2FF)
+                                : const Color(0xFFFEF3C7),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Icon(isBank ? Icons.account_balance_rounded : Icons.payments_rounded, color: isBank ? const Color(0xFF4F46E5) : const Color(0xFFD97706), size: 22),
+                          child: Icon(
+                            isBank
+                                ? Icons.account_balance_rounded
+                                : Icons.payments_rounded,
+                            color: isBank
+                                ? const Color(0xFF4F46E5)
+                                : const Color(0xFFD97706),
+                            size: 22,
+                          ),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(k['name'] ?? '', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF64748B))),
+                              Text(
+                                k['name'] ?? '',
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                  color: const Color(0xFF64748B),
+                                ),
+                              ),
                               const SizedBox(height: 4),
-                              Text(_currencyFormat.format(bal), style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18, color: const Color(0xFF1E293B))),
+                              Text(
+                                _currencyFormat.format(bal),
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 18,
+                                  color: const Color(0xFF1E293B),
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -1823,9 +2780,18 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
 
           // İşlem Listesi
           Container(
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: const Color(0xFFE2E8F0))),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
             child: _recentTransactions.isEmpty
-                ? const Center(child: Padding(padding: EdgeInsets.all(40), child: Text('Henüz gelir/gider hareketi bulunmuyor.')))
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(40),
+                      child: Text('Henüz gelir/gider hareketi bulunmuyor.'),
+                    ),
+                  )
                 : ListView.separated(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
@@ -1834,18 +2800,49 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                     itemBuilder: (context, idx) {
                       final t = _recentTransactions[idx];
                       final isIncome = t['type'] == 'income';
-                      final date = t['date'] is Timestamp ? (t['date'] as Timestamp).toDate() : DateTime.now();
+                      final date = t['date'] is Timestamp
+                          ? (t['date'] as Timestamp).toDate()
+                          : DateTime.now();
 
                       return ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: isIncome ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
-                          child: Icon(isIncome ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded, color: isIncome ? const Color(0xFF10B981) : const Color(0xFFEF4444), size: 18),
+                          backgroundColor: isIncome
+                              ? const Color(0xFFECFDF5)
+                              : const Color(0xFFFEF2F2),
+                          child: Icon(
+                            isIncome
+                                ? Icons.arrow_downward_rounded
+                                : Icons.arrow_upward_rounded,
+                            color: isIncome
+                                ? const Color(0xFF10B981)
+                                : const Color(0xFFEF4444),
+                            size: 18,
+                          ),
                         ),
-                        title: Text(t['description'] ?? 'İşlem', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13)),
-                        subtitle: Text('${DateFormat('dd.MM.yyyy HH:mm').format(date)} • ${t['kasaName'] ?? ''}', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B))),
+                        title: Text(
+                          t['description'] ?? 'İşlem',
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                        subtitle: Text(
+                          '${DateFormat('dd.MM.yyyy HH:mm').format(date)} • ${t['kasaName'] ?? ''}',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: const Color(0xFF64748B),
+                          ),
+                        ),
                         trailing: Text(
-                          (isIncome ? '+ ' : '- ') + _currencyFormat.format(t['amount']),
-                          style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 14, color: isIncome ? const Color(0xFF10B981) : const Color(0xFFEF4444)),
+                          (isIncome ? '+ ' : '- ') +
+                              _currencyFormat.format(t['amount']),
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                            color: isIncome
+                                ? const Color(0xFF10B981)
+                                : const Color(0xFFEF4444),
+                          ),
                         ),
                       );
                     },
@@ -1870,7 +2867,13 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
           decoration: const BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 30, offset: Offset(0, -10))],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 30,
+                offset: Offset(0, -10),
+              ),
+            ],
           ),
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
@@ -1887,7 +2890,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   width: 48,
                   height: 5,
                   margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(10)),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
               Row(
@@ -1899,62 +2905,142 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(color: const Color(0xFFC7D2FE)),
                     ),
-                    child: const Icon(Icons.account_balance_wallet_rounded, color: Color(0xFF4F46E5), size: 22),
+                    child: const Icon(
+                      Icons.account_balance_wallet_rounded,
+                      color: Color(0xFF4F46E5),
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Yeni Kasa / Hesap Tanımla', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        Text(
+                          'Yeni Kasa / Hesap Tanımla',
+                          style: GoogleFonts.inter(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF1E293B),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         const SizedBox(height: 2),
-                        Text('Farklı birim veya banka POS hesabı ekleyin', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        Text(
+                          'Farklı birim veya banka POS hesabı ekleyin',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: const Color(0xFF64748B),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 4),
-                  IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B), size: 20)),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Color(0xFF64748B),
+                      size: 20,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 24),
 
               // Kasa / Hesap Adı
-              Text('Kasa / Hesap Adı', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
+              Text(
+                'Kasa / Hesap Adı',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: const Color(0xFF334155),
+                ),
+              ),
               const SizedBox(height: 6),
               TextField(
                 controller: nameCtrl,
-                style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF1E293B),
+                ),
                 decoration: InputDecoration(
                   hintText: 'Örn: Ziraat Bankası POS, Kantin Kasası, vb.',
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 2)),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF4F46E5),
+                      width: 2,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
 
               // Hesap Türü
-              Text('Hesap Türü', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
+              Text(
+                'Hesap Türü',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: const Color(0xFF334155),
+                ),
+              ),
               const SizedBox(height: 6),
               DropdownButtonFormField<String>(
                 initialValue: selectedType,
                 decoration: InputDecoration(
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 2)),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF4F46E5),
+                      width: 2,
+                    ),
+                  ),
                 ),
                 items: const [
                   DropdownMenuItem(
                     value: 'cash',
                     child: Row(
                       children: [
-                        Icon(Icons.payments_rounded, color: Color(0xFFD97706), size: 18),
+                        Icon(
+                          Icons.payments_rounded,
+                          color: Color(0xFFD97706),
+                          size: 18,
+                        ),
                         SizedBox(width: 8),
                         Text('Nakit Kasa (Elden Tahsilat)'),
                       ],
@@ -1964,7 +3050,11 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                     value: 'bank',
                     child: Row(
                       children: [
-                        Icon(Icons.account_balance_rounded, color: Color(0xFF4F46E5), size: 18),
+                        Icon(
+                          Icons.account_balance_rounded,
+                          color: Color(0xFF4F46E5),
+                          size: 18,
+                        ),
                         SizedBox(width: 8),
                         Text('Banka / POS / Havale Hesabı'),
                       ],
@@ -1978,23 +3068,55 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
               const SizedBox(height: 16),
 
               // Açılış Bakiyesi
-              Text('Açılış / Mevcut Bakiye (₺)', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
+              Text(
+                'Açılış / Mevcut Bakiye (₺)',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: const Color(0xFF334155),
+                ),
+              ),
               const SizedBox(height: 6),
               TextField(
                 controller: balCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 inputFormatters: [TurkishCurrencyInputFormatter()],
-                style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w800, color: const Color(0xFF4F46E5)),
+                style: GoogleFonts.inter(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF4F46E5),
+                ),
                 decoration: InputDecoration(
                   hintText: '0,00',
                   suffixText: '₺',
-                  suffixStyle: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: const Color(0xFF64748B)),
+                  suffixStyle: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF64748B),
+                  ),
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 2)),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF4F46E5),
+                      width: 2,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -2005,10 +3127,18 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   onPressed: () async {
                     final name = nameCtrl.text.trim();
                     if (name.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lütfen kasa/hesap adını giriniz.')));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Lütfen kasa/hesap adını giriniz.'),
+                        ),
+                      );
                       return;
                     }
-                    final cleanText = balCtrl.text.replaceAll('.', '').replaceAll(',', '.').replaceAll(' ', '').trim();
+                    final cleanText = balCtrl.text
+                        .replaceAll('.', '')
+                        .replaceAll(',', '.')
+                        .replaceAll(' ', '')
+                        .trim();
                     final initialBal = double.tryParse(cleanText) ?? 0.0;
 
                     await FirebaseFirestore.instance.collection('cashes').add({
@@ -2021,16 +3151,30 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
 
                     if (mounted) Navigator.pop(ctx);
                     _refreshData();
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('✓ "$name" hesabı başarıyla tanımlandı.'), backgroundColor: const Color(0xFF10B981)),
-                    );
+                    if (mounted)
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '✓ "$name" hesabı başarıyla tanımlandı.',
+                          ),
+                          backgroundColor: const Color(0xFF10B981),
+                        ),
+                      );
                   },
                   icon: const Icon(Icons.check_circle_rounded, size: 20),
-                  label: Text('KASAYI OLUŞTUR VE KAYDET', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 14)),
+                  label: Text(
+                    'KASAYI OLUŞTUR VE KAYDET',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF4F46E5),
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                     elevation: 0,
                   ),
                 ),
@@ -2043,7 +3187,8 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
   }
 
   void _openReportingCenterDialog() {
-    String selectedReportType = 'general'; // 'general', 'student_plans', 'overdue', 'transactions'
+    String selectedReportType =
+        'general'; // 'general', 'student_plans', 'overdue', 'transactions'
     DateTimeRange? selectedDateRange;
 
     showModalBottomSheet(
@@ -2055,7 +3200,13 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
           decoration: const BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 30, offset: Offset(0, -10))],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 30,
+                offset: Offset(0, -10),
+              ),
+            ],
           ),
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
@@ -2072,7 +3223,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   width: 48,
                   height: 5,
                   margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(10)),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
               Row(
@@ -2080,39 +3234,80 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFF6366F1)]),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+                      ),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Icon(Icons.print_rounded, color: Colors.white, size: 22),
+                    child: const Icon(
+                      Icons.print_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Finans & Muhasebe Rapor Merkezi', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        Text(
+                          'Finans & Muhasebe Rapor Merkezi',
+                          style: GoogleFonts.inter(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF1E293B),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         const SizedBox(height: 2),
-                        Text('PDF veya Excel formatında resmi ve detaylı finansal raporlar', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        Text(
+                          'PDF veya Excel formatında resmi ve detaylı finansal raporlar',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: const Color(0xFF64748B),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 4),
-                  IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B), size: 20)),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Color(0xFF64748B),
+                      size: 20,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
 
               // Tarih Aralığı Seçimi
-              Text('Rapor Tarih Aralığı', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
+              Text(
+                'Rapor Tarih Aralığı',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: const Color(0xFF334155),
+                ),
+              ),
               const SizedBox(height: 6),
               InkWell(
                 onTap: () async {
                   final range = await CustomDateRangePicker.showRange(
                     context,
-                    initialRange: selectedDateRange ?? DateTimeRange(
-                      start: DateTime.now().subtract(const Duration(days: 30)),
-                      end: DateTime.now(),
-                    ),
+                    initialRange:
+                        selectedDateRange ??
+                        DateTimeRange(
+                          start: DateTime.now().subtract(
+                            const Duration(days: 30),
+                          ),
+                          end: DateTime.now(),
+                        ),
                   );
                   if (range != null) {
                     setModal(() => selectedDateRange = range);
@@ -2120,7 +3315,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                 },
                 borderRadius: BorderRadius.circular(14),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(14),
@@ -2128,23 +3326,37 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.calendar_month_rounded, color: Color(0xFF4F46E5), size: 20),
+                      const Icon(
+                        Icons.calendar_month_rounded,
+                        color: Color(0xFF4F46E5),
+                        size: 20,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           selectedDateRange != null
                               ? '${_dateFormat.format(selectedDateRange!.start)} - ${_dateFormat.format(selectedDateRange!.end)}'
                               : 'Tüm Zamanlar / Tüm Kayıtlar (Tarih Seçmek İçin Tıklayın)',
-                          style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: selectedDateRange != null ? const Color(0xFF1E293B) : const Color(0xFF64748B)),
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: selectedDateRange != null
+                                ? const Color(0xFF1E293B)
+                                : const Color(0xFF64748B),
+                          ),
                         ),
                       ),
                       if (selectedDateRange != null)
                         IconButton(
                           icon: const Icon(Icons.clear_rounded, size: 18),
-                          onPressed: () => setModal(() => selectedDateRange = null),
+                          onPressed: () =>
+                              setModal(() => selectedDateRange = null),
                         )
                       else
-                        const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF64748B)),
+                        const Icon(
+                          Icons.arrow_drop_down_rounded,
+                          color: Color(0xFF64748B),
+                        ),
                     ],
                   ),
                 ),
@@ -2152,13 +3364,21 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
               const SizedBox(height: 20),
 
               // Rapor Türü Seçimi
-              Text('Rapor Türü', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
+              Text(
+                'Rapor Türü',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: const Color(0xFF334155),
+                ),
+              ),
               const SizedBox(height: 10),
               _buildReportTypeOption(
                 value: 'general',
                 selected: selectedReportType,
                 title: 'Genel Finans ve Tahsilat Özeti',
-                desc: 'Tüm sözleşmeler, tahsilat oranı, kasa bakiyeleri ve mali özet tablosu',
+                desc:
+                    'Tüm sözleşmeler, tahsilat oranı, kasa bakiyeleri ve mali özet tablosu',
                 icon: Icons.dashboard_customize_rounded,
                 onTap: () => setModal(() => selectedReportType = 'general'),
               ),
@@ -2167,7 +3387,8 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                 value: 'overdue',
                 selected: selectedReportType,
                 title: 'Vadesi Geçmiş Taksitler & Borçlular Listesi',
-                desc: 'Gecikmede olan taksitler, gecikme günleri ve veli borç bakiyeleri',
+                desc:
+                    'Gecikmede olan taksitler, gecikme günleri ve veli borç bakiyeleri',
                 icon: Icons.warning_amber_rounded,
                 onTap: () => setModal(() => selectedReportType = 'overdue'),
               ),
@@ -2176,9 +3397,11 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                 value: 'transactions',
                 selected: selectedReportType,
                 title: 'Kasa & Banka Gelir/Gider Hareket Dökümü',
-                desc: 'Seçilen aralıktaki tüm para giriş-çıkışları, makbuzlar ve kasa akışı',
+                desc:
+                    'Seçilen aralıktaki tüm para giriş-çıkışları, makbuzlar ve kasa akışı',
                 icon: Icons.receipt_long_rounded,
-                onTap: () => setModal(() => selectedReportType = 'transactions'),
+                onTap: () =>
+                    setModal(() => selectedReportType = 'transactions'),
               ),
               const SizedBox(height: 24),
 
@@ -2191,7 +3414,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                       child: ElevatedButton.icon(
                         onPressed: () async {
                           Navigator.pop(ctx);
-                          final instName = userData?['schoolName'] ?? userData?['institutionName'] ?? 'eduKN Eğitim Kurumları';
+                          final instName =
+                              userData?['schoolName'] ??
+                              userData?['institutionName'] ??
+                              'eduKN Eğitim Kurumları';
 
                           if (selectedReportType == 'general') {
                             await FinancialReportService.printGeneralSummaryPdf(
@@ -2220,12 +3446,23 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                             );
                           }
                         },
-                        icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
-                        label: Text('PDF Yazdır', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12)),
+                        icon: const Icon(
+                          Icons.picture_as_pdf_rounded,
+                          size: 18,
+                        ),
+                        label: Text(
+                          'PDF Yazdır',
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFDC2626),
                           foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           elevation: 0,
                         ),
                       ),
@@ -2238,7 +3475,10 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                       child: ElevatedButton.icon(
                         onPressed: () async {
                           Navigator.pop(ctx);
-                          final instName = userData?['schoolName'] ?? userData?['institutionName'] ?? 'eduKN Eğitim Kurumları';
+                          final instName =
+                              userData?['schoolName'] ??
+                              userData?['institutionName'] ??
+                              'eduKN Eğitim Kurumları';
 
                           if (selectedReportType == 'general') {
                             await FinancialReportService.exportGeneralSummaryExcel(
@@ -2266,7 +3506,9 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('✓ Excel (.xlsx) raporu başarıyla oluşturuldu ve indirildi.'),
+                                content: Text(
+                                  '✓ Excel (.xlsx) raporu başarıyla oluşturuldu ve indirildi.',
+                                ),
                                 backgroundColor: Color(0xFF10B981),
                                 behavior: SnackBarBehavior.floating,
                               ),
@@ -2274,11 +3516,19 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                           }
                         },
                         icon: const Icon(Icons.table_view_rounded, size: 18),
-                        label: Text('Excel İndir', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12)),
+                        label: Text(
+                          'Excel İndir',
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF059669),
                           foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           elevation: 0,
                         ),
                       ),
@@ -2311,23 +3561,52 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFFEEF2FF) : const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0), width: isSelected ? 2 : 1),
+          border: Border.all(
+            color: isSelected
+                ? const Color(0xFF4F46E5)
+                : const Color(0xFFE2E8F0),
+            width: isSelected ? 2 : 1,
+          ),
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(10)),
-              child: Icon(icon, color: isSelected ? Colors.white : const Color(0xFF64748B), size: 20),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? const Color(0xFF4F46E5)
+                    : const Color(0xFFE2E8F0),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icon,
+                color: isSelected ? Colors.white : const Color(0xFF64748B),
+                size: 20,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13, color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF1E293B))),
+                  Text(
+                    title,
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      color: isSelected
+                          ? const Color(0xFF4F46E5)
+                          : const Color(0xFF1E293B),
+                    ),
+                  ),
                   const SizedBox(height: 2),
-                  Text(desc, style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B))),
+                  Text(
+                    desc,
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: const Color(0xFF64748B),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -2348,9 +3627,30 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
     final descCtrl = TextEditingController();
     final amtCtrl = TextEditingController();
     String? selectedKasaId = _cashes.isNotEmpty ? _cashes.first['id'] : null;
-    final incomeCategories = ['Öğrenci Kayıt / Kurs', 'Yemek / Kantin', 'Servis / Ulaşım', 'Kitap & Kırtasiye', 'Etkinlik / Organizasyon', 'Diğer Gelir'];
-    final expenseCategories = ['Personel & Maaş', 'Kira / Bina Gideri', 'Elektrik, Su, Doğalgaz', 'Kırtasiye & Malzeme', 'Yemek & Mutfak', 'Servis & Yakıt', 'Bakım & Onarım', 'Reklam & Tanıtım', 'Vergi / Resmi Harç', 'Genel Gider', 'Diğer Gider'];
-    String selectedCategory = isIncome ? incomeCategories.first : expenseCategories.first;
+    final incomeCategories = [
+      'Öğrenci Kayıt / Kurs',
+      'Yemek / Kantin',
+      'Servis / Ulaşım',
+      'Kitap & Kırtasiye',
+      'Etkinlik / Organizasyon',
+      'Diğer Gelir',
+    ];
+    final expenseCategories = [
+      'Personel & Maaş',
+      'Kira / Bina Gideri',
+      'Elektrik, Su, Doğalgaz',
+      'Kırtasiye & Malzeme',
+      'Yemek & Mutfak',
+      'Servis & Yakıt',
+      'Bakım & Onarım',
+      'Reklam & Tanıtım',
+      'Vergi / Resmi Harç',
+      'Genel Gider',
+      'Diğer Gider',
+    ];
+    String selectedCategory = isIncome
+        ? incomeCategories.first
+        : expenseCategories.first;
 
     showModalBottomSheet(
       context: context,
@@ -2362,7 +3662,11 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
             boxShadow: [
-              BoxShadow(color: Colors.black26, blurRadius: 30, offset: Offset(0, -10)),
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 30,
+                offset: Offset(0, -10),
+              ),
             ],
           ),
           padding: EdgeInsets.only(
@@ -2397,15 +3701,23 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: isIncome ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                          color: isIncome
+                              ? const Color(0xFFECFDF5)
+                              : const Color(0xFFFEF2F2),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: isIncome ? const Color(0xFFA7F3D0) : const Color(0xFFFECACA),
+                            color: isIncome
+                                ? const Color(0xFFA7F3D0)
+                                : const Color(0xFFFECACA),
                           ),
                         ),
                         child: Icon(
-                          isIncome ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
-                          color: isIncome ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                          isIncome
+                              ? Icons.arrow_downward_rounded
+                              : Icons.arrow_upward_rounded,
+                          color: isIncome
+                              ? const Color(0xFF059669)
+                              : const Color(0xFFDC2626),
                           size: 24,
                         ),
                       ),
@@ -2414,7 +3726,9 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            isIncome ? 'Yeni Gelir Hareketi Ekle' : 'Yeni Gider Hareketi Ekle',
+                            isIncome
+                                ? 'Yeni Gelir Hareketi Ekle'
+                                : 'Yeni Gider Hareketi Ekle',
                             style: GoogleFonts.inter(
                               fontSize: 18,
                               fontWeight: FontWeight.w800,
@@ -2423,8 +3737,13 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            isIncome ? 'Kasaya veya banka hesabına para girişi işleyin' : 'Kasadan veya banka hesabından harcama/çıkış işleyin',
-                            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                            isIncome
+                                ? 'Kasaya veya banka hesabına para girişi işleyin'
+                                : 'Kasadan veya banka hesabından harcama/çıkış işleyin',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: const Color(0xFF64748B),
+                            ),
                           ),
                         ],
                       ),
@@ -2432,78 +3751,181 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   ),
                   IconButton(
                     onPressed: () => Navigator.pop(ctx),
-                    icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B)),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Color(0xFF64748B),
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 24),
 
               // Tutar Alanı
-              Text('İşlem Tutarı (₺)', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
+              Text(
+                'İşlem Tutarı (₺)',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: const Color(0xFF334155),
+                ),
+              ),
               const SizedBox(height: 6),
               TextField(
                 controller: amtCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 inputFormatters: [TurkishCurrencyInputFormatter()],
-                style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.w900, color: isIncome ? const Color(0xFF059669) : const Color(0xFFDC2626)),
+                style: GoogleFonts.inter(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  color: isIncome
+                      ? const Color(0xFF059669)
+                      : const Color(0xFFDC2626),
+                ),
                 decoration: InputDecoration(
                   hintText: '0,00',
                   suffixText: '₺',
-                  suffixStyle: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w800, color: const Color(0xFF64748B)),
+                  suffixStyle: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF64748B),
+                  ),
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: isIncome ? const Color(0xFF10B981) : const Color(0xFFEF4444), width: 2)),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(
+                      color: isIncome
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFFEF4444),
+                      width: 2,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
 
               // Kasa / Banka Seçimi
-              Text('Hedef Kasa / Hesap', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
+              Text(
+                'Hedef Kasa / Hesap',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: const Color(0xFF334155),
+                ),
+              ),
               const SizedBox(height: 6),
               DropdownButtonFormField<String>(
                 initialValue: selectedKasaId,
                 decoration: InputDecoration(
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                ),
-                items: _cashes.map((k) => DropdownMenuItem(
-                  value: k['id'] as String,
-                  child: Row(
-                    children: [
-                      Icon(k['type'] == 'bank' ? Icons.account_balance_rounded : Icons.payments_rounded, size: 18, color: const Color(0xFF4F46E5)),
-                      const SizedBox(width: 10),
-                      Text(k['name'] ?? '', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14)),
-                      const SizedBox(width: 10),
-                      Text('(${_currencyFormat.format((k['balance'] as num?)?.toDouble() ?? 0)})', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
-                    ],
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
                   ),
-                )).toList(),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                ),
+                items: _cashes
+                    .map(
+                      (k) => DropdownMenuItem(
+                        value: k['id'] as String,
+                        child: Row(
+                          children: [
+                            Icon(
+                              k['type'] == 'bank'
+                                  ? Icons.account_balance_rounded
+                                  : Icons.payments_rounded,
+                              size: 18,
+                              color: const Color(0xFF4F46E5),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              k['name'] ?? '',
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              '(${_currencyFormat.format((k['balance'] as num?)?.toDouble() ?? 0)})',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: const Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                    .toList(),
                 onChanged: (v) => setModal(() => selectedKasaId = v),
               ),
               const SizedBox(height: 16),
 
               // Kategori Seçimi
-              Text('Kategori / İşlem Türü', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
+              Text(
+                'Kategori / İşlem Türü',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: const Color(0xFF334155),
+                ),
+              ),
               const SizedBox(height: 6),
               DropdownButtonFormField<String>(
                 initialValue: selectedCategory,
                 decoration: InputDecoration(
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
                 ),
-                items: (isIncome ? incomeCategories : expenseCategories).map((c) => DropdownMenuItem(
-                  value: c,
-                  child: Text(c, style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14)),
-                )).toList(),
+                items: (isIncome ? incomeCategories : expenseCategories)
+                    .map(
+                      (c) => DropdownMenuItem(
+                        value: c,
+                        child: Text(
+                          c,
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
                 onChanged: (v) {
                   if (v != null) setModal(() => selectedCategory = v);
                 },
@@ -2511,7 +3933,14 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
               const SizedBox(height: 16),
 
               // Açıklama
-              Text('Açıklama / Not', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
+              Text(
+                'Açıklama / Not',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: const Color(0xFF334155),
+                ),
+              ),
               const SizedBox(height: 6),
               TextField(
                 controller: descCtrl,
@@ -2519,9 +3948,18 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                   hintText: 'İşlem ile ilgili detaylı bilgi girin...',
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -2532,11 +3970,19 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                 height: 52,
                 child: ElevatedButton.icon(
                   onPressed: () async {
-                    final cleanText = amtCtrl.text.replaceAll('.', '').replaceAll(',', '.').replaceAll(' ', '').trim();
+                    final cleanText = amtCtrl.text
+                        .replaceAll('.', '')
+                        .replaceAll(',', '.')
+                        .replaceAll(' ', '')
+                        .trim();
                     final amt = double.tryParse(cleanText) ?? 0.0;
                     if (amt <= 0 || selectedKasaId == null) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Lütfen geçerli bir tutar ve kasa seçiniz.')),
+                        const SnackBar(
+                          content: Text(
+                            'Lütfen geçerli bir tutar ve kasa seçiniz.',
+                          ),
+                        ),
                       );
                       return;
                     }
@@ -2545,41 +3991,71 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                       'institutionId': _institutionId,
                       'type': type,
                       'category': selectedCategory,
-                      'description': descCtrl.text.trim().isEmpty ? selectedCategory : descCtrl.text.trim(),
+                      'description': descCtrl.text.trim().isEmpty
+                          ? selectedCategory
+                          : descCtrl.text.trim(),
                       'amount': amt,
                       'kasaId': selectedKasaId,
-                      'kasaName': _cashes.firstWhere((k) => k['id'] == selectedKasaId)['name'],
+                      'kasaName': _cashes.firstWhere(
+                        (k) => k['id'] == selectedKasaId,
+                      )['name'],
                       'date': FieldValue.serverTimestamp(),
                       'userId': FirebaseAuth.instance.currentUser?.uid,
                     };
 
-                    await FirebaseFirestore.instance.collection('transactions').add(data);
-                    final kasaRef = FirebaseFirestore.instance.collection('cashes').doc(selectedKasaId);
+                    await FirebaseFirestore.instance
+                        .collection('transactions')
+                        .add(data);
+                    final kasaRef = FirebaseFirestore.instance
+                        .collection('cashes')
+                        .doc(selectedKasaId);
                     await FirebaseFirestore.instance.runTransaction((tx) async {
                       final snap = await tx.get(kasaRef);
-                      final oldBal = (snap['balance'] as num?)?.toDouble() ?? 0.0;
-                      tx.update(kasaRef, {'balance': isIncome ? oldBal + amt : oldBal - amt});
+                      final oldBal =
+                          (snap['balance'] as num?)?.toDouble() ?? 0.0;
+                      tx.update(kasaRef, {
+                        'balance': isIncome ? oldBal + amt : oldBal - amt,
+                      });
                     });
 
                     if (mounted) Navigator.pop(ctx);
                     _refreshData();
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('✓ ${isIncome ? 'Gelir' : 'Gider'} kaydı başarıyla eklendi.'),
-                        backgroundColor: isIncome ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
+                    if (mounted)
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '✓ ${isIncome ? 'Gelir' : 'Gider'} kaydı başarıyla eklendi.',
+                          ),
+                          backgroundColor: isIncome
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFFEF4444),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
                   },
-                  icon: Icon(isIncome ? Icons.check_circle_rounded : Icons.remove_circle_outline_rounded, size: 20),
+                  icon: Icon(
+                    isIncome
+                        ? Icons.check_circle_rounded
+                        : Icons.remove_circle_outline_rounded,
+                    size: 20,
+                  ),
                   label: Text(
-                    isIncome ? 'GELİR HAREKETİNİ KAYDET' : 'GİDER HAREKETİNİ KAYDET',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 14),
+                    isIncome
+                        ? 'GELİR HAREKETİNİ KAYDET'
+                        : 'GİDER HAREKETİNİ KAYDET',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isIncome ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                    backgroundColor: isIncome
+                        ? const Color(0xFF10B981)
+                        : const Color(0xFFEF4444),
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                     elevation: 0,
                   ),
                 ),

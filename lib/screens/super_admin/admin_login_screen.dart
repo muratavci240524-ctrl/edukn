@@ -1,6 +1,12 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
+import '../../firebase_options.dart';
+import '../../services/splash/splash_service.dart';
+import '../../utils/web_hard_nav.dart';
 import '../../widgets/edukn_logo.dart';
 
 class AdminLoginScreen extends StatefulWidget {
@@ -20,10 +26,106 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
   bool _kvkkAccepted = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SplashService.hide();
+    });
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  /// Firebase JS SDK 12.12.0'da signInWithEmailAndPassword hemen sonrasında
+  /// WatchStream açılması (ID: ca9 / b815) yarış durumuna yol açabildiği için
+  /// Süper Admin kullanıcı belgesini güvenli biçimde REST API üzerinden doğrular/onarır.
+  Future<void> _ensureSuperAdminUserDoc(User user, String email) async {
+    try {
+      final idToken = await user.getIdToken(true);
+      if (idToken == null || idToken.isEmpty) return;
+
+      final projectId = DefaultFirebaseOptions.currentPlatform.projectId;
+      final baseDocUrl =
+          'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/users/${user.uid}';
+      final headers = <String, String>{
+        'Authorization': 'Bearer $idToken',
+        'Content-Type': 'application/json',
+      };
+
+      final getRes = await http.get(Uri.parse(baseDocUrl), headers: headers);
+      if (getRes.statusCode == 200) {
+        final decoded = json.decode(getRes.body) as Map<String, dynamic>;
+        final fields =
+            (decoded['fields'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+        final existingRole =
+            (fields['role'] as Map<String, dynamic>?)?['stringValue'];
+        if (existingRole == 'super_admin') {
+          return;
+        }
+        final patchUrl =
+            '$baseDocUrl?updateMask.fieldPaths=role&updateMask.fieldPaths=institutionId&updateMask.fieldPaths=isActive';
+        await http.patch(
+          Uri.parse(patchUrl),
+          headers: headers,
+          body: json.encode({
+            'fields': {
+              'role': {'stringValue': 'super_admin'},
+              'institutionId': {'stringValue': 'SUPER_ADMIN'},
+              'isActive': {'booleanValue': true},
+            },
+          }),
+        );
+        debugPrint('📝 Süper Admin rolü REST ile güncellendi.');
+      } else if (getRes.statusCode == 404) {
+        final nowIso = DateTime.now().toUtc().toIso8601String();
+        await http.patch(
+          Uri.parse(baseDocUrl),
+          headers: headers,
+          body: json.encode({
+            'fields': {
+              'fullName': {'stringValue': 'Süper Admin'},
+              'email': {'stringValue': email},
+              'role': {'stringValue': 'super_admin'},
+              'institutionId': {'stringValue': 'SUPER_ADMIN'},
+              'isActive': {'booleanValue': true},
+              'createdAt': {'timestampValue': nowIso},
+            },
+          }),
+        );
+        debugPrint('📝 Süper Admin kullanıcı belgesi REST ile oluşturuldu.');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Süper Admin kullanıcı belgesi kontrol uyarısı: $e');
+    }
+  }
+
+  /// Mevcut tarayıcı sekmesinde Firestore JS kuyruğu daha önce (ör. Hot Restart
+  /// veya eski oturum nedeniyle) b815/ca9 durumuna düştüyse tespit eder.
+  Future<bool> _isWebFirestoreQueueHealthy() async {
+    if (!kIsWeb) return true;
+    try {
+      await FirebaseFirestore.instance
+          .collection('schools')
+          .limit(1)
+          .get()
+          .timeout(const Duration(seconds: 4));
+      return true;
+    } catch (e) {
+      final msg = e.toString();
+      if (msg.contains('INTERNAL ASSERTION FAILED') ||
+          msg.contains('b815') ||
+          msg.contains('ca9')) {
+        debugPrint(
+          '⚠️ Firestore Web kuyruğunda eski oturumdan kalan b815/ca9 algılandı; temiz sayfa geçişi yapılacak.',
+        );
+        return false;
+      }
+      return true;
+    }
   }
 
   Future<void> _login() async {
@@ -48,6 +150,16 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       debugPrint('🔐 Süper Admin girişi deneniyor...');
       debugPrint('📧 Email: $email');
 
+      // Farklı bir okul oturumu açıksa önce temizce kapat ve kısa süre bekle
+      final existingUser = FirebaseAuth.instance.currentUser;
+      if (existingUser != null &&
+          existingUser.email?.toLowerCase() != email.toLowerCase()) {
+        try {
+          await FirebaseAuth.instance.signOut();
+          await Future.delayed(const Duration(milliseconds: 250));
+        } catch (_) {}
+      }
+
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
         password: password,
@@ -56,42 +168,33 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       // Super Admin kullanıcı belgesi Firestore'da yoksa otomatik oluştur/onar
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        if (!userDoc.exists) {
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-            'fullName': 'Süper Admin',
-            'email': email,
-            'role': 'super_admin',
-            'institutionId': 'SUPER_ADMIN',
-            'isActive': true,
-            'createdAt': FieldValue.serverTimestamp(),
-          });
-          debugPrint('📝 Süper Admin kullanıcı belgesi Firestore\'da oluşturuldu.');
-        } else if (userDoc.data()?['role'] != 'super_admin') {
-          // Rol güncelle
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-            'role': 'super_admin',
-          });
-          debugPrint('📝 Süper Admin kullanıcı rolü Firestore\'da güncellendi.');
-        }
+        await _ensureSuperAdminUserDoc(user, email);
       }
 
       debugPrint('✅ Giriş başarılı!');
 
       if (mounted) {
-        // Show success loading animation for 2 seconds
+        // Show success loading animation
         showDialog(
           context: context,
           barrierDismissible: false,
           builder: (context) => WillPopScope(
             onWillPop: () async => false,
-            child: const Center(
-              child: EduKnLoader(size: 100),
-            ),
+            child: const Center(child: EduKnLoader(size: 100)),
           ),
         );
 
-        await Future.delayed(const Duration(milliseconds: 2000));
+        // Firestore Web kanalının yeni token ile oturmasını bekle ve sağlığını denetle
+        await Future.delayed(const Duration(milliseconds: 900));
+        final healthy = await _isWebFirestoreQueueHealthy();
+
+        if (!healthy && kIsWeb) {
+          if (hardNavigateWeb('/admin-dashboard')) {
+            return;
+          }
+        }
+
+        await Future.delayed(const Duration(milliseconds: 500));
         if (!mounted) return;
         Navigator.pop(context); // Close the dialog
 

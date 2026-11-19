@@ -31,6 +31,12 @@ class StudentReportCardDialog extends StatefulWidget {
   final String? trialExamId;
   final String? schoolTypeName;
 
+  /// Dış katılımlı sınav: adayın kazandığı burs oranı (null = burs bilgisi yok/uygulanmaz).
+  final int? scholarshipRate;
+
+  /// Dış katılımlı sınavda burs açık mı (kazanılmadıysa bilgi metni gösterilir).
+  final bool scholarshipEnabled;
+
   const StudentReportCardDialog({
     Key? key,
     required this.student,
@@ -43,6 +49,8 @@ class StudentReportCardDialog extends StatefulWidget {
     this.isRankingVisible = true,
     this.trialExamId,
     this.schoolTypeName,
+    this.scholarshipRate,
+    this.scholarshipEnabled = false,
   }) : super(key: key);
 
   @override
@@ -84,6 +92,9 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
     if (subjects.isNotEmpty) {
       _selectedKeySubject = subjects.first;
       _selectedOutcomeSubject = subjects.first;
+    }
+    if ((widget.scholarshipRate ?? 0) > 0) {
+      _scholarshipTier = ScholarshipTier(minRank: 1, maxRank: 1, rate: widget.scholarshipRate!);
     }
     _checkScholarship();
     _fetchSchoolTypeName();
@@ -249,6 +260,29 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
   }
 
   Widget _buildScholarshipBanner() {
+    if (_scholarshipTier == null && widget.scholarshipEnabled && widget.scholarshipRate == 0) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.blueGrey.shade100),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline_rounded, color: Colors.blueGrey.shade500),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Bu sınavda burs kazanma sıralamasına girilemedi. Sınava katıldığınız için teşekkür ederiz.',
+                style: TextStyle(fontSize: 13, color: Colors.blueGrey.shade700),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     if (_scholarshipTier == null) return const SizedBox.shrink();
 
     return Container(

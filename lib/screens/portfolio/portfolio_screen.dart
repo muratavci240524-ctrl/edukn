@@ -10,6 +10,8 @@ import '../school/assessment/evaluation_models.dart';
 import '../school/assessment/student_report_card_dialog.dart';
 import '../school/assessment/exam_report_card_service.dart';
 import '../../models/assessment/lgs_data.dart';
+import '../../models/assessment/yks_data.dart';
+import '../../widgets/portfolio_guidance_test_card.dart';
 
 import 'dart:convert';
 import 'dart:math' as math;
@@ -41,7 +43,6 @@ import '../student/student_exam_stats_screen.dart';
 import 'package:edukn/widgets/safe_stream_builder.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/course_track_resolver.dart';
-
 
 class PortfolioScreen extends StatefulWidget {
   final String institutionId;
@@ -91,8 +92,11 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
     final lower = trimmed.toLowerCase();
     if (lower.contains('mezun')) return 'Mezun';
-    if (lower.contains('hazırlık') || lower.contains('hazirlik')) return 'Hazırlık';
-    if (lower.contains('anaokul') || lower.contains('anasınıf') || lower.contains('anasinif')) {
+    if (lower.contains('hazırlık') || lower.contains('hazirlik'))
+      return 'Hazırlık';
+    if (lower.contains('anaokul') ||
+        lower.contains('anasınıf') ||
+        lower.contains('anasinif')) {
       return 'Anaokulu';
     }
 
@@ -114,7 +118,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     if (m3 != null) return m3.group(1)!;
 
     // Tireli/harfli şube kodu: 7-A, 7/B, 7A, 12-A -> 7, 12
-    final mSep = RegExp(r'^(1[0-2]|[1-9])(?:\s*[-/.\s]\s*|[A-Za-zÇĞİÖŞÜçğıöşü])').firstMatch(trimmed);
+    final mSep = RegExp(
+      r'^(1[0-2]|[1-9])(?:\s*[-/.\s]\s*|[A-Za-zÇĞİÖŞÜçğıöşü])',
+    ).firstMatch(trimmed);
     if (mSep != null) return mSep.group(1)!;
 
     return null;
@@ -128,7 +134,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   }
 
   String? _getStudentLevelKey(Map<String, dynamic> s) {
-    final rawLevel = (s['classLevel'] ?? s['grade'] ?? s['level'] ?? '').toString().trim();
+    final rawLevel = (s['classLevel'] ?? s['grade'] ?? s['level'] ?? '')
+        .toString()
+        .trim();
     final fromLevel = _extractLevelKey(rawLevel);
     if (fromLevel != null && fromLevel.isNotEmpty) return fromLevel;
 
@@ -191,7 +199,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         for (var doc in snapshot.docs) {
           final data = doc.data();
           if (data['activeGrades'] != null) {
-            allGrades.addAll(List<String>.from(data['activeGrades'].map((e) => e.toString())));
+            allGrades.addAll(
+              List<String>.from(data['activeGrades'].map((e) => e.toString())),
+            );
           }
         }
 
@@ -250,7 +260,8 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     try {
       List<Map<String, dynamic>> students = [];
 
-      if (widget.allowedClassIds != null && widget.allowedClassIds!.isNotEmpty) {
+      if (widget.allowedClassIds != null &&
+          widget.allowedClassIds!.isNotEmpty) {
         // Teacher mode: Filter by assigned classes using chunks (max 10-30 per whereIn)
         final classChunks = <List<String>>[];
         for (var i = 0; i < widget.allowedClassIds!.length; i += 10) {
@@ -264,14 +275,16 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
               .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
               .where('classId', whereIn: chunk)
               .get();
-          
-          students.addAll(snapshot.docs.map((doc) {
-            final data = doc.data();
-            data['id'] = doc.id;
-            return data;
-          }));
+
+          students.addAll(
+            snapshot.docs.map((doc) {
+              final data = doc.data();
+              data['id'] = doc.id;
+              return data;
+            }),
+          );
         }
-        
+
         // Remove duplicates if any (due to overlapping assignments, though unlikely for student-class)
         final seenIds = <String>{};
         students.retainWhere((s) => seenIds.add(s['id']));
@@ -280,11 +293,11 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         var query = FirebaseFirestore.instance
             .collection('students')
             .where('institutionId', isEqualTo: widget.institutionId);
-            
+
         if (!widget.showAllSchoolTypes) {
           query = query.where('schoolTypeId', isEqualTo: widget.schoolTypeId);
         }
-        
+
         final snapshot = await query.orderBy('name').get();
 
         students = snapshot.docs.map((doc) {
@@ -295,7 +308,11 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
       }
 
       // Final sort by name since chunks might mess up order
-      students.sort((a, b) => (a['name'] ?? '').toString().compareTo((b['name'] ?? '').toString()));
+      students.sort(
+        (a, b) => (a['name'] ?? '').toString().compareTo(
+          (b['name'] ?? '').toString(),
+        ),
+      );
 
       if (mounted) {
         setState(() {
@@ -304,8 +321,12 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
           _filterStudents();
           if (widget.initialStudentId != null) {
             try {
-              _selectedStudent = _allStudents.firstWhere((s) => s['id'] == widget.initialStudentId);
-            } catch (silentError) { debugPrint('[portfolio_screen] hata yutuldu: $silentError'); }
+              _selectedStudent = _allStudents.firstWhere(
+                (s) => s['id'] == widget.initialStudentId,
+              );
+            } catch (silentError) {
+              debugPrint('[portfolio_screen] hata yutuldu: $silentError');
+            }
           }
           _isLoading = false;
         });
@@ -372,12 +393,16 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     setState(() {
       _classes = classes;
       _classLevels = formattedLevels;
-      if (_filterClassLevel != null && !_classLevels.contains(_filterClassLevel)) {
+      if (_filterClassLevel != null &&
+          !_classLevels.contains(_filterClassLevel)) {
         final key = _extractLevelKey(_filterClassLevel);
         final match = key != null ? _formatLevelLabel(key) : null;
-        _filterClassLevel = (match != null && _classLevels.contains(match)) ? match : null;
+        _filterClassLevel = (match != null && _classLevels.contains(match))
+            ? match
+            : null;
       }
-      if (_filterClass != null && !_filteredClassesForSelectedLevel.contains(_filterClass)) {
+      if (_filterClass != null &&
+          !_filteredClassesForSelectedLevel.contains(_filterClass)) {
         _filterClass = null;
       }
     });
@@ -385,7 +410,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
   void _scrollToSelectedStudent() {
     if (_selectedStudent == null) return;
-    final index = _filteredStudents.indexWhere((s) => s['id'] == _selectedStudent!['id']);
+    final index = _filteredStudents.indexWhere(
+      (s) => s['id'] == _selectedStudent!['id'],
+    );
     if (index < 0) return;
 
     // itemExtent ile sabit yükseklik: her öğrenci kartı tam 80px
@@ -424,12 +451,15 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
         // Class (Branch) Filter
         if (_filterClass != null) {
-          if ((s['className'] ?? '').toString().trim() != _filterClass!.trim()) return false;
+          if ((s['className'] ?? '').toString().trim() != _filterClass!.trim())
+            return false;
         }
 
         // Search Filter
         if (query.isNotEmpty) {
-          final fullName = (s['fullName'] ?? s['name'] ?? '').toString().toLowerCase();
+          final fullName = (s['fullName'] ?? s['name'] ?? '')
+              .toString()
+              .toLowerCase();
           final number = (s['studentNumber'] ?? '').toString();
           final tc = (s['tcNo'] ?? '').toString();
           return fullName.contains(query) ||
@@ -602,14 +632,17 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
               Expanded(
                 child: _buildDropdown(
                   hint: 'Sınıf Seviyesi',
-                  value: _classLevels.contains(_filterClassLevel) ? _filterClassLevel : null,
+                  value: _classLevels.contains(_filterClassLevel)
+                      ? _filterClassLevel
+                      : null,
                   items: _classLevels,
                   onChanged: (val) => setState(() {
                     _filterClassLevel = val;
                     if (val == null) {
                       _filterClass = null;
                     } else if (_filterClass != null &&
-                        _getClassLevelKey(_filterClass!) != _extractLevelKey(val)) {
+                        _getClassLevelKey(_filterClass!) !=
+                            _extractLevelKey(val)) {
                       _filterClass = null;
                     }
                     _filterStudents();
@@ -741,7 +774,8 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
     return ListView.builder(
       controller: _studentListScrollController,
-      itemExtent: 80.0, // Sabit yükseklik: scroll hesabı her index için kesin çalışır
+      itemExtent:
+          80.0, // Sabit yükseklik: scroll hesabı her index için kesin çalışır
       padding: EdgeInsets.all(8),
       itemCount: _filteredStudents.length,
       itemBuilder: (context, index) {
@@ -869,7 +903,7 @@ class PortfolioDetailView extends StatefulWidget {
   final Map<String, dynamic> student;
   final String institutionId;
   final VoidCallback? onClose;
-  
+
   // Reporting Context
   final List<Map<String, dynamic>> filteredStudents;
   final String? activeTermId;
@@ -917,6 +951,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   Set<String> _availableSubjects = {'Tümü'};
   String _graphMetric = 'score'; // Default to score ('net' or 'score')
   String _selectedLgsYear = '2026'; // Default to latest LGS year
+  String _selectedYksYear = '2025'; // YKS Türkiye derecesi referans yılı
+  String _selectedYksTrack = 'SAY'; // AYT için seçilen puan türü (SAY/EA/SOZ)
   String _selectedWrittenSubject = 'Tümü';
   String _selectedHomeworkSubject = 'Tümü';
   int? _touchedIndex;
@@ -924,6 +960,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   String _selectedInterviewTitle = 'Tümü';
   BookType _activeBookTabFilter = BookType.questionBank;
   String _selectedEtutSubject = 'Tümü';
+  final ValueNotifier<({String badge, String topic, String stats})?>
+  _hoveredPortfolioTopicInfo = ValueNotifier(null);
 
   // Store full ExamType objects (examTypeId -> ExamType)
   Map<String, ExamType> _examTypesMap = {};
@@ -956,23 +994,70 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
       }
     });
     _allTabs = [
-      _PortfolioTabConfig('portfolyo_genel_bilgiler', 'Genel Bilgiler', _buildGeneralInfoTab),
-      _PortfolioTabConfig('portfolyo_deneme_sinavlari', 'Deneme Sınavları', _buildTrialExamsTab),
-      _PortfolioTabConfig('portfolyo_yazili_sinavlar', 'Yazılı Sınavlar', _buildWrittenExamsTab),
+      _PortfolioTabConfig(
+        'portfolyo_genel_bilgiler',
+        'Genel Bilgiler',
+        _buildGeneralInfoTab,
+      ),
+      _PortfolioTabConfig(
+        'portfolyo_deneme_sinavlari',
+        'Deneme Sınavları',
+        _buildTrialExamsTab,
+      ),
+      _PortfolioTabConfig(
+        'portfolyo_yazili_sinavlar',
+        'Yazılı Sınavlar',
+        _buildWrittenExamsTab,
+      ),
       _PortfolioTabConfig('portfolyo_odevler', 'Ödevler', _buildHomeworksTab),
-      _PortfolioTabConfig('portfolyo_devamsizlik', 'Devamsızlık', _buildAttendanceTab),
-      _PortfolioTabConfig('portfolyo_eylem_planlari', 'Eylem Planları', _buildEylemPlanlariTab),
+      _PortfolioTabConfig(
+        'portfolyo_devamsizlik',
+        'Devamsızlık',
+        _buildAttendanceTab,
+      ),
+      _PortfolioTabConfig(
+        'portfolyo_eylem_planlari',
+        'Eylem Planları',
+        _buildEylemPlanlariTab,
+      ),
       _PortfolioTabConfig('portfolyo_etutler', 'Etütler', _buildEtutlerTab),
       _PortfolioTabConfig('portfolyo_kitaplar', 'Kitaplar', _buildBooksTab),
-      _PortfolioTabConfig('portfolyo_gorusmeler', 'Görüşmeler', _buildInterviewsTab),
+      _PortfolioTabConfig(
+        'portfolyo_gorusmeler',
+        'Görüşmeler',
+        _buildInterviewsTab,
+      ),
       _PortfolioTabConfig('portfolyo_talepler', 'Talepler', _buildDemandsTab),
-      _PortfolioTabConfig('portfolyo_gelisim_raporu', 'Gelişim Raporu', _buildDevelopmentReportTab),
-      _PortfolioTabConfig('portfolyo_mentor_calismalari', 'Mentör Çalışmaları', _buildStudyProgramsTab),
-      _PortfolioTabConfig('portfolyo_rehberlik_testleri', 'Rehberlik Testleri', _buildGuidanceTestsTab),
-      _PortfolioTabConfig('portfolyo_etkinlik_raporlari', 'Etkinlik Raporları', _buildActivityReportsTab),
+      _PortfolioTabConfig(
+        'portfolyo_gelisim_raporu',
+        'Gelişim Raporu',
+        _buildDevelopmentReportTab,
+      ),
+      _PortfolioTabConfig(
+        'portfolyo_mentor_calismalari',
+        'Mentör Çalışmaları',
+        _buildStudyProgramsTab,
+      ),
+      _PortfolioTabConfig(
+        'portfolyo_rehberlik_testleri',
+        'Rehberlik Testleri',
+        _buildGuidanceTestsTab,
+      ),
+      _PortfolioTabConfig(
+        'portfolyo_etkinlik_raporlari',
+        'Etkinlik Raporları',
+        _buildActivityReportsTab,
+      ),
     ];
 
-    _activeTabs = _allTabs.where((t) => UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: t.key)).toList();
+    _activeTabs = _allTabs
+        .where(
+          (t) => UserPermissionService.hasTeacherModuleAccess(
+            'rehberlik_islemleri',
+            subModuleKey: t.key,
+          ),
+        )
+        .toList();
     if (_activeTabs.isEmpty) {
       _activeTabs = _allTabs;
     }
@@ -984,7 +1069,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
       if (foundIdx != -1) initialIdx = foundIdx;
     }
 
-    _tabController = TabController(length: _activeTabs.length, vsync: this, initialIndex: initialIdx.clamp(0, _activeTabs.length - 1));
+    _tabController = TabController(
+      length: _activeTabs.length,
+      vsync: this,
+      initialIndex: initialIdx.clamp(0, _activeTabs.length - 1),
+    );
 
     // Listen to Exam Types to get subject order and question counts
     _examTypesSubscription = AssessmentService()
@@ -1000,7 +1089,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     _selectedWrittenSubject = 'Tümü';
 
     // Initialize Streams
-    _trialExamsStream = AssessmentService().getTrialExams(widget.institutionId, termId: widget.activeTermId);
+    _trialExamsStream = AssessmentService().getTrialExams(
+      widget.institutionId,
+      termId: widget.activeTermId,
+    );
 
     final classId = widget.student['classId'];
     _writtenExamsStream = FirebaseFirestore.instance
@@ -1032,10 +1124,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         .orderBy('date', descending: true)
         .snapshots();
 
+    // Not: orderBy kullanılmaz (bileşik indeks gerektirmesin); sıralama istemci tarafında yapılır.
     _guidanceTestsStream = FirebaseFirestore.instance
         .collection('applied_tests')
         .where('studentId', isEqualTo: sid)
-        .orderBy('completedAt', descending: true)
         .snapshots();
 
     _studyProgramsStream = FirebaseFirestore.instance
@@ -1049,7 +1141,6 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     _activityReportsStream = FirebaseFirestore.instance
         .collection('activity_reports')
         .where('studentId', isEqualTo: sid)
-        .orderBy('date', descending: true)
         .snapshots();
 
     _etutlerStream = FirebaseFirestore.instance
@@ -1069,6 +1160,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   void dispose() {
     _tabController.dispose();
     _examTypesSubscription?.cancel();
+    _hoveredPortfolioTopicInfo.dispose();
     super.dispose();
   }
 
@@ -1076,16 +1168,20 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
 
   String get _studentId => widget.student['id']?.toString() ?? '';
   String get _studentClassId => widget.student['classId']?.toString() ?? '';
-  String get _studentClassLevel => widget.student['classLevel']?.toString() ?? '';
+  String get _studentClassLevel =>
+      widget.student['classLevel']?.toString() ?? '';
   String get _studentFullName =>
       widget.student['fullName']?.toString().isNotEmpty == true
-          ? widget.student['fullName'].toString()
-          : '${widget.student['name'] ?? ''} ${widget.student['surname'] ?? ''}'.trim();
+      ? widget.student['fullName'].toString()
+      : '${widget.student['name'] ?? ''} ${widget.student['surname'] ?? ''}'
+            .trim();
   String get _studentSchoolNumber =>
       (widget.student['schoolNumber'] ??
-          widget.student['studentNumber'] ??
-          widget.student['no'] ??
-          '').toString().trim();
+              widget.student['studentNumber'] ??
+              widget.student['no'] ??
+              '')
+          .toString()
+          .trim();
 
   Widget _buildStatsButton({
     required String label,
@@ -1098,62 +1194,85 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
       child: OutlinedButton.icon(
         onPressed: onTap,
         icon: Icon(icon, size: 16, color: color),
-        label: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+        label: Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
         style: OutlinedButton.styleFrom(
           side: BorderSide(color: color.withValues(alpha: 0.5)),
           backgroundColor: color.withValues(alpha: 0.05),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       ),
     );
   }
 
   void _openHomeworkStats() {
-    Navigator.push(context, MaterialPageRoute(
-      builder: (_) => StudentHomeworkStatsScreen(
-        institutionId: widget.institutionId,
-        studentId: _studentId,
-        classId: _studentClassId,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StudentHomeworkStatsScreen(
+          institutionId: widget.institutionId,
+          studentId: _studentId,
+          classId: _studentClassId,
+        ),
       ),
-    ));
+    );
   }
 
   void _openAttendanceStats() {
     if (_studentClassId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sınıf bilgisi bulunamadı.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sınıf bilgisi bulunamadı.')),
+      );
       return;
     }
-    Navigator.push(context, MaterialPageRoute(
-      builder: (_) => StudentAttendanceStatsScreen(
-        institutionId: widget.institutionId,
-        studentId: _studentId,
-        classId: _studentClassId,
-        studentName: _studentFullName,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StudentAttendanceStatsScreen(
+          institutionId: widget.institutionId,
+          studentId: _studentId,
+          classId: _studentClassId,
+          studentName: _studentFullName,
+        ),
       ),
-    ));
+    );
   }
 
   void _openEtutStats() {
-    Navigator.push(context, MaterialPageRoute(
-      builder: (_) => StudentEtutStatsScreen(
-        institutionId: widget.institutionId,
-        studentId: _studentId,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StudentEtutStatsScreen(
+          institutionId: widget.institutionId,
+          studentId: _studentId,
+        ),
       ),
-    ));
+    );
   }
 
   void _openExamStats({int initialTab = 0}) {
-    Navigator.push(context, MaterialPageRoute(
-      builder: (_) => StudentExamStatsScreen(
-        institutionId: widget.institutionId,
-        studentId: _studentId,
-        classId: _studentClassId,
-        classLevel: _studentClassLevel,
-        studentName: _studentFullName,
-        schoolNumber: _studentSchoolNumber,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StudentExamStatsScreen(
+          institutionId: widget.institutionId,
+          studentId: _studentId,
+          classId: _studentClassId,
+          classLevel: _studentClassLevel,
+          studentName: _studentFullName,
+          schoolNumber: _studentSchoolNumber,
+        ),
       ),
-    ));
+    );
   }
 
   @override
@@ -1202,7 +1321,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const PortfolioGuidePage()),
+                MaterialPageRoute(
+                  builder: (context) => const PortfolioGuidePage(),
+                ),
               );
             },
           ),
@@ -1378,7 +1499,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
 
         // 1. Match by ID
         match = allResults.firstWhere((r) {
-          final rId = r['studentId']?.toString() ?? r['id']?.toString();
+          final rId =
+              r['systemStudentId']?.toString() ??
+              r['studentId']?.toString() ??
+              r['id']?.toString();
           return rId == studentId;
         }, orElse: () => null);
 
@@ -1391,7 +1515,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           if (studentNo != null && studentNo.isNotEmpty) {
             match = allResults.firstWhere((r) {
               final rNo =
-                  (r['studentNumber'] ??
+                  (r['studentNo'] ??
+                          r['studentNumber'] ??
                           r['number'] ??
                           r['schoolNumber'] ??
                           r['no'] ??
@@ -1473,8 +1598,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           List<String>? definedOrder;
           final etId = res['examTypeId'];
           if (etId != null && _examTypesMap.containsKey(etId)) {
-            definedOrder = _examTypesMap[etId]!
-                .subjects
+            definedOrder = _examTypesMap[etId]!.subjects
                 .map((s) => s.branchName)
                 .toList();
           }
@@ -1482,6 +1606,15 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             resultObj.subjects.keys.toList(),
             definedOrder: definedOrder,
           );
+
+          final int schoolCount = allResults.length;
+          final int totalCount =
+              (res['centralTotalParticipants'] as int?) ?? schoolCount;
+          final int branchCount = allResults.where((r) {
+            if (r is! Map) return false;
+            final b = (r['branch'] ?? r['className'] ?? '').toString();
+            return b.isNotEmpty && b == resultObj.branch;
+          }).length;
 
           Navigator.push(
             context,
@@ -1491,7 +1624,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                 examName: res['examName'],
                 subjects: sortedSubjects,
                 outcomes: dummyExam.outcomes,
-                totalStudents: 0,
+                totalStudents: totalCount,
+                schoolStudents: schoolCount,
+                branchStudents: branchCount,
                 isRankingVisible: res['isRankingVisible'] != false,
                 trialExamId: res['examId'],
               ),
@@ -1522,7 +1657,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
 
     for (var r in results) {
       totalScore += (r['score'] as num).toDouble();
-      
+
       if (_selectedGraphSubject == 'Tümü') {
         totalNet += (r['net'] as num).toDouble();
       } else {
@@ -1541,7 +1676,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     double avgScore = totalScore / results.length;
     double avgNet = totalNet / results.length;
 
-    bool isLgs = _selectedExamType != null &&
+    bool isLgs =
+        _selectedExamType != null &&
         _selectedExamType!.toUpperCase().contains('LGS');
     String estimatedPercentile = '-';
     String percentileRange = '-';
@@ -1741,8 +1877,234 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             ),
           ),
         ],
+        if (detectYksTrack(_selectedExamType) != null)
+          ..._buildYksRankSection(avgScore),
       ],
     );
+  }
+
+  /// TYT / AYT (SAY-EA-SÖZ) için son 3 yılın ÖSYM yığılmalı dağılımına göre
+  /// tahmini Türkiye sıralaması kartı.
+  List<Widget> _buildYksRankSection(double avgScore) {
+    final detected = detectYksTrack(_selectedExamType) ?? 'TYT';
+    final needsTrackChoice = detected == 'AYT?';
+    final track = needsTrackChoice ? _selectedYksTrack : detected;
+    final est = estimateYksRank(avgScore, _selectedYksYear, track);
+
+    Widget chipRow(
+      List<String> keys,
+      String selected,
+      String Function(String) labelOf,
+      void Function(String) onPick,
+    ) {
+      return Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: keys.map((k) {
+            final isSel = selected == k;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => onPick(k)),
+                child: Container(
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isSel ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: isSel
+                        ? const [
+                            BoxShadow(color: Colors.black12, blurRadius: 2),
+                          ]
+                        : null,
+                  ),
+                  child: Text(
+                    labelOf(k),
+                    style: TextStyle(
+                      fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
+                      color: isSel ? Colors.black87 : Colors.grey.shade600,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      );
+    }
+
+    final rankText = est == null
+        ? '-'
+        : '${est.belowTable ? '≥ ' : '≈ '}${formatYksNumber(est.rank)}.';
+    final pctText = est == null
+        ? '-'
+        : (est.belowTable
+              ? '200 puan altı'
+              : '%${est.percentile.toStringAsFixed(est.percentile < 1 ? 3 : 2).replaceAll('.', ',')} dilim');
+
+    return [
+      const SizedBox(height: 12),
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.indigo.shade100),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.indigo.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.emoji_events_rounded,
+                          color: Colors.indigo.shade600,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Tahmini Türkiye Sıralaması',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.indigo.shade900,
+                              ),
+                            ),
+                            Text(
+                              '$_selectedYksYear YKS • ${yksTrackLabels[track] ?? track} verilerine göre',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.indigo.shade400,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    Icons.info_outline,
+                    color: Colors.indigo.shade300,
+                    size: 20,
+                  ),
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (c) => AlertDialog(
+                        title: const Text('Bilgilendirme'),
+                        content: const Text(
+                          'Sıralamalar, ÖSYM\'nin 2023, 2024 ve 2025 YKS "Sınav Puanlarının Yığılmalı Dağılımı" '
+                          'tablolarındaki puan / aday sayısı referans noktalarından, noktalar arası logaritmik '
+                          'ara değerlemeyle hesaplanır. 450 gibi bazı eşikler komşu yıl oranlarından türetilmiş '
+                          'tahminlerdir.\n\nPuanlar ham sınav puanıdır (OBP eklenmemiştir). Yıllara göre sınav '
+                          'zorluğu ve aday sayısı değiştiği için sonuçlar "Tahmini Referans Değerleridir"; '
+                          'resmi sıralama yerine geçmez. 2023 ve 2024 yıllarında yüzdelik, 200 ve üzeri puanlı '
+                          'adaylar içinde hesaplanır.',
+                        ),
+                        actions: [
+                          TextButton(
+                            child: const Text('Tamam'),
+                            onPressed: () => Navigator.pop(c),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  rankText,
+                  style: TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.indigo.shade800,
+                    letterSpacing: -1,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.indigo.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    pctText,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.indigo.shade700,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (est != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Ortalama puan ${avgScore.toStringAsFixed(1)} • ${formatYksNumber(est.total)} '
+                  '${est.totalIsLowerBound ? '(200+ puanlı)' : ''} aday içinde',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            const SizedBox(height: 16),
+            if (needsTrackChoice) ...[
+              chipRow(
+                const ['SAY', 'EA', 'SOZ'],
+                _selectedYksTrack,
+                (k) => yksTrackLabels[k] ?? k,
+                (k) => _selectedYksTrack = k,
+              ),
+              const SizedBox(height: 8),
+            ],
+            chipRow(
+              yksYears,
+              _selectedYksYear,
+              (k) => k,
+              (k) => _selectedYksYear = k,
+            ),
+          ],
+        ),
+      ),
+    ];
   }
 
   String _normOutcomeText(String input) {
@@ -1807,7 +2169,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     return clean;
   }
 
-  ({String code, String normBody, String display}) _parseOutcomeIdentity(String rawTopic) {
+  ({String code, String normBody, String display}) _parseOutcomeIdentity(
+    String rawTopic,
+  ) {
     var trimmed = rawTopic.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (trimmed.isEmpty) {
       return (code: '', normBody: 'genel', display: 'Genel');
@@ -1842,8 +2206,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   ) {
     Map<String, Map<String, Map<String, double>>> allSubjectStats = {};
     // subject -> { displayTopic -> {code, normBody, examIds} }
-    final Map<String, Map<String, ({String code, String normBody, Set<String> examIds})>>
-        subjectTopicMeta = {};
+    final Map<
+      String,
+      Map<String, ({String code, String normBody, Set<String> examIds})>
+    >
+    subjectTopicMeta = {};
 
     for (int rIdx = 0; rIdx < results.length; rIdx++) {
       final res = results[rIdx];
@@ -1851,16 +2218,19 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
       final outcomes = res['examOutcomes'];
       if (outcomes is! Map || outcomes.isEmpty) continue;
 
-      final studentAnswers = (res['studentAnswers'] as Map?)?.map(
+      final studentAnswers =
+          (res['studentAnswers'] as Map?)?.map(
             (k, v) => MapEntry(k.toString(), v.toString()),
           ) ??
           {};
-      final correctAnswers = (res['correctAnswers'] as Map?)?.map(
+      final correctAnswers =
+          (res['correctAnswers'] as Map?)?.map(
             (k, v) => MapEntry(k.toString(), v.toString()),
           ) ??
           {};
-      final answerKeys =
-          res['examAnswerKeys'] is Map ? (res['examAnswerKeys'] as Map) : null;
+      final answerKeys = res['examAnswerKeys'] is Map
+          ? (res['examAnswerKeys'] as Map)
+          : null;
 
       if (studentAnswers.isEmpty && correctAnswers.isEmpty) continue;
 
@@ -1949,9 +2319,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           String? matchedDisplayKey;
           for (final entry in metaMap.entries) {
             final existing = entry.value;
-            final sameBody = parsed.normBody.isNotEmpty &&
+            final sameBody =
+                parsed.normBody.isNotEmpty &&
                 existing.normBody == parsed.normBody;
-            final sameCode = parsed.code.isNotEmpty &&
+            final sameCode =
+                parsed.code.isNotEmpty &&
                 existing.code.isNotEmpty &&
                 existing.code == parsed.code;
             if (sameBody || sameCode) {
@@ -1995,8 +2367,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             );
           }
 
-          statsMap[activeKey]!['examCount'] =
-              metaMap[activeKey]!.examIds.length.toDouble();
+          statsMap[activeKey]!['examCount'] = metaMap[activeKey]!.examIds.length
+              .toDouble();
 
           final c = correctAns[i];
           final s = (i < studentAns.length) ? studentAns[i] : ' ';
@@ -2006,11 +2378,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             statsMap[activeKey]!['correct'] =
                 statsMap[activeKey]!['correct']! + 1;
           } else if (status == AnswerStatus.empty) {
-            statsMap[activeKey]!['empty'] =
-                statsMap[activeKey]!['empty']! + 1;
+            statsMap[activeKey]!['empty'] = statsMap[activeKey]!['empty']! + 1;
           } else {
-            statsMap[activeKey]!['wrong'] =
-                statsMap[activeKey]!['wrong']! + 1;
+            statsMap[activeKey]!['wrong'] = statsMap[activeKey]!['wrong']! + 1;
           }
         }
       });
@@ -2145,21 +2515,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         'label': 'Tüm Sınavlar',
         'icon': Icons.all_inclusive_rounded,
       },
-      {
-        'id': 'LAST_1',
-        'label': 'Son Sınav',
-        'icon': Icons.looks_one_outlined,
-      },
-      {
-        'id': 'LAST_3',
-        'label': 'Son 3 Sınav',
-        'icon': Icons.looks_3_outlined,
-      },
-      {
-        'id': 'LAST_5',
-        'label': 'Son 5 Sınav',
-        'icon': Icons.looks_5_outlined,
-      },
+      {'id': 'LAST_1', 'label': 'Son Sınav', 'icon': Icons.looks_one_outlined},
+      {'id': 'LAST_3', 'label': 'Son 3 Sınav', 'icon': Icons.looks_3_outlined},
+      {'id': 'LAST_5', 'label': 'Son 5 Sınav', 'icon': Icons.looks_5_outlined},
       {
         'id': 'LAST_10',
         'label': 'Son 10 Sınav',
@@ -2333,15 +2691,17 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                           if (pId == 'ALL') {
                                             newIds = Set<String>.from(allIds);
                                           } else {
-                                            final count = int.tryParse(
+                                            final count =
+                                                int.tryParse(
                                                   pId.replaceFirst('LAST_', ''),
                                                 ) ??
                                                 1;
                                             newIds = newestFirstPool
                                                 .take(count)
                                                 .map(
-                                                  (r) => (r['examId'] ?? r['id'])
-                                                      .toString(),
+                                                  (r) =>
+                                                      (r['examId'] ?? r['id'])
+                                                          .toString(),
                                                 )
                                                 .toSet();
                                           }
@@ -2360,8 +2720,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                             color: isSelectedPreset
                                                 ? Colors.indigo.shade600
                                                 : Colors.white,
-                                            borderRadius:
-                                                BorderRadius.circular(10),
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
                                             border: Border.all(
                                               color: isSelectedPreset
                                                   ? Colors.indigo.shade600
@@ -2485,14 +2846,14 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                 final count = typeLabel == 'Tümü'
                                     ? newestFirstPool.length
                                     : newestFirstPool
-                                        .where(
-                                          (r) =>
-                                              (r['typeName'] ?? '')
-                                                  .toString()
-                                                  .trim() ==
-                                              typeLabel,
-                                        )
-                                        .length;
+                                          .where(
+                                            (r) =>
+                                                (r['typeName'] ?? '')
+                                                    .toString()
+                                                    .trim() ==
+                                                typeLabel,
+                                          )
+                                          .length;
                                 return Padding(
                                   padding: const EdgeInsets.only(right: 8),
                                   child: ChoiceChip(
@@ -2523,16 +2884,18 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                       const SizedBox(height: 10),
                       const Divider(height: 1),
                       const SizedBox(height: 8),
-                       Flexible(
+                      Flexible(
                         child: filteredList.isEmpty
                             ? Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 32),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 32,
+                                ),
                                 child: Center(
                                   child: Text(
                                     'Arama kriterine uygun sınav bulunamadı.',
-                                    style:
-                                        TextStyle(color: Colors.grey.shade500),
+                                    style: TextStyle(
+                                      color: Colors.grey.shade500,
+                                    ),
                                   ),
                                 ),
                               )
@@ -2543,15 +2906,18 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                     const SizedBox(height: 6),
                                 itemBuilder: (ctx, idx) {
                                   final r = filteredList[idx];
-                                  final eId =
-                                      (r['examId'] ?? r['id']).toString();
-                                  final eName = (r['examName'] ?? 'Deneme Sınavı')
+                                  final eId = (r['examId'] ?? r['id'])
                                       .toString();
-                                  final eType =
-                                      (r['typeName'] ?? '').toString().trim();
+                                  final eName =
+                                      (r['examName'] ?? 'Deneme Sınavı')
+                                          .toString();
+                                  final eType = (r['typeName'] ?? '')
+                                      .toString()
+                                      .trim();
                                   final eDate = r['date'] is DateTime
-                                      ? DateFormat('dd.MM.yyyy')
-                                          .format(r['date'] as DateTime)
+                                      ? DateFormat(
+                                          'dd.MM.yyyy',
+                                        ).format(r['date'] as DateTime)
                                       : '';
                                   final eNet = (r['net'] as num?)?.toDouble();
                                   final isChecked = tempSelected.contains(eId);
@@ -2575,8 +2941,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                       ),
                                       decoration: BoxDecoration(
                                         color: isChecked
-                                            ? Colors.indigo.shade50
-                                                .withValues(alpha: 0.6)
+                                            ? Colors.indigo.shade50.withValues(
+                                                alpha: 0.6,
+                                              )
                                             : Colors.grey.shade50,
                                         borderRadius: BorderRadius.circular(12),
                                         border: Border.all(
@@ -2630,20 +2997,21 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                                     if (eType.isNotEmpty)
                                                       Container(
                                                         padding:
-                                                            const EdgeInsets
-                                                                .symmetric(
-                                                          horizontal: 7,
-                                                          vertical: 2,
-                                                        ),
-                                                        decoration:
-                                                            BoxDecoration(
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 7,
+                                                              vertical: 2,
+                                                            ),
+                                                        decoration: BoxDecoration(
                                                           color: Colors
-                                                              .indigo.shade100
+                                                              .indigo
+                                                              .shade100
                                                               .withValues(
-                                                                  alpha: 0.6),
+                                                                alpha: 0.6,
+                                                              ),
                                                           borderRadius:
-                                                              BorderRadius
-                                                                  .circular(6),
+                                                              BorderRadius.circular(
+                                                                6,
+                                                              ),
                                                         ),
                                                         child: Text(
                                                           eType,
@@ -2652,7 +3020,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                                             fontWeight:
                                                                 FontWeight.w600,
                                                             color: Colors
-                                                                .indigo.shade800,
+                                                                .indigo
+                                                                .shade800,
                                                           ),
                                                         ),
                                                       ),
@@ -2662,7 +3031,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                                         style: TextStyle(
                                                           fontSize: 11.5,
                                                           color: Colors
-                                                              .grey.shade600,
+                                                              .grey
+                                                              .shade600,
                                                         ),
                                                       ),
                                                     if (eNet != null)
@@ -2673,7 +3043,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                                           fontWeight:
                                                               FontWeight.w600,
                                                           color: Colors
-                                                              .teal.shade700,
+                                                              .teal
+                                                              .shade700,
                                                         ),
                                                       ),
                                                   ],
@@ -2693,9 +3064,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                             style: OutlinedButton.styleFrom(
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 6,
-                                              ),
+                                                    horizontal: 10,
+                                                    vertical: 6,
+                                                  ),
                                               minimumSize: Size.zero,
                                               tapTargetSize:
                                                   MaterialTapTargetSize
@@ -2800,13 +3171,14 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   }) {
     final allResultsPool =
         (allStudentResults != null && allStudentResults.isNotEmpty)
-            ? allStudentResults
-            : results;
+        ? allStudentResults
+        : results;
     if (allResultsPool.isEmpty) return SizedBox.shrink();
 
     final newestFirstPool = _sortExamResultsNewestFirst(allResultsPool);
     final bool hasMultipleExamTypes =
-        allResultsPool.length > results.length && _availableExamTypes.length > 1;
+        allResultsPool.length > results.length &&
+        _availableExamTypes.length > 1;
 
     // Geçerli seçimi belirle (varsayılan: tüm sınav türlerini birleştiren 'ALL')
     String effectiveSelection = _selectedTopicExamId ?? 'ALL';
@@ -2857,15 +3229,13 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     // 1. Türkçe -> 2. Sosyal Bilgiler -> 3. Din Kültürü -> 4. İngilizce -> 5. Matematik -> 6. Fen Bilimleri
     final sortedSubjectKeys = allSubjectStats.keys.toList()
       ..sort((a, b) {
-        final cmp =
-            _topicSubjectOrderIndex(a).compareTo(_topicSubjectOrderIndex(b));
+        final cmp = _topicSubjectOrderIndex(
+          a,
+        ).compareTo(_topicSubjectOrderIndex(b));
         if (cmp != 0) return cmp;
         return a.compareTo(b);
       });
-    final availableTopicSubjects = <String>[
-      'Tümü',
-      ...sortedSubjectKeys,
-    ];
+    final availableTopicSubjects = <String>['Tümü', ...sortedSubjectKeys];
     if (!availableTopicSubjects.contains(_selectedTopicSubjectFilter)) {
       _selectedTopicSubjectFilter = 'Tümü';
     }
@@ -2917,18 +3287,21 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         .toSet();
 
     // Geliştirilmesi Gerekenler: Sadece %100'ün altında olanlar (en düşük başarıdan başlayarak)
-    final sortedByWorst = allTopics
-        .where(
-          (t) =>
-              (t['success'] as double) < 100.0 &&
-              !topKeys.contains('${t['subject']}_${t['topic']}'),
-        )
-        .toList()
-      ..sort((a, b) {
-        final cmp = (a['success'] as double).compareTo(b['success'] as double);
-        if (cmp != 0) return cmp;
-        return (b['wrong'] as int).compareTo(a['wrong'] as int);
-      });
+    final sortedByWorst =
+        allTopics
+            .where(
+              (t) =>
+                  (t['success'] as double) < 100.0 &&
+                  !topKeys.contains('${t['subject']}_${t['topic']}'),
+            )
+            .toList()
+          ..sort((a, b) {
+            final cmp = (a['success'] as double).compareTo(
+              b['success'] as double,
+            );
+            if (cmp != 0) return cmp;
+            return (b['wrong'] as int).compareTo(a['wrong'] as int);
+          });
     final worstTopics = sortedByWorst.take(3).toList();
 
     // Seçili durum başlığı ve alt etiketi
@@ -3009,7 +3382,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     Text(
                       targetResults.length > 1
                           ? '${targetResults.length} sınavdaki ortak kazanımlar birleştirildi'
-                              '${mergedMultiExamTopicCount > 0 ? ' ($mergedMultiExamTopicCount ortak kazanım)' : ''}'
+                                '${mergedMultiExamTopicCount > 0 ? ' ($mergedMultiExamTopicCount ortak kazanım)' : ''}'
                           : 'Tekil sınav kazanım analizi ($selectorTitle)',
                       style: TextStyle(
                         fontSize: 12,
@@ -3022,15 +3395,13 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               const SizedBox(width: 12),
               if (isMobile)
                 Tooltip(
-                  message: selectorSubtitle != null &&
-                          selectorSubtitle.isNotEmpty
+                  message:
+                      selectorSubtitle != null && selectorSubtitle.isNotEmpty
                       ? '$selectorTitle ($selectorSubtitle)'
                       : selectorTitle,
                   child: InkWell(
-                    onTap: () => _showTopicExamSelectorDialog(
-                      allResultsPool,
-                      results,
-                    ),
+                    onTap: () =>
+                        _showTopicExamSelectorDialog(allResultsPool, results),
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
                       padding: const EdgeInsets.all(10),
@@ -3083,10 +3454,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                       const SizedBox(width: 8),
                     ],
                     InkWell(
-                      onTap: () => _showTopicExamSelectorDialog(
-                        allResultsPool,
-                        results,
-                      ),
+                      onTap: () =>
+                          _showTopicExamSelectorDialog(allResultsPool, results),
                       borderRadius: BorderRadius.circular(12),
                       child: Container(
                         constraints: const BoxConstraints(maxWidth: 320),
@@ -3110,7 +3479,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                               ),
                               child: Icon(
                                 effectiveSelection == 'ALL' ||
-                                        effectiveSelection.startsWith('LAST_') ||
+                                        effectiveSelection.startsWith(
+                                          'LAST_',
+                                        ) ||
                                         effectiveSelection == 'CUSTOM' ||
                                         effectiveSelection == 'CURRENT_TYPE'
                                     ? Icons.layers_rounded
@@ -3208,8 +3579,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                   children: availableTopicSubjects.map((subj) {
                     final isSel = _selectedTopicSubjectFilter == subj;
                     final count = subj == 'Tümü'
-                        ? allSubjectStats.values
-                            .fold<int>(0, (sum, m) => sum + m.length)
+                        ? allSubjectStats.values.fold<int>(
+                            0,
+                            (sum, m) => sum + m.length,
+                          )
                         : (allSubjectStats[subj]?.length ?? 0);
                     return Padding(
                       padding: const EdgeInsets.only(right: 8),
@@ -3301,6 +3674,114 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                       );
               },
             ),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<
+              ({String badge, String topic, String stats})?
+            >(
+              valueListenable: _hoveredPortfolioTopicInfo,
+              builder: (context, info, _) {
+                if (info == null || info.topic.trim().isEmpty) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 9,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.mouse_outlined,
+                          size: 16,
+                          color: Colors.indigo.shade400,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Kısaltılmış kazanım metninin tamamını burada okumak için fareyle yukarıdaki konulardan birinin üzerine gelin.',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: Colors.blueGrey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEEF2FF),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.indigo.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.shade700,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              info.badge,
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            'KAZANIM TAM METNİ',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.indigo.shade900,
+                            ),
+                          ),
+                          Text(
+                            '•  ${info.stats}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.indigo.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      SelectableText(
+                        info.topic,
+                        style: const TextStyle(
+                          fontSize: 12.8,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF0F172A),
+                          height: 1.38,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
             SizedBox(height: 20),
             Center(
               child: ElevatedButton.icon(
@@ -3309,8 +3790,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                   if (targetResults.isNotEmpty) {
                     final etId = targetResults.first['examTypeId'];
                     if (etId != null && _examTypesMap.containsKey(etId)) {
-                      definedOrder = _examTypesMap[etId]!
-                          .subjects
+                      definedOrder = _examTypesMap[etId]!.subjects
                           .map((s) => _canonicalTopicSubject(s.branchName))
                           .toList();
                     }
@@ -3321,7 +3801,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     MaterialPageRoute(
                       builder: (context) => TopicAnalysisDetailScreen(
                         allSubjectStats: allSubjectStats,
-                        studentName: widget.student['fullName'] ??
+                        studentName:
+                            widget.student['fullName'] ??
                             widget.student['name'] ??
                             'Öğrenci',
                         definedSubjectOrder: definedOrder,
@@ -3430,41 +3911,61 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                         scoreColor = Colors.red;
                       }
 
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12.0),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                topicText,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
+                      return MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        onEnter: (_) {
+                          _hoveredPortfolioTopicInfo.value = (
+                            badge: t['subject']?.toString() ?? title,
+                            topic: (t['topic'] ?? topicText).toString(),
+                            stats: 'Başarı: %${score.toStringAsFixed(1)}',
+                          );
+                        },
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            _hoveredPortfolioTopicInfo.value = (
+                              badge: t['subject']?.toString() ?? title,
+                              topic: (t['topic'] ?? topicText).toString(),
+                              stats: 'Başarı: %${score.toStringAsFixed(1)}',
+                            );
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 12.0),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    topicText,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            SizedBox(width: 8),
-                            Container(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: scoreColor.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                "%${score.toStringAsFixed(1)}",
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: scoreColor,
+                                SizedBox(width: 8),
+                                Container(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: scoreColor.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    "%${score.toStringAsFixed(1)}",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: scoreColor,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       );
                     },
@@ -3480,855 +3981,1009 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: Row(children: [
-            _buildStatsButton(
-              label: '📊 Deneme İstatistiklerim',
-              icon: Icons.bar_chart_rounded,
-              color: const Color(0xFF1E40AF),
-              onTap: _openExamStats,
-            ),
-          ]),
-        ),
-        Expanded(child: SafeStreamBuilder<List<TrialExam>>(
-      stream: _trialExamsStream,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(child: CircularProgressIndicator());
-        }
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return _buildEmptyState('Henüz deneme sınavı sonucu bulunmuyor.');
-        }
-
-        final exams = snapshot.data!;
-        // Parse results for this student
-        final studentRes = _parseTrialExamResults(exams);
-
-        if (studentRes.isEmpty) {
-          return _buildEmptyState('Öğrenciye ait sınav sonucu bulunamadı.');
-        }
-
-        // Filter valid exam types
-        _availableExamTypes = studentRes
-            .map((e) => e['typeName'] as String)
-            .toSet();
-
-        // Default selection if null or not in available
-        if (_selectedExamType == null ||
-            !_availableExamTypes.contains(_selectedExamType)) {
-          if (_availableExamTypes.isNotEmpty) {
-            // Try to find 'TYT' or 'LGS' as default preference, else first
-            if (_availableExamTypes.contains('TYT'))
-              _selectedExamType = 'TYT';
-            else if (_availableExamTypes.contains('LGS'))
-              _selectedExamType = 'LGS';
-            else
-              _selectedExamType = _availableExamTypes.first;
-          }
-        }
-
-        // Filter results by selected type
-        final filteredRes = studentRes
-            .where((r) => r['typeName'] == _selectedExamType)
-            .toList();
-
-        // Extract available subjects for the selected exam type
-        // Use the definition from ExamType if available to sort correctly
-        List<String> sortedSubjects = ['Tümü'];
-
-        // Find the ExamType ID from the first result if possible
-        String? currentExamTypeId;
-        if (filteredRes.isNotEmpty) {
-          currentExamTypeId = filteredRes.first['examTypeId'];
-        }
-
-        // Get unique subjects from results
-        Set<String> resultSubjects = {};
-        for (var res in filteredRes) {
-          if (res['subjects'] is Map) {
-            resultSubjects.addAll(
-              (res['subjects'] as Map).keys.map((e) => e.toString()),
-            );
-          }
-        }
-
-        // Sort them based on ExamType definition
-        if (currentExamTypeId != null &&
-            _examTypesMap.containsKey(currentExamTypeId)) {
-          final examType = _examTypesMap[currentExamTypeId]!;
-          final definedOrder = examType.subjects
-              .map((s) => s.branchName)
-              .toList();
-
-          // Sort resultSubjects based on definedOrder
-          final sortedList = resultSubjects.toList();
-          sortedList.sort((a, b) {
-            int indexA = definedOrder.indexOf(a);
-            int indexB = definedOrder.indexOf(b);
-            if (indexA != -1 && indexB != -1) return indexA.compareTo(indexB);
-            if (indexA != -1) return -1;
-            if (indexB != -1) return 1;
-            return a.compareTo(b);
-          });
-          sortedSubjects.addAll(sortedList);
-        } else {
-          // Fallback sort
-          final list = resultSubjects.toList()..sort();
-          sortedSubjects.addAll(list);
-        }
-
-        _availableSubjects = sortedSubjects.toSet();
-
-        // Reset subject if not available
-        if (!_availableSubjects.contains(_selectedGraphSubject)) {
-          _selectedGraphSubject = 'Tümü';
-        }
-
-        // Sort by date ascending for graph
-        filteredRes.sort(
-          (a, b) => (a['date'] as DateTime).compareTo(b['date']),
-        );
-
-        return GestureDetector(
-          onTap: () {
-            if (_touchedIndex != null) {
-              setState(() => _touchedIndex = null);
-            }
-          },
-          child: SingleChildScrollView(
-            padding: EdgeInsets.all(16),
-            child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: Row(
             children: [
-              // FILTERS ROW
-              Row(
-                children: [
-                  // Exam Type Dropdown
-                  Expanded(
-                    flex: 1,
-                    child: Container(
-                      height: 48,
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
-                            blurRadius: 4,
-                            offset: Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedExamType,
-                          isExpanded: true,
-                          icon: Icon(
-                            Icons.arrow_drop_down_rounded,
-                            color: Colors.indigo,
-                          ),
-                          hint: Text("Sınav Türü"),
-                          items: _availableExamTypes.map((t) {
-                            return DropdownMenuItem(
-                              value: t,
-                              child: Text(
-                                t,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                  color: Colors.indigo.shade900,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            if (val != null)
-                              setState(() => _selectedExamType = val);
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: 16),
-                  // Subject Dropdown
-                  Expanded(
-                    flex: 1,
-                    child: Container(
-                      height: 48,
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
-                            blurRadius: 4,
-                            offset: Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedGraphSubject,
-                          isExpanded: true,
-                          icon: Icon(
-                            Icons.arrow_drop_down_rounded,
-                            color: Colors.indigo,
-                          ),
-                          hint: Text("Ders Seçiniz"),
-                          items: _availableSubjects.toList().map((s) {
-                            return DropdownMenuItem(
-                              value: s,
-                              child: Text(
-                                s,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                  color: Colors.indigo.shade900,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() {
-                                _selectedGraphSubject = val;
-                                // Automatically switch to Net mode when a branch is selected
-                                if (val != 'Tümü') {
-                                  _graphMetric = 'net';
-                                }
-                              });
-                            }
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+              _buildStatsButton(
+                label: '📊 Deneme İstatistiklerim',
+                icon: Icons.bar_chart_rounded,
+                color: const Color(0xFF1E40AF),
+                onTap: _openExamStats,
               ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: SafeStreamBuilder<List<TrialExam>>(
+            stream: _trialExamsStream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return Center(child: CircularProgressIndicator());
+              }
+              if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return _buildEmptyState(
+                  'Henüz deneme sınavı sonucu bulunmuyor.',
+                );
+              }
 
-              SizedBox(height: 24),
+              final exams = snapshot.data!;
+              // Parse results for this student
+              final studentRes = _parseTrialExamResults(exams);
 
-              // GRAPH
-              Container(
-                height: 300,
-                padding: EdgeInsets.fromLTRB(16, 24, 16, 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.indigo.withValues(alpha: 0.08),
-                      blurRadius: 15,
-                      offset: Offset(0, 5),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          "$_selectedExamType - ${_selectedGraphSubject == 'Tümü' ? (_graphMetric == 'score' ? 'Toplam Puan' : 'Toplam Net') : _selectedGraphSubject}",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: Colors.indigo.shade900,
-                          ),
-                        ),
-                        if (_selectedGraphSubject == 'Tümü') ...[
-                          SizedBox(width: 8),
-                          InkWell(
-                            onTap: () {
-                              setState(() {
-                                _graphMetric = _graphMetric == 'net'
-                                    ? 'score'
-                                    : 'net';
-                              });
-                            },
-                            borderRadius: BorderRadius.circular(12),
+              if (studentRes.isEmpty) {
+                return _buildEmptyState(
+                  'Öğrenciye ait sınav sonucu bulunamadı.',
+                );
+              }
+
+              // Filter valid exam types
+              _availableExamTypes = studentRes
+                  .map((e) => e['typeName'] as String)
+                  .toSet();
+
+              // Default selection if null or not in available
+              if (_selectedExamType == null ||
+                  !_availableExamTypes.contains(_selectedExamType)) {
+                if (_availableExamTypes.isNotEmpty) {
+                  // Try to find 'TYT' or 'LGS' as default preference, else first
+                  if (_availableExamTypes.contains('TYT'))
+                    _selectedExamType = 'TYT';
+                  else if (_availableExamTypes.contains('LGS'))
+                    _selectedExamType = 'LGS';
+                  else
+                    _selectedExamType = _availableExamTypes.first;
+                }
+              }
+
+              // Filter results by selected type
+              final filteredRes = studentRes
+                  .where((r) => r['typeName'] == _selectedExamType)
+                  .toList();
+
+              // Extract available subjects for the selected exam type
+              // Use the definition from ExamType if available to sort correctly
+              List<String> sortedSubjects = ['Tümü'];
+
+              // Find the ExamType ID from the first result if possible
+              String? currentExamTypeId;
+              if (filteredRes.isNotEmpty) {
+                currentExamTypeId = filteredRes.first['examTypeId'];
+              }
+
+              // Get unique subjects from results
+              Set<String> resultSubjects = {};
+              for (var res in filteredRes) {
+                if (res['subjects'] is Map) {
+                  resultSubjects.addAll(
+                    (res['subjects'] as Map).keys.map((e) => e.toString()),
+                  );
+                }
+              }
+
+              // Sort them based on ExamType definition
+              if (currentExamTypeId != null &&
+                  _examTypesMap.containsKey(currentExamTypeId)) {
+                final examType = _examTypesMap[currentExamTypeId]!;
+                final definedOrder = examType.subjects
+                    .map((s) => s.branchName)
+                    .toList();
+
+                // Sort resultSubjects based on definedOrder
+                final sortedList = resultSubjects.toList();
+                sortedList.sort((a, b) {
+                  int indexA = definedOrder.indexOf(a);
+                  int indexB = definedOrder.indexOf(b);
+                  if (indexA != -1 && indexB != -1)
+                    return indexA.compareTo(indexB);
+                  if (indexA != -1) return -1;
+                  if (indexB != -1) return 1;
+                  return a.compareTo(b);
+                });
+                sortedSubjects.addAll(sortedList);
+              } else {
+                // Fallback sort
+                final list = resultSubjects.toList()..sort();
+                sortedSubjects.addAll(list);
+              }
+
+              _availableSubjects = sortedSubjects.toSet();
+
+              // Reset subject if not available
+              if (!_availableSubjects.contains(_selectedGraphSubject)) {
+                _selectedGraphSubject = 'Tümü';
+              }
+
+              // Sort by date ascending for graph
+              filteredRes.sort(
+                (a, b) => (a['date'] as DateTime).compareTo(b['date']),
+              );
+
+              return GestureDetector(
+                onTap: () {
+                  if (_touchedIndex != null) {
+                    setState(() => _touchedIndex = null);
+                  }
+                },
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // FILTERS ROW
+                      Row(
+                        children: [
+                          // Exam Type Dropdown
+                          Expanded(
+                            flex: 1,
                             child: Container(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
+                              height: 48,
+                              padding: EdgeInsets.symmetric(horizontal: 12),
                               decoration: BoxDecoration(
-                                color: Colors.indigo.shade50,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: Colors.indigo.shade100,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.swap_horiz,
-                                    size: 16,
-                                    color: Colors.indigo,
-                                  ),
-                                  SizedBox(width: 4),
-                                  Text(
-                                    _graphMetric == 'net'
-                                        ? 'Puana Göre'
-                                        : 'Nete Göre',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.indigo,
-                                    ),
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.grey.shade300),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.05),
+                                    blurRadius: 4,
+                                    offset: Offset(0, 2),
                                   ),
                                 ],
                               ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _selectedExamType,
+                                  isExpanded: true,
+                                  icon: Icon(
+                                    Icons.arrow_drop_down_rounded,
+                                    color: Colors.indigo,
+                                  ),
+                                  hint: Text("Sınav Türü"),
+                                  items: _availableExamTypes.map((t) {
+                                    return DropdownMenuItem(
+                                      value: t,
+                                      child: Text(
+                                        t,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: Colors.indigo.shade900,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    );
+                                  }).toList(),
+                                  onChanged: (val) {
+                                    if (val != null)
+                                      setState(() => _selectedExamType = val);
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 16),
+                          // Subject Dropdown
+                          Expanded(
+                            flex: 1,
+                            child: Container(
+                              height: 48,
+                              padding: EdgeInsets.symmetric(horizontal: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.grey.shade300),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.05),
+                                    blurRadius: 4,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _selectedGraphSubject,
+                                  isExpanded: true,
+                                  icon: Icon(
+                                    Icons.arrow_drop_down_rounded,
+                                    color: Colors.indigo,
+                                  ),
+                                  hint: Text("Ders Seçiniz"),
+                                  items: _availableSubjects.toList().map((s) {
+                                    return DropdownMenuItem(
+                                      value: s,
+                                      child: Text(
+                                        s,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: Colors.indigo.shade900,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    );
+                                  }).toList(),
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      setState(() {
+                                        _selectedGraphSubject = val;
+                                        // Automatically switch to Net mode when a branch is selected
+                                        if (val != 'Tümü') {
+                                          _graphMetric = 'net';
+                                        }
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
                             ),
                           ),
                         ],
-                      ],
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      "Gelişim Grafiği",
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
                       ),
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 24.0, right: 16),
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final isMobile = constraints.maxWidth < 600;
-                            final List<Map<String, dynamic>> chartData = (isMobile && filteredRes.length > 10) 
-                                ? filteredRes.sublist(filteredRes.length - 10) 
-                                : filteredRes;
 
-                            return Column(
+                      SizedBox(height: 24),
+
+                      // GRAPH
+                      Container(
+                        height: 300,
+                        padding: EdgeInsets.fromLTRB(16, 24, 16, 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.indigo.withValues(alpha: 0.08),
+                              blurRadius: 15,
+                              offset: Offset(0, 5),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Expanded(
-                                  child: Stack(
-                                    children: [
-                                      LineChart(_getLineChartData(chartData)),
-                                      // Fixed Info Bar at the bottom of the chart
-                                      if (_touchedIndex != null)
-                                        Positioned(
-                                          bottom: 30, // Tangent to zero line
-                                          left: 30,   // Final alignment to remove the last tiny gap
-                                          right: 0,
-                                          child: _buildChartDetailBar(chartData, _touchedIndex!),
-                                        ),
-                                    ],
+                                Text(
+                                  "$_selectedExamType - ${_selectedGraphSubject == 'Tümü' ? (_graphMetric == 'score' ? 'Toplam Puan' : 'Toplam Net') : _selectedGraphSubject}",
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: Colors.indigo.shade900,
                                   ),
                                 ),
-                                if (isMobile && filteredRes.length > 10)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 12.0),
-                                    child: Column(
-                                      children: [
-                                        Text(
-                                          'Grafikte son 10 sınav verisi listelenmektedir.\nTüm sınav geçmişini incelemek için:',
-                                          textAlign: TextAlign.center,
-                                          style: GoogleFonts.poppins(
-                                            fontSize: 10,
-                                            color: Colors.grey.shade500,
-                                            fontWeight: FontWeight.w500,
-                                            height: 1.4,
-                                          ),
+                                if (_selectedGraphSubject == 'Tümü') ...[
+                                  SizedBox(width: 8),
+                                  InkWell(
+                                    onTap: () {
+                                      setState(() {
+                                        _graphMetric = _graphMetric == 'net'
+                                            ? 'score'
+                                            : 'net';
+                                      });
+                                    },
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Container(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.indigo.shade50,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: Colors.indigo.shade100,
                                         ),
-                                        const SizedBox(height: 4),
-                                        TextButton.icon(
-                                          onPressed: () {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (context) => FullScreenTrialChartPage(
-                                                  allResults: filteredRes,
-                                                  examType: _selectedExamType ?? '',
-                                                  subject: _selectedGraphSubject,
-                                                  metric: _graphMetric,
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                          icon: const Icon(Icons.fullscreen_rounded, size: 18),
-                                          label: const Text('Tümünü Gör', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                          style: TextButton.styleFrom(
-                                            foregroundColor: Colors.indigo,
-                                            padding: EdgeInsets.zero,
-                                            minimumSize: Size.zero,
-                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.swap_horiz,
+                                            size: 16,
+                                            color: Colors.indigo,
                                           ),
-                                        ),
-                                      ],
+                                          SizedBox(width: 4),
+                                          Text(
+                                            _graphMetric == 'net'
+                                                ? 'Puana Göre'
+                                                : 'Nete Göre',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.indigo,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
+                                ],
                               ],
-                            );
-                          },
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              "Gelişim Grafiği",
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.only(
+                                  top: 24.0,
+                                  right: 16,
+                                ),
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final isMobile = constraints.maxWidth < 600;
+                                    final List<Map<String, dynamic>> chartData =
+                                        (isMobile && filteredRes.length > 10)
+                                        ? filteredRes.sublist(
+                                            filteredRes.length - 10,
+                                          )
+                                        : filteredRes;
+
+                                    return Column(
+                                      children: [
+                                        Expanded(
+                                          child: Stack(
+                                            children: [
+                                              LineChart(
+                                                _getLineChartData(chartData),
+                                              ),
+                                              // Fixed Info Bar at the bottom of the chart
+                                              if (_touchedIndex != null)
+                                                Positioned(
+                                                  bottom:
+                                                      30, // Tangent to zero line
+                                                  left:
+                                                      30, // Final alignment to remove the last tiny gap
+                                                  right: 0,
+                                                  child: _buildChartDetailBar(
+                                                    chartData,
+                                                    _touchedIndex!,
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (isMobile && filteredRes.length > 10)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 12.0,
+                                            ),
+                                            child: Column(
+                                              children: [
+                                                Text(
+                                                  'Grafikte son 10 sınav verisi listelenmektedir.\nTüm sınav geçmişini incelemek için:',
+                                                  textAlign: TextAlign.center,
+                                                  style: GoogleFonts.poppins(
+                                                    fontSize: 10,
+                                                    color: Colors.grey.shade500,
+                                                    fontWeight: FontWeight.w500,
+                                                    height: 1.4,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                TextButton.icon(
+                                                  onPressed: () {
+                                                    Navigator.push(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                        builder: (context) =>
+                                                            FullScreenTrialChartPage(
+                                                              allResults:
+                                                                  filteredRes,
+                                                              examType:
+                                                                  _selectedExamType ??
+                                                                  '',
+                                                              subject:
+                                                                  _selectedGraphSubject,
+                                                              metric:
+                                                                  _graphMetric,
+                                                            ),
+                                                      ),
+                                                    );
+                                                  },
+                                                  icon: const Icon(
+                                                    Icons.fullscreen_rounded,
+                                                    size: 18,
+                                                  ),
+                                                  label: const Text(
+                                                    'Tümünü Gör',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                  style: TextButton.styleFrom(
+                                                    foregroundColor:
+                                                        Colors.indigo,
+                                                    padding: EdgeInsets.zero,
+                                                    minimumSize: Size.zero,
+                                                    tapTargetSize:
+                                                        MaterialTapTargetSize
+                                                            .shrinkWrap,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
 
-              SizedBox(height: 24),
-              _buildSummaryStats(filteredRes),
-              SizedBox(height: 24),
+                      SizedBox(height: 24),
+                      _buildSummaryStats(filteredRes),
+                      SizedBox(height: 24),
 
-              _buildTopicAnalysis(
-                filteredRes,
-                allStudentResults: studentRes,
-              ),
-              SizedBox(height: 24),
-
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Sınav Geçmişi",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.indigo.shade900,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    "${widget.student['fullName'] ?? widget.student['name'] ?? 'Öğrenci'} uygulanan toplam ${exams.where((e) => e.isActive && e.isPublished && e.examTypeName == _selectedExamType).length} deneme sınavının ${filteredRes.length}'sine katılım sağlamıştır.",
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.grey.shade600,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Detailed List (Latest First)
-              ...filteredRes.reversed.map((res) {
-                return Card(
-                  margin: EdgeInsets.only(bottom: 16),
-                  elevation: 2,
-                  shadowColor: Colors.black.withValues(alpha: 0.1),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: ExpansionTile(
-                    key: Key(
-                      "${res['id']}_${_expandedExamId == res['id'].toString()}",
-                    ),
-                    initiallyExpanded: _expandedExamId == res['id'].toString(),
-                    onExpansionChanged: (expanded) {
-                      if (expanded) {
-                        setState(() {
-                          _expandedExamId = res['id'].toString();
-                        });
-                      } else {
-                        if (_expandedExamId == res['id'].toString()) {
-                          setState(() {
-                            _expandedExamId = null;
-                          });
-                        }
-                      }
-                    },
-                    tilePadding: EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    leading: Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: Colors.indigo.shade50,
-                        borderRadius: BorderRadius.circular(12),
+                      _buildTopicAnalysis(
+                        filteredRes,
+                        allStudentResults: studentRes,
                       ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      SizedBox(height: 24),
+
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            (res['score'] as num).toStringAsFixed(0),
+                            "Sınav Geçmişi",
                             style: TextStyle(
+                              fontSize: 18,
                               fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: Colors.indigo.shade700,
+                              color: Colors.indigo.shade900,
                             ),
                           ),
+                          const SizedBox(height: 4),
                           Text(
-                            "Puan",
+                            "${widget.student['fullName'] ?? widget.student['name'] ?? 'Öğrenci'} uygulanan toplam ${exams.where((e) => e.isActive && e.isPublished && e.examTypeName == _selectedExamType).length} deneme sınavının ${filteredRes.length}'sine katılım sağlamıştır.",
                             style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.indigo.shade400,
+                              fontSize: 13,
+                              color: Colors.grey.shade600,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    title: Text(
-                      res['examName'],
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: Colors.indigo.shade900,
-                      ),
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 4.0),
-                      child: Wrap(
-                        spacing: 12,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.calendar_today_rounded,
-                                size: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                DateFormat('dd.MM.yyyy').format(res['date']),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade700,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
+                      const SizedBox(height: 16),
+
+                      // Detailed List (Latest First)
+                      ...filteredRes.reversed.map((res) {
+                        return Card(
+                          margin: EdgeInsets.only(bottom: 16),
+                          elevation: 2,
+                          shadowColor: Colors.black.withValues(alpha: 0.1),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
                           ),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.analytics_rounded,
-                                size: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                "${(res['net'] as num).toStringAsFixed(2)} Net",
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade700,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    children: [
-                      if (res['subjects'] is Map)
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                          child: Builder(
-                            builder: (context) {
-                              // SORTING LOGIC
-                              final subjectsMap = res['subjects'] as Map;
-                              final examTypeId = res['examTypeId'];
-
-                              List<String> sortedKeys = subjectsMap.keys
-                                  .map((e) => e.toString())
-                                  .toList();
-
-                              // Use the order defined in the Exam Type
-                              try {
-                                if (examTypeId != null &&
-                                    _examTypesMap.containsKey(examTypeId)) {
-                                  final examType = _examTypesMap[examTypeId]!;
-                                  final definedOrder = examType.subjects
-                                      .map((s) => s.branchName)
-                                      .toList();
-
-                                  if (definedOrder.isNotEmpty) {
-                                    sortedKeys.sort((a, b) {
-                                      int indexA = definedOrder.indexOf(a);
-                                      int indexB = definedOrder.indexOf(b);
-                                      if (indexA != -1 && indexB != -1)
-                                        return indexA.compareTo(indexB);
-                                      if (indexA != -1) return -1;
-                                      if (indexB != -1) return 1;
-                                      return a.compareTo(b);
-                                    });
-                                  } else {
-                                    sortedKeys.sort();
-                                  }
-                                } else {
-                                  // Fallback: If no ExamType defined, maybe sort by common subjects if possible, or just alpha
-                                  sortedKeys.sort();
+                          child: ExpansionTile(
+                            key: Key(
+                              "${res['id']}_${_expandedExamId == res['id'].toString()}",
+                            ),
+                            initiallyExpanded:
+                                _expandedExamId == res['id'].toString(),
+                            onExpansionChanged: (expanded) {
+                              if (expanded) {
+                                setState(() {
+                                  _expandedExamId = res['id'].toString();
+                                });
+                              } else {
+                                if (_expandedExamId == res['id'].toString()) {
+                                  setState(() {
+                                    _expandedExamId = null;
+                                  });
                                 }
-                              } catch (e) {
-                                debugPrint("Error sorting subjects: $e");
-                                sortedKeys.sort();
                               }
-
-                              // Calculate Totals
-                              double totalNet = 0;
-                              int totalTrue = 0;
-                              int totalFalse = 0;
-
-                              subjectsMap.forEach((key, val) {
-                                if (val is Map) {
-                                  totalNet += (val['net'] ?? val['netler'] ?? 0)
-                                      .toDouble();
-                                  totalTrue +=
-                                      (val['true'] ??
-                                              val['dogru'] ??
-                                              val['d'] ??
-                                              val['correct'] ??
-                                              val['D'] ??
-                                              0)
-                                          as int;
-                                  totalFalse +=
-                                      (val['false'] ??
-                                              val['yanlis'] ??
-                                              val['y'] ??
-                                              val['incorrect'] ??
-                                              val['Y'] ??
-                                              val['wrong'] ??
-                                              0)
-                                          as int;
-                                } else if (val is num) {
-                                  totalNet += val.toDouble();
-                                }
-                              });
-
-                              return Column(
+                            },
+                            tilePadding: EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            leading: Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: Colors.indigo.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  // TOTAL STATS HEADER
-                                  Container(
-                                    margin: EdgeInsets.only(bottom: 12),
-                                    padding: EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.indigo.shade50,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: Colors.indigo.shade100,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(
-                                          "TOPLAM",
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 15,
-                                            color: Colors.indigo.shade900,
-                                          ),
-                                        ),
-                                        Row(
-                                          children: [
-                                            Text(
-                                              "$totalTrue D  $totalFalse Y",
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                color: Colors.indigo.shade700,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                            SizedBox(width: 12),
-                                            Container(
-                                              padding: EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 5,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                border: Border.all(
-                                                  color: Colors.indigo.shade200,
-                                                ),
-                                              ),
-                                              child: Text(
-                                                "${totalNet.toStringAsFixed(2)} Net",
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  color: Colors.indigo.shade800,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
+                                  Text(
+                                    (res['score'] as num).toStringAsFixed(0),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: Colors.indigo.shade700,
                                     ),
                                   ),
-                                  // SUBJECT LIST
-                                  ...sortedKeys.map((key) {
-                                    final val = subjectsMap[key];
-                                    String netStr = '-';
-                                    String detailStr = '';
-
-                                    if (val is Map) {
-                                      final net =
-                                          (val['net'] ?? val['netler'] ?? 0)
-                                              .toDouble();
-                                      final dogru =
-                                          val['true'] ??
-                                          val['dogru'] ??
-                                          val['d'] ??
-                                          val['correct'] ??
-                                          val['D'] ??
-                                          '-';
-                                      final yanlis =
-                                          val['false'] ??
-                                          val['yanlis'] ??
-                                          val['y'] ??
-                                          val['incorrect'] ??
-                                          val['Y'] ??
-                                          val['wrong'] ?? // Added check
-                                          '-';
-                                      netStr = "${net.toStringAsFixed(2)} Net";
-                                      detailStr = "$dogru D  $yanlis Y";
-                                    } else if (val is num) {
-                                      netStr =
-                                          "${(val).toDouble().toStringAsFixed(2)} Net";
-                                    } else {
-                                      netStr = val.toString();
-                                    }
-
-                                    return Container(
-                                      margin: EdgeInsets.symmetric(vertical: 4),
-                                      padding: EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey.shade50,
-                                        borderRadius: BorderRadius.circular(8),
+                                  Text(
+                                    "Puan",
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      color: Colors.indigo.shade400,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            title: Text(
+                              res['examName'],
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: Colors.indigo.shade900,
+                              ),
+                            ),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 4.0),
+                              child: Wrap(
+                                spacing: 12,
+                                runSpacing: 4,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.calendar_today_rounded,
+                                        size: 12,
+                                        color: Colors.grey.shade600,
                                       ),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        DateFormat(
+                                          'dd.MM.yyyy',
+                                        ).format(res['date']),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.analytics_rounded,
+                                        size: 12,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        "${(res['net'] as num).toStringAsFixed(2)} Net",
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (res['isCentralExam'] == true)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFEEF2FF),
+                                        borderRadius: BorderRadius.circular(5),
+                                      ),
+                                      child: const Text(
+                                        '🏛️ Genel Merkez',
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w800,
+                                          color: Color(0xFF1E3A8A),
+                                        ),
+                                      ),
+                                    ),
+                                  if (res['isRankingVisible'] != false &&
+                                      (res['generalRank'] as num? ?? 0) > 0)
+                                    Text(
+                                      'Genel: #${res['generalRank']}/${res['centralTotalParticipants'] ?? res['schoolParticipants'] ?? '-'}',
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFFD97706),
+                                      ),
+                                    ),
+                                  if (res['isRankingVisible'] != false &&
+                                      (res['institutionRank'] as num? ?? 0) >
+                                          0 &&
+                                      res['centralTotalParticipants'] != null)
+                                    Text(
+                                      'Kurum: #${res['institutionRank']}/${res['schoolParticipants'] ?? '-'}',
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF4F46E5),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            children: [
+                              if (res['subjects'] is Map)
+                                Padding(
+                                  padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+                                  child: Builder(
+                                    builder: (context) {
+                                      // SORTING LOGIC
+                                      final subjectsMap =
+                                          res['subjects'] as Map;
+                                      final examTypeId = res['examTypeId'];
+
+                                      List<String> sortedKeys = subjectsMap.keys
+                                          .map((e) => e.toString())
+                                          .toList();
+
+                                      // Use the order defined in the Exam Type
+                                      try {
+                                        if (examTypeId != null &&
+                                            _examTypesMap.containsKey(
+                                              examTypeId,
+                                            )) {
+                                          final examType =
+                                              _examTypesMap[examTypeId]!;
+                                          final definedOrder = examType.subjects
+                                              .map((s) => s.branchName)
+                                              .toList();
+
+                                          if (definedOrder.isNotEmpty) {
+                                            sortedKeys.sort((a, b) {
+                                              int indexA = definedOrder.indexOf(
+                                                a,
+                                              );
+                                              int indexB = definedOrder.indexOf(
+                                                b,
+                                              );
+                                              if (indexA != -1 && indexB != -1)
+                                                return indexA.compareTo(indexB);
+                                              if (indexA != -1) return -1;
+                                              if (indexB != -1) return 1;
+                                              return a.compareTo(b);
+                                            });
+                                          } else {
+                                            sortedKeys.sort();
+                                          }
+                                        } else {
+                                          // Fallback: If no ExamType defined, maybe sort by common subjects if possible, or just alpha
+                                          sortedKeys.sort();
+                                        }
+                                      } catch (e) {
+                                        debugPrint(
+                                          "Error sorting subjects: $e",
+                                        );
+                                        sortedKeys.sort();
+                                      }
+
+                                      // Calculate Totals
+                                      double totalNet = 0;
+                                      int totalTrue = 0;
+                                      int totalFalse = 0;
+
+                                      subjectsMap.forEach((key, val) {
+                                        if (val is Map) {
+                                          totalNet +=
+                                              (val['net'] ?? val['netler'] ?? 0)
+                                                  .toDouble();
+                                          totalTrue +=
+                                              (val['true'] ??
+                                                      val['dogru'] ??
+                                                      val['d'] ??
+                                                      val['correct'] ??
+                                                      val['D'] ??
+                                                      0)
+                                                  as int;
+                                          totalFalse +=
+                                              (val['false'] ??
+                                                      val['yanlis'] ??
+                                                      val['y'] ??
+                                                      val['incorrect'] ??
+                                                      val['Y'] ??
+                                                      val['wrong'] ??
+                                                      0)
+                                                  as int;
+                                        } else if (val is num) {
+                                          totalNet += val.toDouble();
+                                        }
+                                      });
+
+                                      return Column(
                                         children: [
-                                          Expanded(
-                                            child: Text(
-                                              key,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: 14,
-                                                color: Colors.black87,
+                                          // TOTAL STATS HEADER
+                                          Container(
+                                            margin: EdgeInsets.only(bottom: 12),
+                                            padding: EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              color: Colors.indigo.shade50,
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: Colors.indigo.shade100,
                                               ),
                                             ),
-                                          ),
-                                          Row(
-                                            children: [
-                                              if (detailStr.isNotEmpty)
+                                            child: Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
+                                              children: [
                                                 Text(
-                                                  detailStr,
+                                                  "TOPLAM",
                                                   style: TextStyle(
-                                                    fontSize: 12,
-                                                    color: Colors.grey.shade600,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                                ),
-                                              if (detailStr.isNotEmpty)
-                                                SizedBox(width: 8),
-                                              Container(
-                                                padding: EdgeInsets.symmetric(
-                                                  horizontal: 8,
-                                                  vertical: 4,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.white,
-                                                  borderRadius:
-                                                      BorderRadius.circular(6),
-                                                  border: Border.all(
-                                                    color:
-                                                        Colors.indigo.shade100,
-                                                  ),
-                                                ),
-                                                child: Text(
-                                                  netStr,
-                                                  style: TextStyle(
-                                                    fontSize: 13,
-                                                    color:
-                                                        Colors.indigo.shade700,
                                                     fontWeight: FontWeight.bold,
+                                                    fontSize: 15,
+                                                    color:
+                                                        Colors.indigo.shade900,
                                                   ),
+                                                ),
+                                                Row(
+                                                  children: [
+                                                    Text(
+                                                      "$totalTrue D  $totalFalse Y",
+                                                      style: TextStyle(
+                                                        fontSize: 13,
+                                                        color: Colors
+                                                            .indigo
+                                                            .shade700,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                    SizedBox(width: 12),
+                                                    Container(
+                                                      padding:
+                                                          EdgeInsets.symmetric(
+                                                            horizontal: 10,
+                                                            vertical: 5,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.white,
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              8,
+                                                            ),
+                                                        border: Border.all(
+                                                          color: Colors
+                                                              .indigo
+                                                              .shade200,
+                                                        ),
+                                                      ),
+                                                      child: Text(
+                                                        "${totalNet.toStringAsFixed(2)} Net",
+                                                        style: TextStyle(
+                                                          fontSize: 14,
+                                                          color: Colors
+                                                              .indigo
+                                                              .shade800,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          // SUBJECT LIST
+                                          ...sortedKeys.map((key) {
+                                            final val = subjectsMap[key];
+                                            String netStr = '-';
+                                            String detailStr = '';
+
+                                            if (val is Map) {
+                                              final net =
+                                                  (val['net'] ??
+                                                          val['netler'] ??
+                                                          0)
+                                                      .toDouble();
+                                              final dogru =
+                                                  val['true'] ??
+                                                  val['dogru'] ??
+                                                  val['d'] ??
+                                                  val['correct'] ??
+                                                  val['D'] ??
+                                                  '-';
+                                              final yanlis =
+                                                  val['false'] ??
+                                                  val['yanlis'] ??
+                                                  val['y'] ??
+                                                  val['incorrect'] ??
+                                                  val['Y'] ??
+                                                  val['wrong'] ?? // Added check
+                                                  '-';
+                                              netStr =
+                                                  "${net.toStringAsFixed(2)} Net";
+                                              detailStr = "$dogru D  $yanlis Y";
+                                            } else if (val is num) {
+                                              netStr =
+                                                  "${(val).toDouble().toStringAsFixed(2)} Net";
+                                            } else {
+                                              netStr = val.toString();
+                                            }
+
+                                            return Container(
+                                              margin: EdgeInsets.symmetric(
+                                                vertical: 4,
+                                              ),
+                                              padding: EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                color: Colors.grey.shade50,
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                              child: Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      key,
+                                                      style: TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        fontSize: 14,
+                                                        color: Colors.black87,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  Row(
+                                                    children: [
+                                                      if (detailStr.isNotEmpty)
+                                                        Text(
+                                                          detailStr,
+                                                          style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: Colors
+                                                                .grey
+                                                                .shade600,
+                                                            fontWeight:
+                                                                FontWeight.w500,
+                                                          ),
+                                                        ),
+                                                      if (detailStr.isNotEmpty)
+                                                        SizedBox(width: 8),
+                                                      Container(
+                                                        padding:
+                                                            EdgeInsets.symmetric(
+                                                              horizontal: 8,
+                                                              vertical: 4,
+                                                            ),
+                                                        decoration: BoxDecoration(
+                                                          color: Colors.white,
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                6,
+                                                              ),
+                                                          border: Border.all(
+                                                            color: Colors
+                                                                .indigo
+                                                                .shade100,
+                                                          ),
+                                                        ),
+                                                        child: Text(
+                                                          netStr,
+                                                          style: TextStyle(
+                                                            fontSize: 13,
+                                                            color: Colors
+                                                                .indigo
+                                                                .shade700,
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          }).toList(),
+                                          SizedBox(height: 16),
+                                          Divider(),
+                                          Wrap(
+                                            spacing: 12,
+                                            alignment: WrapAlignment.center,
+                                            children: [
+                                              TextButton.icon(
+                                                onPressed: () =>
+                                                    _showReportCard(res),
+                                                icon: Icon(
+                                                  Icons.sticky_note_2_outlined,
+                                                ),
+                                                label: Text(
+                                                  "Sınav Karnesini Görüntüle",
+                                                ),
+                                                style: TextButton.styleFrom(
+                                                  foregroundColor:
+                                                      Colors.indigo,
+                                                ),
+                                              ),
+                                              TextButton.icon(
+                                                onPressed: () {
+                                                  final singleStats =
+                                                      _calculateTopicStatsForResults(
+                                                        [res],
+                                                      );
+                                                  List<String>? definedOrder;
+                                                  final etId =
+                                                      res['examTypeId'];
+                                                  if (etId != null &&
+                                                      _examTypesMap.containsKey(
+                                                        etId,
+                                                      )) {
+                                                    definedOrder =
+                                                        _examTypesMap[etId]!
+                                                            .subjects
+                                                            .map(
+                                                              (s) =>
+                                                                  s.branchName,
+                                                            )
+                                                            .toList();
+                                                  }
+                                                  Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                      builder: (context) =>
+                                                          TopicAnalysisDetailScreen(
+                                                            allSubjectStats:
+                                                                singleStats,
+                                                            studentName:
+                                                                widget
+                                                                    .student['fullName'] ??
+                                                                widget
+                                                                    .student['name'] ??
+                                                                'Öğrenci',
+                                                            definedSubjectOrder:
+                                                                definedOrder,
+                                                          ),
+                                                    ),
+                                                  );
+                                                },
+                                                icon: Icon(
+                                                  Icons.analytics_outlined,
+                                                ),
+                                                label: Text(
+                                                  "Konu Analizini Gör",
+                                                ),
+                                                style: TextButton.styleFrom(
+                                                  foregroundColor:
+                                                      Colors.indigo,
                                                 ),
                                               ),
                                             ],
                                           ),
                                         ],
-                                      ),
-                                    );
-                                  }).toList(),
-                                  SizedBox(height: 16),
-                                  Divider(),
-                                  Wrap(
-                                    spacing: 12,
-                                    alignment: WrapAlignment.center,
-                                    children: [
-                                      TextButton.icon(
-                                        onPressed: () => _showReportCard(res),
-                                        icon: Icon(Icons.sticky_note_2_outlined),
-                                        label: Text("Sınav Karnesini Görüntüle"),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: Colors.indigo,
-                                        ),
-                                      ),
-                                      TextButton.icon(
-                                        onPressed: () {
-                                          final singleStats =
-                                              _calculateTopicStatsForResults([res]);
-                                          List<String>? definedOrder;
-                                          final etId = res['examTypeId'];
-                                          if (etId != null &&
-                                              _examTypesMap.containsKey(etId)) {
-                                            definedOrder = _examTypesMap[etId]!
-                                                .subjects
-                                                .map((s) => s.branchName)
-                                                .toList();
-                                          }
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (context) =>
-                                                  TopicAnalysisDetailScreen(
-                                                allSubjectStats: singleStats,
-                                                studentName:
-                                                    widget.student['fullName'] ??
-                                                        widget.student['name'] ??
-                                                        'Öğrenci',
-                                                definedSubjectOrder: definedOrder,
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                        icon: Icon(Icons.analytics_outlined),
-                                        label: Text("Konu Analizini Gör"),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: Colors.indigo,
-                                        ),
-                                      ),
-                                    ],
+                                      );
+                                    },
                                   ),
-                                ],
-                              );
-                            },
+                                ),
+                            ],
                           ),
-                        ),
+                        );
+                      }).toList(),
                     ],
                   ),
-                );
-              }).toList(),
-            ],
+                ),
+              );
+            },
           ),
         ),
-      );
-      })),
       ],
     );
   }
@@ -4398,7 +5053,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                 return Padding(
                   padding: const EdgeInsets.only(top: 8.0),
                   child: Text(
-                    isMobile ? "${index + 1}" : DateFormat('dd.MM').format(date),
+                    isMobile
+                        ? "${index + 1}"
+                        : DateFormat('dd.MM').format(date),
                     style: TextStyle(
                       color: Colors.grey.shade600,
                       fontWeight: FontWeight.bold,
@@ -4489,7 +5146,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
       lineTouchData: LineTouchData(
         touchTooltipData: LineTouchTooltipData(
           getTooltipColor: (touchedSpot) => Colors.transparent, // Invisible
-          getTooltipItems: (touchedSpots) => [], // Return empty list instead of null
+          getTooltipItems: (touchedSpots) =>
+              [], // Return empty list instead of null
         ),
         handleBuiltInTouches: true,
         touchCallback: (FlTouchEvent event, LineTouchResponse? touchResponse) {
@@ -4514,11 +5172,12 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     final name = exam['examName'] ?? 'Sınav';
     final date = DateFormat('dd.MM.yyyy').format(exam['date']);
     final metric = _graphMetric == 'score' ? 'Puan' : 'Net';
-    final val = _graphMetric == 'score' 
+    final val = _graphMetric == 'score'
         ? (exam['score'] as num).toStringAsFixed(2)
-        : (_selectedGraphSubject == 'Tümü' 
-            ? (exam['net'] as num).toStringAsFixed(2)
-            : (exam['subjects']?[_selectedGraphSubject]?['net'] ?? 0).toStringAsFixed(2));
+        : (_selectedGraphSubject == 'Tümü'
+              ? (exam['net'] as num).toStringAsFixed(2)
+              : (exam['subjects']?[_selectedGraphSubject]?['net'] ?? 0)
+                    .toStringAsFixed(2));
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -4532,7 +5191,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           Flexible(
             child: Text(
               name,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 10,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -4548,7 +5211,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           const SizedBox(width: 8),
           Text(
             "$val $metric",
-            style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 11),
+            style: const TextStyle(
+              color: Colors.cyanAccent,
+              fontWeight: FontWeight.bold,
+              fontSize: 11,
+            ),
           ),
         ],
       ),
@@ -4583,7 +5250,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         if (studentNo != null && studentNo.isNotEmpty) {
           match = allResults.firstWhere((r) {
             final rNo =
-                (r['studentNumber'] ??
+                (r['studentNo'] ??
+                        r['studentNumber'] ??
                         r['number'] ??
                         r['schoolNumber'] ??
                         r['no'] ??
@@ -4596,17 +5264,18 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
 
         // 2. Match by Student ID
         match ??= allResults.firstWhere((r) {
-            return r['studentId'].toString() == studentId ||
-                r['id'].toString() == studentId;
-          }, orElse: () => null);
+          return r['systemStudentId']?.toString() == studentId ||
+              r['studentId']?.toString() == studentId ||
+              r['id']?.toString() == studentId;
+        }, orElse: () => null);
 
         // 3. Match by Name (Fuzzy)
         match ??= allResults.firstWhere((r) {
-            final rName = (r['name'] ?? r['studentName'] ?? '')
-                .toString()
-                .toLowerCase();
-            return rName.contains(studentName);
-          }, orElse: () => null);
+          final rName = (r['name'] ?? r['studentName'] ?? '')
+              .toString()
+              .toLowerCase();
+          return rName.contains(studentName);
+        }, orElse: () => null);
 
         if (match != null) {
           // Calculate total net if missing or 0
@@ -4637,11 +5306,19 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     .toDouble(),
             'net': totalNet,
             'subjects': localSubjects,
-            'isRankingVisible': exam.sharingSettings['isRankingVisible'] ?? true,
-            'rank': match['rank'],
-            'institutionRank': match['institutionRank'],
-            'classRank': match['classRank'],
-            'generalRank': match['generalRank'],
+            'isRankingVisible':
+                exam.sharingSettings['isRankingVisible'] ?? true,
+            'rank': match['rankGeneral'] ?? match['rank'],
+            'institutionRank':
+                match['rankInstitution'] ?? match['institutionRank'],
+            'classRank':
+                match['rankBranch'] ??
+                match['branchRank'] ??
+                match['classRank'],
+            'generalRank': match['rankGeneral'] ?? match['generalRank'],
+            'isCentralExam': exam.isCentralExam,
+            'centralTotalParticipants': exam.centralTotalParticipants,
+            'schoolParticipants': allResults.length,
             'studentAnswers': match['answers'],
             'correctAnswers': match['correctAnswers'],
             'studentResult': match,
@@ -4672,172 +5349,189 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: Row(children: [
-            _buildStatsButton(
-              label: '📊 Yazılı Sınav İstatistiklerim',
-              icon: Icons.edit_note_rounded,
-              color: const Color(0xFF4F46E5),
-              onTap: _openExamStats,
-            ),
-          ]),
+          child: Row(
+            children: [
+              _buildStatsButton(
+                label: '📊 Yazılı Sınav İstatistiklerim',
+                icon: Icons.edit_note_rounded,
+                color: const Color(0xFF4F46E5),
+                onTap: _openExamStats,
+              ),
+            ],
+          ),
         ),
-        Expanded(child: SafeStreamBuilder<QuerySnapshot>(
-      stream: _writtenExamsStream,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting)
-          return Center(child: CircularProgressIndicator());
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
-          return _buildEmptyState('Yazılı sınav kaydı bulunamadı.');
+        Expanded(
+          child: SafeStreamBuilder<QuerySnapshot>(
+            stream: _writtenExamsStream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting)
+                return Center(child: CircularProgressIndicator());
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
+                return _buildEmptyState('Yazılı sınav kaydı bulunamadı.');
 
-        final studentId = widget.student['id'];
-        final docs = snapshot.data!.docs.where((d) {
-          final data = d.data() as Map<String, dynamic>;
-          final grades = data['grades'] as Map<String, dynamic>?;
-          return grades != null && grades.containsKey(studentId);
-        }).toList();
+              final studentId = widget.student['id'];
+              final docs = snapshot.data!.docs.where((d) {
+                final data = d.data() as Map<String, dynamic>;
+                final grades = data['grades'] as Map<String, dynamic>?;
+                return grades != null && grades.containsKey(studentId);
+              }).toList();
 
-        if (docs.isEmpty)
-          return _buildEmptyState('Öğrenciye ait yazılı notu bulunamadı.');
+              if (docs.isEmpty)
+                return _buildEmptyState(
+                  'Öğrenciye ait yazılı notu bulunamadı.',
+                );
 
-        // Extract and sort subjects
-        final rawSubjects =
-            docs
-                .map(
-                  (d) =>
-                      (d.data() as Map<String, dynamic>)['lessonName']
-                          ?.toString() ??
-                      'Bilinmiyor',
-                )
-                .toSet()
-                .toList()
-              ..sort();
+              // Extract and sort subjects
+              final rawSubjects =
+                  docs
+                      .map(
+                        (d) =>
+                            (d.data() as Map<String, dynamic>)['lessonName']
+                                ?.toString() ??
+                            'Bilinmiyor',
+                      )
+                      .toSet()
+                      .toList()
+                    ..sort();
 
-        final subjects = ['Tümü', ...rawSubjects];
+              final subjects = ['Tümü', ...rawSubjects];
 
-        // Ensure current selection is valid
-        if (!subjects.contains(_selectedWrittenSubject)) {
-          _selectedWrittenSubject = 'Tümü';
-        }
+              // Ensure current selection is valid
+              if (!subjects.contains(_selectedWrittenSubject)) {
+                _selectedWrittenSubject = 'Tümü';
+              }
 
-        // Filter by subject
-        final filteredDocs = _selectedWrittenSubject == 'Tümü'
-            ? docs
-            : docs
-                  .where(
-                    (d) =>
-                        (d.data() as Map<String, dynamic>)['lessonName'] ==
-                        _selectedWrittenSubject,
-                  )
-                  .toList();
+              // Filter by subject
+              final filteredDocs = _selectedWrittenSubject == 'Tümü'
+                  ? docs
+                  : docs
+                        .where(
+                          (d) =>
+                              (d.data()
+                                  as Map<String, dynamic>)['lessonName'] ==
+                              _selectedWrittenSubject,
+                        )
+                        .toList();
 
-        // Sort by date desc
-        filteredDocs.sort((a, b) {
-          final dA = a['date'] as Timestamp?;
-          final dB = b['date'] as Timestamp?;
-          if (dA == null) return 1;
-          if (dB == null) return -1;
-          return dB.compareTo(dA);
-        });
+              // Sort by date desc
+              filteredDocs.sort((a, b) {
+                final dA = a['date'] as Timestamp?;
+                final dB = b['date'] as Timestamp?;
+                if (dA == null) return 1;
+                if (dB == null) return -1;
+                return dB.compareTo(dA);
+              });
 
-        return Column(
-          children: [
-            // Filter Row (Styled exactly like Homeworks tab)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Row(
+              return Column(
                 children: [
-                  Expanded(
-                    child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.indigo.shade100),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedWrittenSubject,
-                          isExpanded: true,
-                          hint: Text('Branş Filtrele'),
-                          icon: Icon(Icons.filter_list, color: Colors.indigo),
-                          style: TextStyle(
-                            color: Colors.indigo.shade900,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
+                  // Filter Row (Styled exactly like Homeworks tab)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.indigo.shade100),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _selectedWrittenSubject,
+                                isExpanded: true,
+                                hint: Text('Branş Filtrele'),
+                                icon: Icon(
+                                  Icons.filter_list,
+                                  color: Colors.indigo,
+                                ),
+                                style: TextStyle(
+                                  color: Colors.indigo.shade900,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                                items: subjects.map<DropdownMenuItem<String>>((
+                                  s,
+                                ) {
+                                  return DropdownMenuItem<String>(
+                                    value: s,
+                                    child: Text(s),
+                                  );
+                                }).toList(),
+                                onChanged: (val) {
+                                  if (val != null)
+                                    setState(
+                                      () => _selectedWrittenSubject = val,
+                                    );
+                                },
+                              ),
+                            ),
                           ),
-                          items: subjects.map<DropdownMenuItem<String>>((s) {
-                            return DropdownMenuItem<String>(
-                              value: s,
-                              child: Text(s),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            if (val != null)
-                              setState(() => _selectedWrittenSubject = val);
-                          },
                         ),
-                      ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      padding: EdgeInsets.all(16),
+                      itemCount: filteredDocs.length,
+                      itemBuilder: (context, index) {
+                        final data =
+                            filteredDocs[index].data() as Map<String, dynamic>;
+                        final date = (data['date'] as Timestamp?)?.toDate();
+                        final grades = data['grades'] as Map<String, dynamic>?;
+                        final score = grades?[studentId];
+
+                        return Card(
+                          margin: EdgeInsets.only(bottom: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: ListTile(
+                            leading: Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade100,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                "$score",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange.shade800,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ),
+                            title: Text(
+                              data['lessonName'] ?? 'Ders',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            subtitle: Text(data['examName'] ?? 'Yazılı Sınav'),
+                            trailing: Text(
+                              date != null
+                                  ? DateFormat(
+                                      'dd MMM yyyy',
+                                      'tr_TR',
+                                    ).format(date)
+                                  : '-',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ],
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                padding: EdgeInsets.all(16),
-                itemCount: filteredDocs.length,
-                itemBuilder: (context, index) {
-                  final data =
-                      filteredDocs[index].data() as Map<String, dynamic>;
-                  final date = (data['date'] as Timestamp?)?.toDate();
-                  final grades = data['grades'] as Map<String, dynamic>?;
-                  final score = grades?[studentId];
-
-                  return Card(
-                    margin: EdgeInsets.only(bottom: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: ListTile(
-                      leading: Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade100,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          "$score",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.orange.shade800,
-                            fontSize: 18,
-                          ),
-                        ),
-                      ),
-                      title: Text(
-                        data['lessonName'] ?? 'Ders',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Text(data['examName'] ?? 'Yazılı Sınav'),
-                      trailing: Text(
-                        date != null
-                            ? DateFormat('dd MMM yyyy', 'tr_TR').format(date)
-                            : '-',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        );
-      },
-    )),
-    ],
-  );
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 
   // --- 3. ÖDEVLER TAB ---
@@ -4849,346 +5543,399 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: Row(children: [
-            _buildStatsButton(
-              label: '📊 Ödev İstatistiklerim',
-              icon: Icons.assignment_rounded,
-              color: const Color(0xFF7C3AED),
-              onTap: _openHomeworkStats,
-            ),
-          ]),
+          child: Row(
+            children: [
+              _buildStatsButton(
+                label: '📊 Ödev İstatistiklerim',
+                icon: Icons.assignment_rounded,
+                color: const Color(0xFF7C3AED),
+                onTap: _openHomeworkStats,
+              ),
+            ],
+          ),
         ),
-        Expanded(child: SafeStreamBuilder<QuerySnapshot>(
-      stream: _homeworksStream,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting)
-          return Center(child: CircularProgressIndicator());
+        Expanded(
+          child: SafeStreamBuilder<QuerySnapshot>(
+            stream: _homeworksStream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting)
+                return Center(child: CircularProgressIndicator());
 
-        final allDocs = snapshot.data?.docs ?? [];
+              final allDocs = snapshot.data?.docs ?? [];
 
-        // Filter valid homeworks
-        final myHomeworks = allDocs.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
+              // Filter valid homeworks
+              final myHomeworks = allDocs.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
 
-          // 1. Check Class Assignment (Direct classId match)
-          if (classId != null && data['classId'] == classId) {
-            return true;
-          }
+                // 1. Check Class Assignment (Direct classId match)
+                if (classId != null && data['classId'] == classId) {
+                  return true;
+                }
 
-          // 2. Check Class Target Array (Legacy support if 'targetClasses' exists)
-          if (classId != null && data['targetClasses'] is List) {
-            final classes = List<String>.from(data['targetClasses'] ?? []);
-            if (classes.contains(classId)) return true;
-          }
+                // 2. Check Class Target Array (Legacy support if 'targetClasses' exists)
+                if (classId != null && data['targetClasses'] is List) {
+                  final classes = List<String>.from(
+                    data['targetClasses'] ?? [],
+                  );
+                  if (classes.contains(classId)) return true;
+                }
 
-          // 3. Check specific student assignment
-          if (data['targetStudentIds'] is List) {
-            final students = List<String>.from(data['targetStudentIds'] ?? []);
-            if (students.contains(studentId)) return true;
-          }
-          // Legacy field check
-          if (data['targetStudents'] is List) {
-            final students = List<String>.from(data['targetStudents'] ?? []);
-            if (students.contains(studentId)) return true;
-          }
+                // 3. Check specific student assignment
+                if (data['targetStudentIds'] is List) {
+                  final students = List<String>.from(
+                    data['targetStudentIds'] ?? [],
+                  );
+                  if (students.contains(studentId)) return true;
+                }
+                // Legacy field check
+                if (data['targetStudents'] is List) {
+                  final students = List<String>.from(
+                    data['targetStudents'] ?? [],
+                  );
+                  if (students.contains(studentId)) return true;
+                }
 
-          return false;
-        }).toList();
+                return false;
+              }).toList();
 
-        // Extract subjects for filter
-        final availableSubjects = <String>{'Tümü'};
-        for (var h in myHomeworks) {
-          final data = h.data() as Map<String, dynamic>;
-          String? subject = data['subject']?.toString();
+              // Extract subjects for filter
+              final availableSubjects = <String>{'Tümü'};
+              for (var h in myHomeworks) {
+                final data = h.data() as Map<String, dynamic>;
+                String? subject = data['subject']?.toString();
 
-          // Fallback: extract from title if empty
-          if (subject == null || subject.isEmpty) {
-            final title = data['title']?.toString() ?? '';
-            if (title.contains(' - ')) {
-              subject = title.split(' - ').first.trim();
-            } else if (title.contains('-')) {
-              subject = title.split('-').first.trim();
-            }
-          }
+                // Fallback: extract from title if empty
+                if (subject == null || subject.isEmpty) {
+                  final title = data['title']?.toString() ?? '';
+                  if (title.contains(' - ')) {
+                    subject = title.split(' - ').first.trim();
+                  } else if (title.contains('-')) {
+                    subject = title.split('-').first.trim();
+                  }
+                }
 
-          if (subject != null && subject.isNotEmpty) {
-            availableSubjects.add(subject);
-          }
-        }
-        final subjectsList = availableSubjects.toList()..sort();
+                if (subject != null && subject.isNotEmpty) {
+                  availableSubjects.add(subject);
+                }
+              }
+              final subjectsList = availableSubjects.toList()..sort();
 
-        // Apply branch filter
-        final filteredHomeworks = myHomeworks.where((h) {
-          if (_selectedHomeworkSubject == 'Tümü') return true;
-          final data = h.data() as Map<String, dynamic>;
-          String? subject = data['subject']?.toString();
+              // Apply branch filter
+              final filteredHomeworks = myHomeworks.where((h) {
+                if (_selectedHomeworkSubject == 'Tümü') return true;
+                final data = h.data() as Map<String, dynamic>;
+                String? subject = data['subject']?.toString();
 
-          // Fallback: extract from title if empty
-          if (subject == null || subject.isEmpty) {
-            final title = data['title']?.toString() ?? '';
-            if (title.contains(' - ')) {
-              subject = title.split(' - ').first.trim();
-            } else if (title.contains('-')) {
-              subject = title.split('-').first.trim();
-            }
-          }
+                // Fallback: extract from title if empty
+                if (subject == null || subject.isEmpty) {
+                  final title = data['title']?.toString() ?? '';
+                  if (title.contains(' - ')) {
+                    subject = title.split(' - ').first.trim();
+                  } else if (title.contains('-')) {
+                    subject = title.split('-').first.trim();
+                  }
+                }
 
-          return subject == _selectedHomeworkSubject;
-        }).toList();
+                return subject == _selectedHomeworkSubject;
+              }).toList();
 
-        if (myHomeworks.isEmpty) return _buildEmptyState('Ödev bulunamadı.');
+              if (myHomeworks.isEmpty)
+                return _buildEmptyState('Ödev bulunamadı.');
 
-        // Stats based on FILTERED homeworks
-        int total = filteredHomeworks.length;
-        int completed = 0;
+              // Stats based on FILTERED homeworks
+              int total = filteredHomeworks.length;
+              int completed = 0;
 
-        for (var h in filteredHomeworks) {
-          final data = h.data() as Map<String, dynamic>;
-          if (data['studentStatuses'] is Map) {
-            final statuses = data['studentStatuses'] as Map;
-            if (statuses[studentId] == 1) completed++;
-          }
-        }
-        int pending = total - completed;
+              for (var h in filteredHomeworks) {
+                final data = h.data() as Map<String, dynamic>;
+                if (data['studentStatuses'] is Map) {
+                  final statuses = data['studentStatuses'] as Map;
+                  if (statuses[studentId] == 1) completed++;
+                }
+              }
+              int pending = total - completed;
 
-        return Column(
-          children: [
-            // 1. Subject Filter Row (Now at the top)
-            if (subjectsList.length > 1)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.indigo.shade100),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: _selectedHomeworkSubject,
-                            isExpanded: true,
-                            hint: Text('Branş Filtrele'),
-                            icon: Icon(Icons.filter_list, color: Colors.indigo),
-                            style: TextStyle(
-                              color: Colors.indigo.shade900,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
+              return Column(
+                children: [
+                  // 1. Subject Filter Row (Now at the top)
+                  if (subjectsList.length > 1)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              padding: EdgeInsets.symmetric(horizontal: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.indigo.shade100,
+                                ),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _selectedHomeworkSubject,
+                                  isExpanded: true,
+                                  hint: Text('Branş Filtrele'),
+                                  icon: Icon(
+                                    Icons.filter_list,
+                                    color: Colors.indigo,
+                                  ),
+                                  style: TextStyle(
+                                    color: Colors.indigo.shade900,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
+                                  items: subjectsList.map((s) {
+                                    return DropdownMenuItem(
+                                      value: s,
+                                      child: Text(s),
+                                    );
+                                  }).toList(),
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      setState(
+                                        () => _selectedHomeworkSubject = val,
+                                      );
+                                    }
+                                  },
+                                ),
+                              ),
                             ),
-                            items: subjectsList.map((s) {
-                              return DropdownMenuItem(value: s, child: Text(s));
-                            }).toList(),
-                            onChanged: (val) {
-                              if (val != null) {
-                                setState(() => _selectedHomeworkSubject = val);
-                              }
-                            },
                           ),
-                        ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ),
 
-            // 2. Stats Row (Now follows filter)
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  _buildStatCard('Toplam', '$total', Colors.blue),
-                  SizedBox(width: 12),
-                  _buildStatCard('Tamamlanan', '$completed', Colors.green),
-                  SizedBox(width: 12),
-                  _buildStatCard('Eksik', '$pending', Colors.orange),
-                ],
-              ),
-            ),
+                  // 2. Stats Row (Now follows filter)
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        _buildStatCard('Toplam', '$total', Colors.blue),
+                        SizedBox(width: 12),
+                        _buildStatCard(
+                          'Tamamlanan',
+                          '$completed',
+                          Colors.green,
+                        ),
+                        SizedBox(width: 12),
+                        _buildStatCard('Eksik', '$pending', Colors.orange),
+                      ],
+                    ),
+                  ),
 
-            Expanded(
-              child: filteredHomeworks.isEmpty
-                  ? Center(child: Text('Seçili branşta ödev bulunamadı.'))
-                  : ListView.builder(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: filteredHomeworks.length,
-                      itemBuilder: (context, index) {
-                        final data =
-                            filteredHomeworks[index].data()
-                                as Map<String, dynamic>;
-                        final assignedDate =
-                            _parseDate(data['assignedDate']) ??
-                            _parseDate(data['createdAt']);
-                        final dueDate = _parseDate(data['dueDate']);
-                        final description = data['content']?.toString() ?? '';
+                  Expanded(
+                    child: filteredHomeworks.isEmpty
+                        ? Center(child: Text('Seçili branşta ödev bulunamadı.'))
+                        : ListView.builder(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: filteredHomeworks.length,
+                            itemBuilder: (context, index) {
+                              final data =
+                                  filteredHomeworks[index].data()
+                                      as Map<String, dynamic>;
+                              final assignedDate =
+                                  _parseDate(data['assignedDate']) ??
+                                  _parseDate(data['createdAt']);
+                              final dueDate = _parseDate(data['dueDate']);
+                              final description =
+                                  data['content']?.toString() ?? '';
 
-                        String? displaySubject = data['subject']?.toString();
-                        if (displaySubject == null || displaySubject.isEmpty) {
-                          final title = data['title']?.toString() ?? '';
-                          if (title.contains(' - ')) {
-                            displaySubject = title.split(' - ').first.trim();
-                          } else if (title.contains('-')) {
-                            displaySubject = title.split('-').first.trim();
-                          }
-                        }
-                        displaySubject ??= '-';
+                              String? displaySubject = data['subject']
+                                  ?.toString();
+                              if (displaySubject == null ||
+                                  displaySubject.isEmpty) {
+                                final title = data['title']?.toString() ?? '';
+                                if (title.contains(' - ')) {
+                                  displaySubject = title
+                                      .split(' - ')
+                                      .first
+                                      .trim();
+                                } else if (title.contains('-')) {
+                                  displaySubject = title
+                                      .split('-')
+                                      .first
+                                      .trim();
+                                }
+                              }
+                              displaySubject ??= '-';
 
-                        bool isDone = false;
-                        // Check studentStatuses map (studentId -> int where 1 is done)
-                        if (data['studentStatuses'] is Map) {
-                          final statuses = data['studentStatuses'] as Map;
-                          isDone = statuses[studentId] == 1;
-                        }
+                              bool isDone = false;
+                              // Check studentStatuses map (studentId -> int where 1 is done)
+                              if (data['studentStatuses'] is Map) {
+                                final statuses = data['studentStatuses'] as Map;
+                                isDone = statuses[studentId] == 1;
+                              }
 
-                        final screenWidth = MediaQuery.of(context).size.width;
-                        final isSmallMobile = screenWidth < 360;
-
-                        return Card(
-                          margin: EdgeInsets.only(bottom: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () {
-                              _showHomeworkDetailDialog(
+                              final screenWidth = MediaQuery.of(
                                 context,
-                                data,
-                                displaySubject ?? '-',
-                                isDone,
-                                assignedDate,
-                                dueDate,
-                              );
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Icon(
-                                    isDone
-                                        ? Icons.check_circle
-                                        : Icons.circle_outlined,
-                                    color: isDone
-                                        ? Colors.green
-                                        : Colors.grey.shade400,
-                                    size: isSmallMobile ? 24 : 32,
-                                  ),
-                                  SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
+                              ).size.width;
+                              final isSmallMobile = screenWidth < 360;
+
+                              return Card(
+                                margin: EdgeInsets.only(bottom: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () {
+                                    _showHomeworkDetailDialog(
+                                      context,
+                                      data,
+                                      displaySubject ?? '-',
+                                      isDone,
+                                      assignedDate,
+                                      dueDate,
+                                    );
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
+                                    child: Row(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          data['title'] ?? 'Ödev',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: isSmallMobile ? 13 : 15,
+                                        Icon(
+                                          isDone
+                                              ? Icons.check_circle
+                                              : Icons.circle_outlined,
+                                          color: isDone
+                                              ? Colors.green
+                                              : Colors.grey.shade400,
+                                          size: isSmallMobile ? 24 : 32,
+                                        ),
+                                        SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                data['title'] ?? 'Ödev',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: isSmallMobile
+                                                      ? 13
+                                                      : 15,
+                                                ),
+                                              ),
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                  top: 2,
+                                                  bottom: 4,
+                                                ),
+                                                child: Text(
+                                                  "$displaySubject | ${description.isNotEmpty ? description : 'Açıklama yok'}",
+                                                  style: TextStyle(
+                                                    fontSize: isSmallMobile
+                                                        ? 11
+                                                        : 12,
+                                                    color:
+                                                        Colors.indigo.shade800,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                              Wrap(
+                                                spacing: 8,
+                                                runSpacing: 4,
+                                                children: [
+                                                  if (assignedDate != null)
+                                                    Text(
+                                                      DateFormat(
+                                                        'dd.MM.yyyy',
+                                                      ).format(assignedDate),
+                                                      style: TextStyle(
+                                                        fontSize: isSmallMobile
+                                                            ? 10
+                                                            : 11,
+                                                        color: Colors
+                                                            .grey
+                                                            .shade600,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  if (assignedDate != null &&
+                                                      dueDate != null)
+                                                    Text(
+                                                      "-",
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        color: Colors
+                                                            .grey
+                                                            .shade400,
+                                                      ),
+                                                    ),
+                                                  if (dueDate != null)
+                                                    Text(
+                                                      DateFormat(
+                                                        'dd.MM.yyyy',
+                                                      ).format(dueDate),
+                                                      style: TextStyle(
+                                                        fontSize: isSmallMobile
+                                                            ? 10
+                                                            : 11,
+                                                        color: Colors
+                                                            .orange
+                                                            .shade700,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ],
                                           ),
                                         ),
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            top: 2,
-                                            bottom: 4,
+                                        SizedBox(width: 8),
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: isDone
+                                                ? Colors.green.shade50
+                                                : Colors.orange.shade50,
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
                                           ),
                                           child: Text(
-                                            "$displaySubject | ${description.isNotEmpty ? description : 'Açıklama yok'}",
+                                            isDone ? 'TAMAMLANDI' : 'BEKLİYOR',
                                             style: TextStyle(
-                                              fontSize: isSmallMobile ? 11 : 12,
-                                              color: Colors.indigo.shade800,
-                                              fontWeight: FontWeight.w500,
+                                              color: isDone
+                                                  ? Colors.green
+                                                  : Colors.orange,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: isSmallMobile ? 8 : 10,
                                             ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
                                           ),
-                                        ),
-                                        Wrap(
-                                          spacing: 8,
-                                          runSpacing: 4,
-                                          children: [
-                                            if (assignedDate != null)
-                                              Text(
-                                                DateFormat(
-                                                  'dd.MM.yyyy',
-                                                ).format(assignedDate),
-                                                style: TextStyle(
-                                                  fontSize: isSmallMobile
-                                                      ? 10
-                                                      : 11,
-                                                  color: Colors.grey.shade600,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            if (assignedDate != null &&
-                                                dueDate != null)
-                                              Text(
-                                                "-",
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: Colors.grey.shade400,
-                                                ),
-                                              ),
-                                            if (dueDate != null)
-                                              Text(
-                                                DateFormat(
-                                                  'dd.MM.yyyy',
-                                                ).format(dueDate),
-                                                style: TextStyle(
-                                                  fontSize: isSmallMobile
-                                                      ? 10
-                                                      : 11,
-                                                  color: Colors.orange.shade700,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                          ],
                                         ),
                                       ],
                                     ),
                                   ),
-                                  SizedBox(width: 8),
-                                  Container(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: isDone
-                                          ? Colors.green.shade50
-                                          : Colors.orange.shade50,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      isDone ? 'TAMAMLANDI' : 'BEKLİYOR',
-                                      style: TextStyle(
-                                        color: isDone
-                                            ? Colors.green
-                                            : Colors.orange,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: isSmallMobile ? 8 : 10,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        );
-      },
-    )),
-    ],
-  );
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 
   void _showHomeworkDetailDialog(
@@ -5395,98 +6142,322 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: Row(children: [
-            _buildStatsButton(
-              label: '📊 Yoklama İstatistiklerim',
-              icon: Icons.how_to_reg_rounded,
-              color: const Color(0xFF059669),
-              onTap: _openAttendanceStats,
-            ),
-          ]),
+          child: Row(
+            children: [
+              _buildStatsButton(
+                label: '📊 Yoklama İstatistiklerim',
+                icon: Icons.how_to_reg_rounded,
+                color: const Color(0xFF059669),
+                onTap: _openAttendanceStats,
+              ),
+            ],
+          ),
         ),
-        Expanded(child: SafeStreamBuilder<QuerySnapshot>(
-          stream: _attendanceStream,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          debugPrint("Devamsızlık Hatası: ${snapshot.error}");
-          return _buildEmptyState(
-            'Veri yüklenirken hata oluştu: ${snapshot.error}',
-          );
-        }
+        Expanded(
+          child: SafeStreamBuilder<QuerySnapshot>(
+            stream: _attendanceStream,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                debugPrint("Devamsızlık Hatası: ${snapshot.error}");
+                return _buildEmptyState(
+                  'Veri yüklenirken hata oluştu: ${snapshot.error}',
+                );
+              }
 
-        if (snapshot.connectionState == ConnectionState.waiting)
-          return Center(child: CircularProgressIndicator());
+              if (snapshot.connectionState == ConnectionState.waiting)
+                return Center(child: CircularProgressIndicator());
 
-        final docs = snapshot.data?.docs ?? [];
+              final docs = snapshot.data?.docs ?? [];
 
-        // 1. First, process ALL data to extract unique lessons for the filter
-        final allAttendanceHistory = <Map<String, dynamic>>[];
-        final availableLessons = <String>{'Tümü'};
+              // 1. First, process ALL data to extract unique lessons for the filter
+              final allAttendanceHistory = <Map<String, dynamic>>[];
+              final availableLessons = <String>{'Tümü'};
 
-        for (var doc in docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          final statuses = data['studentStatuses'] as Map? ?? {};
-          final status = (statuses[studentId] ?? '').toString();
+              for (var doc in docs) {
+                final data = doc.data() as Map<String, dynamic>;
+                final statuses = data['studentStatuses'] as Map? ?? {};
+                final status = (statuses[studentId] ?? '').toString();
 
-          if (status.isEmpty || status == 'present') continue;
+                if (status.isEmpty || status == 'present') continue;
 
-          String lessonName = data['lessonName'] ?? 'Ders';
-          availableLessons.add(lessonName);
+                String lessonName = data['lessonName'] ?? 'Ders';
+                availableLessons.add(lessonName);
 
-          allAttendanceHistory.add({
-            'date': data['date'],
-            'hour': data['lessonHour'],
-            'lesson': lessonName,
-            'status': status,
-          });
-        }
+                allAttendanceHistory.add({
+                  'date': data['date'],
+                  'hour': data['lessonHour'],
+                  'lesson': lessonName,
+                  'status': status,
+                });
+              }
 
-        final sortedLessons = availableLessons.toList()
-          ..sort((a, b) {
-            if (a == 'Tümü') return -1;
-            if (b == 'Tümü') return 1;
-            return a.compareTo(b);
-          });
+              final sortedLessons = availableLessons.toList()
+                ..sort((a, b) {
+                  if (a == 'Tümü') return -1;
+                  if (b == 'Tümü') return 1;
+                  return a.compareTo(b);
+                });
 
-        // 2. Filter the history based on selected lesson
-        final filteredHistory = allAttendanceHistory.where((item) {
-          if (_selectedAttendanceLesson == 'Tümü') return true;
-          return item['lesson'] == _selectedAttendanceLesson;
-        }).toList();
+              // 2. Filter the history based on selected lesson
+              final filteredHistory = allAttendanceHistory.where((item) {
+                if (_selectedAttendanceLesson == 'Tümü') return true;
+                return item['lesson'] == _selectedAttendanceLesson;
+              }).toList();
 
-        // 3. Calculate stats based on FILTERED history
-        int absentLessons = 0;
-        int lateLessons = 0;
-        int excusedLessons = 0;
-        int reportedLessons = 0;
-        int onDutyLessons = 0;
+              // 3. Calculate stats based on FILTERED history
+              int absentLessons = 0;
+              int lateLessons = 0;
+              int excusedLessons = 0;
+              int reportedLessons = 0;
+              int onDutyLessons = 0;
 
-        for (var item in filteredHistory) {
-          final status = item['status'];
-          if (status == 'absent')
-            absentLessons++;
-          else if (status == 'late')
-            lateLessons++;
-          else if (status == 'excused')
-            excusedLessons++;
-          else if (status == 'reported')
-            reportedLessons++;
-          else if (status == 'onDuty')
-            onDutyLessons++;
-        }
+              for (var item in filteredHistory) {
+                final status = item['status'];
+                if (status == 'absent')
+                  absentLessons++;
+                else if (status == 'late')
+                  lateLessons++;
+                else if (status == 'excused')
+                  excusedLessons++;
+                else if (status == 'reported')
+                  reportedLessons++;
+                else if (status == 'onDuty')
+                  onDutyLessons++;
+              }
 
-        if (allAttendanceHistory.isEmpty) {
-          return _buildEmptyState('Devamsızlık kaydı yok.');
-        }
+              if (allAttendanceHistory.isEmpty) {
+                return _buildEmptyState('Devamsızlık kaydı yok.');
+              }
 
-        return Column(
-          children: [
-            // Filter Dropdown (Styled like Homeworks Tab)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Row(
+              return Column(
                 children: [
+                  // Filter Dropdown (Styled like Homeworks Tab)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.indigo.shade100),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _selectedAttendanceLesson,
+                                isExpanded: true,
+                                hint: Text('Ders Filtrele'),
+                                icon: Icon(
+                                  Icons.filter_list,
+                                  color: Colors.indigo,
+                                ),
+                                style: TextStyle(
+                                  color: Colors.indigo.shade900,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                                onChanged: (String? newValue) {
+                                  if (newValue != null) {
+                                    setState(() {
+                                      _selectedAttendanceLesson = newValue;
+                                    });
+                                  }
+                                },
+                                items: sortedLessons
+                                    .map<DropdownMenuItem<String>>((
+                                      String value,
+                                    ) {
+                                      return DropdownMenuItem<String>(
+                                        value: value,
+                                        child: Text(value),
+                                      );
+                                    })
+                                    .toList(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        _buildStatCard('Gelmedi', '$absentLessons', Colors.red),
+                        SizedBox(width: 8),
+                        _buildStatCard('Geç', '$lateLessons', Colors.orange),
+                        SizedBox(width: 8),
+                        _buildStatCard(
+                          'İzinli',
+                          '${excusedLessons + reportedLessons + onDutyLessons}',
+                          Colors.blue,
+                        ),
+                      ],
+                    ),
+                  ),
                   Expanded(
+                    child: filteredHistory.isEmpty
+                        ? Center(
+                            child: Text('Seçili derse ait kayıt bulunamadı.'),
+                          )
+                        : ListView.builder(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: filteredHistory.length,
+                            itemBuilder: (context, index) {
+                              final item = filteredHistory[index];
+                              final status = item['status'];
+
+                              Color statusColor = Colors.grey;
+                              String statusText = status;
+
+                              if (status == 'absent') {
+                                statusColor = Colors.red;
+                                statusText = 'Gelmedi';
+                              } else if (status == 'late') {
+                                statusColor = Colors.orange;
+                                statusText = 'Geç Geldi';
+                              } else if (status == 'excused') {
+                                statusColor = Colors.blue;
+                                statusText = 'İzinli';
+                              } else if (status == 'reported') {
+                                statusColor = Colors.purple;
+                                statusText = 'Raporlu';
+                              } else if (status == 'onDuty') {
+                                statusColor = Colors.indigo;
+                                statusText = 'Görevli';
+                              }
+
+                              return Card(
+                                margin: EdgeInsets.only(bottom: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: statusColor.withValues(
+                                      alpha: 0.1,
+                                    ),
+                                    child: Icon(
+                                      Icons.event_busy,
+                                      color: statusColor,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  title: Text(
+                                    "${item['lesson'] ?? 'Ders'}",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    "${item['date']} • ${item['hour']}. Ders",
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                  trailing: Container(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: statusColor.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      statusText,
+                                      style: TextStyle(
+                                        color: statusColor,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEtutlerTab() {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(
+            children: [
+              _buildStatsButton(
+                label: '📊 Etüt İstatistiklerim',
+                icon: Icons.menu_book_rounded,
+                color: const Color(0xFF7C3AED),
+                onTap: _openEtutStats,
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: SafeStreamBuilder<QuerySnapshot>(
+            stream: _etutlerStream,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                debugPrint("Etüt Yükleme Hatası: ${snapshot.error}");
+                return _buildEmptyState(
+                  'Etütler yüklenirken hata oluştu: ${snapshot.error}',
+                );
+              }
+
+              if (snapshot.connectionState == ConnectionState.waiting)
+                return Center(child: CircularProgressIndicator());
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
+                return _buildEmptyState('Planlanmış etüt bulunmuyor.');
+
+              // Firestore composite index gereksinimini aşmak için yerel sıralama yapıyoruz
+              final allDocs = List<QueryDocumentSnapshot>.from(
+                snapshot.data!.docs,
+              );
+              allDocs.sort((a, b) {
+                final aData = a.data() as Map<String, dynamic>;
+                final bData = b.data() as Map<String, dynamic>;
+                final aDate = (aData['date'] as Timestamp?)?.toDate();
+                final bDate = (bData['date'] as Timestamp?)?.toDate();
+
+                if (aDate == null && bDate == null) return 0;
+                if (aDate == null) return 1;
+                if (bDate == null) return -1;
+                return bDate.compareTo(aDate); // date descending
+              });
+
+              // 1. Extract Subjects
+              Set<String> subjects = {'Tümü'};
+              for (var doc in allDocs) {
+                final data = doc.data() as Map<String, dynamic>;
+                if (data['subject'] != null) {
+                  subjects.add(data['subject'].toString());
+                }
+              }
+              final sortedSubjects = subjects.toList()..sort();
+
+              // 2. Filter
+              final filteredDocs = allDocs.where((doc) {
+                if (_selectedEtutSubject == 'Tümü') return true;
+                final data = doc.data() as Map<String, dynamic>;
+                return data['subject'] == _selectedEtutSubject;
+              }).toList();
+
+              return Column(
+                children: [
+                  // Filter Dropdown
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                     child: Container(
                       padding: EdgeInsets.symmetric(horizontal: 12),
                       decoration: BoxDecoration(
@@ -5496,7 +6467,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                       ),
                       child: DropdownButtonHideUnderline(
                         child: DropdownButton<String>(
-                          value: _selectedAttendanceLesson,
+                          value: _selectedEtutSubject,
                           isExpanded: true,
                           hint: Text('Ders Filtrele'),
                           icon: Icon(Icons.filter_list, color: Colors.indigo),
@@ -5508,11 +6479,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                           onChanged: (String? newValue) {
                             if (newValue != null) {
                               setState(() {
-                                _selectedAttendanceLesson = newValue;
+                                _selectedEtutSubject = newValue;
                               });
                             }
                           },
-                          items: sortedLessons.map<DropdownMenuItem<String>>((
+                          items: sortedSubjects.map<DropdownMenuItem<String>>((
                             String value,
                           ) {
                             return DropdownMenuItem<String>(
@@ -5524,290 +6495,95 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                       ),
                     ),
                   ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  _buildStatCard('Gelmedi', '$absentLessons', Colors.red),
-                  SizedBox(width: 8),
-                  _buildStatCard('Geç', '$lateLessons', Colors.orange),
-                  SizedBox(width: 8),
-                  _buildStatCard(
-                    'İzinli',
-                    '${excusedLessons + reportedLessons + onDutyLessons}',
-                    Colors.blue,
+                  // List
+                  Expanded(
+                    child: filteredDocs.isEmpty
+                        ? Center(
+                            child: Text('Seçili derse ait etüt bulunamadı.'),
+                          )
+                        : ListView.builder(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            itemCount: filteredDocs.length,
+                            itemBuilder: (context, index) {
+                              final data =
+                                  filteredDocs[index].data()
+                                      as Map<String, dynamic>;
+                              final date = (data['date'] as Timestamp?)
+                                  ?.toDate();
+                              final subject = data['subject'] ?? 'Ders';
+                              final topic = data['topic'] ?? 'Konu';
+                              final teacher = data['teacherName'] ?? 'Öğretmen';
+                              final status = data['status'] ?? 'pending';
+
+                              Color statusColor = Colors.orange;
+                              String statusText = 'Beklemede';
+                              if (status == 'completed') {
+                                statusColor = Colors.green;
+                                statusText = 'Tamamlandı';
+                              } else if (status == 'cancelled') {
+                                statusColor = Colors.red;
+                                statusText = 'İptal';
+                              }
+
+                              return Card(
+                                margin: EdgeInsets.only(bottom: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: statusColor.withValues(
+                                      alpha: 0.1,
+                                    ),
+                                    child: Icon(
+                                      Icons.school,
+                                      color: statusColor,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  title: Text(
+                                    'Etüt',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.indigo,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    '$teacher\n$subject - $topic\n${date != null ? DateFormat('dd.MM.yyyy HH:mm').format(date) : '-'}',
+                                  ),
+                                  trailing: Container(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: statusColor.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      statusText,
+                                      style: TextStyle(
+                                        color: statusColor,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                   ),
                 ],
-              ),
-            ),
-            Expanded(
-              child: filteredHistory.isEmpty
-                  ? Center(child: Text('Seçili derse ait kayıt bulunamadı.'))
-                  : ListView.builder(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: filteredHistory.length,
-                      itemBuilder: (context, index) {
-                        final item = filteredHistory[index];
-                        final status = item['status'];
-
-                        Color statusColor = Colors.grey;
-                        String statusText = status;
-
-                        if (status == 'absent') {
-                          statusColor = Colors.red;
-                          statusText = 'Gelmedi';
-                        } else if (status == 'late') {
-                          statusColor = Colors.orange;
-                          statusText = 'Geç Geldi';
-                        } else if (status == 'excused') {
-                          statusColor = Colors.blue;
-                          statusText = 'İzinli';
-                        } else if (status == 'reported') {
-                          statusColor = Colors.purple;
-                          statusText = 'Raporlu';
-                        } else if (status == 'onDuty') {
-                          statusColor = Colors.indigo;
-                          statusText = 'Görevli';
-                        }
-
-                        return Card(
-                          margin: EdgeInsets.only(bottom: 8),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: statusColor.withValues(alpha: 0.1),
-                              child: Icon(
-                                Icons.event_busy,
-                                color: statusColor,
-                                size: 20,
-                              ),
-                            ),
-                            title: Text(
-                              "${item['lesson'] ?? 'Ders'}",
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: Text(
-                              "${item['date']} • ${item['hour']}. Ders",
-                              style: TextStyle(fontSize: 12),
-                            ),
-                            trailing: Container(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: statusColor.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                statusText,
-                                style: TextStyle(
-                                  color: statusColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        );
-      },
-    )),
-    ],
-  );
-  }
-
-  Widget _buildEtutlerTab() {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: Row(children: [
-            _buildStatsButton(
-              label: '📊 Etüt İstatistiklerim',
-              icon: Icons.menu_book_rounded,
-              color: const Color(0xFF7C3AED),
-              onTap: _openEtutStats,
-            ),
-          ]),
+              );
+            },
+          ),
         ),
-        Expanded(child: SafeStreamBuilder<QuerySnapshot>(
-      stream: _etutlerStream,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          debugPrint("Etüt Yükleme Hatası: ${snapshot.error}");
-          return _buildEmptyState('Etütler yüklenirken hata oluştu: ${snapshot.error}');
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting)
-          return Center(child: CircularProgressIndicator());
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
-          return _buildEmptyState('Planlanmış etüt bulunmuyor.');
-
-        // Firestore composite index gereksinimini aşmak için yerel sıralama yapıyoruz
-        final allDocs = List<QueryDocumentSnapshot>.from(snapshot.data!.docs);
-        allDocs.sort((a, b) {
-          final aData = a.data() as Map<String, dynamic>;
-          final bData = b.data() as Map<String, dynamic>;
-          final aDate = (aData['date'] as Timestamp?)?.toDate();
-          final bDate = (bData['date'] as Timestamp?)?.toDate();
-          
-          if (aDate == null && bDate == null) return 0;
-          if (aDate == null) return 1;
-          if (bDate == null) return -1;
-          return bDate.compareTo(aDate); // date descending
-        });
-
-        // 1. Extract Subjects
-        Set<String> subjects = {'Tümü'};
-        for (var doc in allDocs) {
-          final data = doc.data() as Map<String, dynamic>;
-          if (data['subject'] != null) {
-            subjects.add(data['subject'].toString());
-          }
-        }
-        final sortedSubjects = subjects.toList()..sort();
-
-        // 2. Filter
-        final filteredDocs = allDocs.where((doc) {
-          if (_selectedEtutSubject == 'Tümü') return true;
-          final data = doc.data() as Map<String, dynamic>;
-          return data['subject'] == _selectedEtutSubject;
-        }).toList();
-
-        return Column(
-          children: [
-            // Filter Dropdown
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.indigo.shade100),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedEtutSubject,
-                    isExpanded: true,
-                    hint: Text('Ders Filtrele'),
-                    icon: Icon(Icons.filter_list, color: Colors.indigo),
-                    style: TextStyle(
-                      color: Colors.indigo.shade900,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
-                    onChanged: (String? newValue) {
-                      if (newValue != null) {
-                        setState(() {
-                          _selectedEtutSubject = newValue;
-                        });
-                      }
-                    },
-                    items: sortedSubjects.map<DropdownMenuItem<String>>((
-                      String value,
-                    ) {
-                      return DropdownMenuItem<String>(
-                        value: value,
-                        child: Text(value),
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ),
-            ),
-            // List
-            Expanded(
-              child: filteredDocs.isEmpty
-                  ? Center(child: Text('Seçili derse ait etüt bulunamadı.'))
-                  : ListView.builder(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      itemCount: filteredDocs.length,
-                      itemBuilder: (context, index) {
-                        final data =
-                            filteredDocs[index].data() as Map<String, dynamic>;
-                        final date = (data['date'] as Timestamp?)?.toDate();
-                        final subject = data['subject'] ?? 'Ders';
-                        final topic = data['topic'] ?? 'Konu';
-                        final teacher = data['teacherName'] ?? 'Öğretmen';
-                        final status = data['status'] ?? 'pending';
-
-                        Color statusColor = Colors.orange;
-                        String statusText = 'Beklemede';
-                        if (status == 'completed') {
-                          statusColor = Colors.green;
-                          statusText = 'Tamamlandı';
-                        } else if (status == 'cancelled') {
-                          statusColor = Colors.red;
-                          statusText = 'İptal';
-                        }
-
-                        return Card(
-                          margin: EdgeInsets.only(bottom: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: statusColor.withValues(alpha: 0.1),
-                              child: Icon(
-                                Icons.school,
-                                color: statusColor,
-                                size: 20,
-                              ),
-                            ),
-                            title: Text(
-                              'Etüt',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.indigo,
-                              ),
-                            ),
-                            subtitle: Text(
-                              '$teacher\n$subject - $topic\n${date != null ? DateFormat('dd.MM.yyyy HH:mm').format(date) : '-'}',
-                            ),
-                            trailing: Container(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: statusColor.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                statusText,
-                                style: TextStyle(
-                                  color: statusColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        );
-      },
-    )),
-    ],
-  );
+      ],
+    );
   }
 
   String _normEylem(String s) => s
@@ -5827,9 +6603,13 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   int _eylemSubjectOrder(String subject) {
     final s = _normEylem(subject);
     if (s.contains('turkce')) return 1;
-    if (s.contains('sosyal') || s.contains('tarih') || s.contains('inkilap')) return 2;
+    if (s.contains('sosyal') || s.contains('tarih') || s.contains('inkilap'))
+      return 2;
     if (s.contains('din')) return 3;
-    if (s.contains('ingilizce') || s.contains('english') || s.contains('yabancidil')) return 4;
+    if (s.contains('ingilizce') ||
+        s.contains('english') ||
+        s.contains('yabancidil'))
+      return 4;
     if (s.contains('matematik')) return 5;
     if (s.contains('fen')) return 6;
     return 99;
@@ -5840,8 +6620,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     if (s.contains('turkce')) return const Color(0xFFE53935);
     if (s.contains('matematik')) return const Color(0xFF1E88E5);
     if (s.contains('fen')) return const Color(0xFF43A047);
-    if (s.contains('sosyal') || s.contains('inkilap') || s.contains('tarih')) return const Color(0xFFFB8C00);
-    if (s.contains('ingilizce') || s.contains('english')) return const Color(0xFF8E24AA);
+    if (s.contains('sosyal') || s.contains('inkilap') || s.contains('tarih'))
+      return const Color(0xFFFB8C00);
+    if (s.contains('ingilizce') || s.contains('english'))
+      return const Color(0xFF8E24AA);
     if (s.contains('din')) return const Color(0xFF00897B);
     return Colors.indigo;
   }
@@ -5855,7 +6637,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return _buildEmptyState('Eylem planları yüklenirken hata oluştu: ${snapshot.error}');
+          return _buildEmptyState(
+            'Eylem planları yüklenirken hata oluştu: ${snapshot.error}',
+          );
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -5864,15 +6648,24 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         final docs = snapshot.data?.docs ?? [];
 
         final sId = (widget.student['id'] ?? '').toString().trim();
-        final sNum = (widget.student['studentNumber'] ??
-                widget.student['studentNo'] ??
-                widget.student['number'] ??
-                '')
+        final sNum =
+            (widget.student['studentNumber'] ??
+                    widget.student['studentNo'] ??
+                    widget.student['number'] ??
+                    '')
+                .toString()
+                .trim();
+        final sName =
+            (widget.student['fullName'] ?? widget.student['name'] ?? '')
+                .toString()
+                .trim();
+        final sBranchRaw =
+            (widget.student['className'] ?? widget.student['branch'] ?? '')
+                .toString()
+                .trim();
+        final sClassLevel = (widget.student['classLevel'] ?? '')
             .toString()
             .trim();
-        final sName = (widget.student['fullName'] ?? widget.student['name'] ?? '').toString().trim();
-        final sBranchRaw = (widget.student['className'] ?? widget.student['branch'] ?? '').toString().trim();
-        final sClassLevel = (widget.student['classLevel'] ?? '').toString().trim();
         final sTc = (widget.student['tcNo'] ?? '').toString().trim();
 
         String cleanBranchCode(String raw) {
@@ -5895,10 +6688,14 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           final t = token.trim();
           if (t.isEmpty) return false;
           final nt = _normEylem(t);
-          if (sId.isNotEmpty && (t.toLowerCase() == sId.toLowerCase() || (normId.isNotEmpty && nt == normId))) {
+          if (sId.isNotEmpty &&
+              (t.toLowerCase() == sId.toLowerCase() ||
+                  (normId.isNotEmpty && nt == normId))) {
             return true;
           }
-          if (sNum.isNotEmpty && (t.toLowerCase() == sNum.toLowerCase() || (normNum.isNotEmpty && nt == normNum))) {
+          if (sNum.isNotEmpty &&
+              (t.toLowerCase() == sNum.toLowerCase() ||
+                  (normNum.isNotEmpty && nt == normNum))) {
             return true;
           }
           if (normName.isNotEmpty && nt == normName) {
@@ -5916,7 +6713,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             );
           }
           final ns = _normEylem(subject);
-          return ns.contains('ingilizce') || ns.contains('english') || ns.contains('maincourse');
+          return ns.contains('ingilizce') ||
+              ns.contains('english') ||
+              ns.contains('maincourse');
         }
 
         // Öğrencinin kurs derslerindeki kur şubesi (ders -> kur şube kodu, örn. 'İngilizce' -> '706')
@@ -5937,7 +6736,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               final cb = cleanBranchCode(slot.subGroupName);
               if (cb.isNotEmpty) {
                 final ns = _normEylem(lesson);
-                final displayLesson = (ns.contains('ingilizce') || ns.contains('english') || ns.contains('maincourse'))
+                final displayLesson =
+                    (ns.contains('ingilizce') ||
+                        ns.contains('english') ||
+                        ns.contains('maincourse'))
                     ? 'İngilizce'
                     : lesson;
                 studentCourseBranches[displayLesson] = cb;
@@ -5955,9 +6757,12 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           final data = doc.data() as Map<String, dynamic>;
           final tasksRaw = data['studentTasks'] as Map<String, dynamic>? ?? {};
           final infoRaw = data['studentInfo'] as Map<String, dynamic>? ?? {};
-          final notifiedRaw = data['parentNotified'] as Map<String, dynamic>? ?? {};
-          final branchPlansRaw = data['branchActionPlans'] as Map<String, dynamic>? ?? {};
-          final outcomeStatsRaw = data['outcomeStats'] as Map<String, dynamic>? ?? {};
+          final notifiedRaw =
+              data['parentNotified'] as Map<String, dynamic>? ?? {};
+          final branchPlansRaw =
+              data['branchActionPlans'] as Map<String, dynamic>? ?? {};
+          final outcomeStatsRaw =
+              data['outcomeStats'] as Map<String, dynamic>? ?? {};
 
           // Bu planda kurs dersi için öğrencinin kur şubesini döndürür (yalnızca kurs dersleri için!)
           String? courseBranchForSubject(String subject) {
@@ -5988,7 +6793,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               if (subjectsVal is! Map) continue;
               final cleanB = cleanBranchCode(bEntry.key.toString());
               for (final sEntry in subjectsVal.entries) {
-                if (!CourseTrackResolver.lessonMatches(sEntry.key.toString(), subject)) continue;
+                if (!CourseTrackResolver.lessonMatches(
+                  sEntry.key.toString(),
+                  subject,
+                ))
+                  continue;
                 final outcomesVal = sEntry.value;
                 if (outcomesVal is! Map) continue;
                 for (final oVal in outcomesVal.values) {
@@ -5999,7 +6808,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                       if (st is Map) {
                         final stNo = (st['no'] ?? '').toString();
                         final stName = (st['name'] ?? '').toString();
-                        if (matchesThisStudent(stNo) || matchesThisStudent(stName)) {
+                        if (matchesThisStudent(stNo) ||
+                            matchesThisStudent(stName)) {
                           if (cleanB.isNotEmpty) return cleanB;
                         }
                       }
@@ -6027,23 +6837,30 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             final bool isCourse = isCourseSubject(cleanSubj);
             String displayBranch;
             if (isCourse) {
-              final trackB = courseBranchForSubject(cleanSubj) ?? cleanBranchCode(branch);
+              final trackB =
+                  courseBranchForSubject(cleanSubj) ?? cleanBranchCode(branch);
               if (trackB.isEmpty) return;
               displayBranch = '$trackB Kur';
             } else {
               // Normal derslerde her zaman öğrencinin gerçek şubesi baz alınır
-              displayBranch = realBranch.isNotEmpty ? realBranch : cleanBranchCode(branch);
+              displayBranch = realBranch.isNotEmpty
+                  ? realBranch
+                  : cleanBranchCode(branch);
             }
             if (displayBranch.isEmpty) return;
 
-            final mapKey = '${_normEylem(displayBranch)}_${_normEylem(cleanSubj)}';
-            final cur = studentSubjectsMap.putIfAbsent(mapKey, () => {
-              'branch': displayBranch,
-              'subject': cleanSubj,
-              'tasks': <Map<String, dynamic>>[],
-              'success': null,
-              'notified': false,
-            });
+            final mapKey =
+                '${_normEylem(displayBranch)}_${_normEylem(cleanSubj)}';
+            final cur = studentSubjectsMap.putIfAbsent(
+              mapKey,
+              () => {
+                'branch': displayBranch,
+                'subject': cleanSubj,
+                'tasks': <Map<String, dynamic>>[],
+                'success': null,
+                'notified': false,
+              },
+            );
 
             if (success != null && cur['success'] == null) {
               cur['success'] = success;
@@ -6057,7 +6874,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               final label = (t['label'] ?? '').toString();
               if (label.isEmpty) continue;
               final idx = existingTasks.indexWhere(
-                (et) => (type.isNotEmpty && et['type'] == type) || et['label'] == label,
+                (et) =>
+                    (type.isNotEmpty && et['type'] == type) ||
+                    et['label'] == label,
               );
               if (idx >= 0) {
                 if (t['done'] == true) existingTasks[idx]['done'] = true;
@@ -6082,7 +6901,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             final inf = infoRaw[key];
             if (inf is Map) {
               final infName = (inf['name'] ?? '').toString().trim();
-              if (infName.isNotEmpty && normName.isNotEmpty && _normEylem(infName) != normName) {
+              if (infName.isNotEmpty &&
+                  normName.isNotEmpty &&
+                  _normEylem(infName) != normName) {
                 return;
               }
             }
@@ -6111,20 +6932,30 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           infoRaw.forEach((key, val) {
             if (val is! Map) return;
             final parts = key.split('_');
-            final tokenFromKey = parts.length >= 3 ? parts.sublist(2).join('_') : '';
+            final tokenFromKey = parts.length >= 3
+                ? parts.sublist(2).join('_')
+                : '';
             final vNo = (val['no'] ?? '').toString();
             final vName = (val['name'] ?? '').toString().trim();
-            if (vName.isNotEmpty && normName.isNotEmpty && _normEylem(vName) != normName) {
+            if (vName.isNotEmpty &&
+                normName.isNotEmpty &&
+                _normEylem(vName) != normName) {
               return;
             }
-            final isMatch = matchesThisStudent(tokenFromKey) ||
+            final isMatch =
+                matchesThisStudent(tokenFromKey) ||
                 matchesThisStudent(vNo) ||
                 matchesThisStudent(vName);
             if (!isMatch) return;
 
-            final branch = (val['branch'] ?? (parts.isNotEmpty ? parts[0] : '')).toString();
-            final subject = (val['subject'] ?? (parts.length >= 2 ? parts[1] : '')).toString();
-            final success = val['success'] is num ? (val['success'] as num).toDouble() : null;
+            final branch = (val['branch'] ?? (parts.isNotEmpty ? parts[0] : ''))
+                .toString();
+            final subject =
+                (val['subject'] ?? (parts.length >= 2 ? parts[1] : ''))
+                    .toString();
+            final success = val['success'] is num
+                ? (val['success'] as num).toDouble()
+                : null;
             final notified = notifiedRaw[key] == true;
 
             mergeStudentEntry(
@@ -6144,11 +6975,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             if (!matchesThisStudent(studentToken)) return;
             final branch = parts[0];
             final subject = parts[1];
-            mergeStudentEntry(
-              branch: branch,
-              subject: subject,
-              notified: true,
-            );
+            mergeStudentEntry(branch: branch, subject: subject, notified: true);
           });
 
           // 4. Öğrencinin gerçek şubesine (normal dersler) ve kurs şubesindeki kurs dersine ait girilmiş Şube Eylem Planlarını topla
@@ -6185,16 +7012,24 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               displayBranch = '$trackB Kur';
             } else {
               // Normal derslerde SADECE öğrencinin gerçek şubesi baz alınır
-              if (normRealBranch.isEmpty || _normEylem(cleanB) != normRealBranch) return;
+              if (normRealBranch.isEmpty ||
+                  _normEylem(cleanB) != normRealBranch)
+                return;
               displayBranch = realBranch;
             }
 
             // Kazanım başarı yüzdesini outcomeStats'tan bul
             double? outcomeSuccess;
-            Map? bStats = (outcomeStatsRaw[cleanB] ?? outcomeStatsRaw['$cleanB Kur'] ?? outcomeStatsRaw[rawBranch]) as Map?;
+            Map? bStats =
+                (outcomeStatsRaw[cleanB] ??
+                        outcomeStatsRaw['$cleanB Kur'] ??
+                        outcomeStatsRaw[rawBranch])
+                    as Map?;
             if (bStats == null) {
               for (final bEntry in outcomeStatsRaw.entries) {
-                if (_normEylem(cleanBranchCode(bEntry.key.toString())) == _normEylem(cleanB) && bEntry.value is Map) {
+                if (_normEylem(cleanBranchCode(bEntry.key.toString())) ==
+                        _normEylem(cleanB) &&
+                    bEntry.value is Map) {
                   final candidate = bEntry.value as Map;
                   if (candidate.containsKey(subject)) {
                     bStats = candidate;
@@ -6230,21 +7065,30 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           });
 
           // Yalnızca gerçekten görev atanmış veya velisi bilgilendirilmiş öğrenci bazlı eylem planı satırlarını dahil et ve sırala
-          final studentItems = studentSubjectsMap.values
-              .where((item) => (item['tasks'] as List).isNotEmpty || item['notified'] == true)
-              .toList()
-            ..sort((a, b) {
-              final oa = _eylemSubjectOrder(a['subject'] as String);
-              final ob = _eylemSubjectOrder(b['subject'] as String);
-              if (oa != ob) return oa.compareTo(ob);
-              return (a['subject'] as String).compareTo(b['subject'] as String);
-            });
+          final studentItems =
+              studentSubjectsMap.values
+                  .where(
+                    (item) =>
+                        (item['tasks'] as List).isNotEmpty ||
+                        item['notified'] == true,
+                  )
+                  .toList()
+                ..sort((a, b) {
+                  final oa = _eylemSubjectOrder(a['subject'] as String);
+                  final ob = _eylemSubjectOrder(b['subject'] as String);
+                  if (oa != ob) return oa.compareTo(ob);
+                  return (a['subject'] as String).compareTo(
+                    b['subject'] as String,
+                  );
+                });
 
           myBranchPlans.sort((a, b) {
             final oa = _eylemSubjectOrder(a['subject'] as String);
             final ob = _eylemSubjectOrder(b['subject'] as String);
             if (oa != ob) return oa.compareTo(ob);
-            final sCmp = (a['subject'] as String).compareTo(b['subject'] as String);
+            final sCmp = (a['subject'] as String).compareTo(
+              b['subject'] as String,
+            );
             if (sCmp != 0) return sCmp;
             return (a['outcome'] as String).compareTo(b['outcome'] as String);
           });
@@ -6261,9 +7105,12 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             globalDoneTasks += planDoneTasks;
             globalBranchActions += myBranchPlans.length;
 
-            final selectedExams = List<String>.from(data['selectedExamNames'] ?? []);
+            final selectedExams = List<String>.from(
+              data['selectedExamNames'] ?? [],
+            );
             final rawNote = (data['realizationNotes'] ?? '').toString().trim();
-            final String realizationNotes = (rawNote.toLowerCase() == 'results are reviewed.' ||
+            final String realizationNotes =
+                (rawNote.toLowerCase() == 'results are reviewed.' ||
                     rawNote.toLowerCase() == 'results are reviewed')
                 ? 'Sonuçlar incelendi ve değerlendirildi.'
                 : rawNote;
@@ -6299,11 +7146,15 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         }
 
         if (myPlans.isEmpty) {
-          return _buildEmptyState('Öğrenciye tanımlanmış bir eylem planı bulunmuyor.');
+          return _buildEmptyState(
+            'Öğrenciye tanımlanmış bir eylem planı bulunmuyor.',
+          );
         }
 
         // Tarihe göre yeniden eskiye sırala
-        myPlans.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
+        myPlans.sort(
+          (a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime),
+        );
 
         return ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
@@ -6339,7 +7190,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                           color: Colors.indigo.shade50,
                           borderRadius: BorderRadius.circular(9),
                         ),
-                        child: Icon(Icons.track_changes_rounded, size: 16, color: Colors.indigo.shade700),
+                        child: Icon(
+                          Icons.track_changes_rounded,
+                          size: 16,
+                          color: Colors.indigo.shade700,
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Text(
@@ -6365,7 +7220,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                         _buildMinimalSummaryChip(
                           Icons.task_alt_rounded,
                           '$globalDoneTasks/$globalTotalTasks Bireysel Görev',
-                          globalDoneTasks == globalTotalTasks ? Colors.green : Colors.blue,
+                          globalDoneTasks == globalTotalTasks
+                              ? Colors.green
+                              : Colors.blue,
                         ),
                       if (globalBranchActions > 0)
                         _buildMinimalSummaryChip(
@@ -6382,7 +7239,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             // ── Deneme Bazlı Açılır/Kapanır (Dropdown) Eylem Planı Kartları ──
             ...List.generate(myPlans.length, (index) {
               final plan = myPlans[index];
-              return _buildActionPlanDropdownCard(plan, initiallyExpanded: index == 0);
+              return _buildActionPlanDropdownCard(
+                plan,
+                initiallyExpanded: index == 0,
+              );
             }),
           ],
         );
@@ -6390,7 +7250,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     );
   }
 
-  Widget _buildMinimalSummaryChip(IconData icon, String label, MaterialColor color) {
+  Widget _buildMinimalSummaryChip(
+    IconData icon,
+    String label,
+    MaterialColor color,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
@@ -6416,11 +7280,16 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     );
   }
 
-  Widget _buildActionPlanDropdownCard(Map<String, dynamic> plan, {required bool initiallyExpanded}) {
+  Widget _buildActionPlanDropdownCard(
+    Map<String, dynamic> plan, {
+    required bool initiallyExpanded,
+  }) {
     final DateTime date = plan['date'] as DateTime;
     final bool isRealized = plan['isRealized'] as bool;
-    final List<Map<String, dynamic>> studentItems = plan['studentItems'] as List<Map<String, dynamic>>;
-    final List<Map<String, dynamic>> branchPlans = plan['branchPlans'] as List<Map<String, dynamic>>;
+    final List<Map<String, dynamic>> studentItems =
+        plan['studentItems'] as List<Map<String, dynamic>>;
+    final List<Map<String, dynamic>> branchPlans =
+        plan['branchPlans'] as List<Map<String, dynamic>>;
     final List<String> selectedExams = plan['selectedExams'] as List<String>;
     final String realizationNotes = plan['realizationNotes'] as String;
     final int totalTasks = plan['totalTasks'] as int;
@@ -6478,7 +7347,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             child: Icon(
               isCompleted ? Icons.fact_check_rounded : Icons.analytics_outlined,
               size: 19,
-              color: isCompleted ? Colors.green.shade700 : Colors.indigo.shade700,
+              color: isCompleted
+                  ? Colors.green.shade700
+                  : Colors.indigo.shade700,
             ),
           ),
           title: Row(
@@ -6497,16 +7368,22 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: isCompleted ? Colors.green.shade50 : Colors.amber.shade50,
+                  color: isCompleted
+                      ? Colors.green.shade50
+                      : Colors.amber.shade50,
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(
-                    color: isCompleted ? Colors.green.shade200 : Colors.amber.shade200,
+                    color: isCompleted
+                        ? Colors.green.shade200
+                        : Colors.amber.shade200,
                   ),
                 ),
                 child: Text(
                   isCompleted ? 'Tamamlandı' : 'Uygulanıyor',
                   style: TextStyle(
-                    color: isCompleted ? Colors.green.shade800 : Colors.amber.shade900,
+                    color: isCompleted
+                        ? Colors.green.shade800
+                        : Colors.amber.shade900,
                     fontWeight: FontWeight.w600,
                     fontSize: 10.5,
                   ),
@@ -6523,23 +7400,38 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               children: [
                 Text(
                   DateFormat('dd.MM.yyyy').format(date),
-                  style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
                 if (selectedExams.isNotEmpty)
                   Text(
                     '• ${selectedExams.join(', ')}',
-                    style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Colors.grey.shade500,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 if (studentItems.isNotEmpty)
                   Text(
                     '• ${studentItems.length} Ders Destek ($doneTasks/$totalTasks Görev)',
-                    style: TextStyle(fontSize: 11.5, color: Colors.indigo.shade600, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Colors.indigo.shade600,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 if (branchPlans.isNotEmpty)
                   Text(
                     '• ${branchPlans.length} Şube Eylemi',
-                    style: TextStyle(fontSize: 11.5, color: Colors.deepPurple.shade600, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Colors.deepPurple.shade600,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
               ],
             ),
@@ -6552,24 +7444,32 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             if (studentItems.isNotEmpty) ...[
               Row(
                 children: [
-                  Icon(Icons.person_pin_circle_outlined, size: 15, color: Colors.indigo.shade600),
+                  Icon(
+                    Icons.person_pin_circle_outlined,
+                    size: 15,
+                    color: Colors.indigo.shade600,
+                  ),
                   const SizedBox(width: 6),
-                  Text(
-                    'Öğrenci Bazlı Kazanım Destek Çalışmaları',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12.5,
-                      color: Colors.grey.shade800,
+                  Expanded(
+                    child: Text(
+                      'Öğrenci Bazlı Kazanım Destek Çalışmaları',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12.5,
+                        color: Colors.grey.shade800,
+                      ),
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   if (totalTasks > 0)
                     Text(
                       '$doneTasks / $totalTasks tamamlandı',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: doneTasks == totalTasks ? Colors.green.shade700 : Colors.grey.shade500,
+                        color: doneTasks == totalTasks
+                            ? Colors.green.shade700
+                            : Colors.grey.shade500,
                       ),
                     ),
                 ],
@@ -6586,180 +7486,280 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     final item = studentItems[i];
                     final branch = item['branch'] as String;
                     final subject = item['subject'] as String;
-                    final tasksList = item['tasks'] as List<Map<String, dynamic>>;
+                    final tasksList =
+                        item['tasks'] as List<Map<String, dynamic>>;
                     final double? success = item['success'] as double?;
                     final bool notified = item['notified'] == true;
                     final subjColor = _eylemSubjectColor(subject);
 
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        border: i < studentItems.length - 1
-                            ? Border(bottom: BorderSide(color: Colors.grey.shade200, width: 0.7))
-                            : null,
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
+                    final bool narrow = MediaQuery.of(context).size.width < 700;
+
+                    Widget miniChip(String text, Color bg, Color fg) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: bg,
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          text,
+                          style: TextStyle(
+                            fontSize: narrow ? 11 : 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: fg,
+                          ),
+                        ),
+                      );
+                    }
+
+                    Widget subjectWrap() {
+                      return Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Container(
-                            width: 7,
-                            height: 7,
-                            decoration: BoxDecoration(color: subjColor, shape: BoxShape.circle),
-                          ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: 190,
-                            child: Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
-                                Text(
-                                  subject,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 12,
-                                    color: Colors.grey.shade900,
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade200,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    branch,
-                                    style: TextStyle(
-                                      fontSize: 9.5,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.grey.shade700,
-                                    ),
-                                  ),
-                                ),
-                                if (success != null)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                                    decoration: BoxDecoration(
-                                      color: Colors.red.shade50,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      '%${success.toStringAsFixed(0)}',
-                                      style: TextStyle(
-                                        fontSize: 9.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.red.shade700,
-                                      ),
-                                    ),
-                                  ),
-                              ],
+                          Text(
+                            subject,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: narrow ? 14 : 12,
+                              color: Colors.grey.shade900,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Wrap(
-                              spacing: 6,
-                              runSpacing: 5,
-                              children: tasksList.isEmpty
-                                  ? [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
-                                        decoration: BoxDecoration(
-                                          color: Colors.amber.shade50,
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.all(
-                                            color: Colors.amber.shade200,
-                                            width: 0.8,
-                                          ),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.schedule_rounded,
-                                              size: 12,
-                                              color: Colors.amber.shade800,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              'Bireysel Destek / Telafi Takibi',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.amber.shade900,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ]
-                                  : tasksList.map((t) {
-                                      final isDone = t['done'] == true;
-                                      return Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
-                                        decoration: BoxDecoration(
-                                          color: isDone ? Colors.green.shade50 : Colors.white,
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.all(
-                                            color: isDone ? Colors.green.shade200 : Colors.grey.shade300,
-                                            width: 0.8,
-                                          ),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              isDone ? Icons.check_circle_rounded : Icons.schedule_rounded,
-                                              size: 12,
-                                              color: isDone ? Colors.green.shade700 : Colors.grey.shade500,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              (t['label'] ?? '').toString(),
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: isDone ? Colors.green.shade800 : Colors.grey.shade800,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    }).toList(),
-                            ),
+                          miniChip(
+                            branch,
+                            Colors.grey.shade200,
+                            Colors.grey.shade700,
                           ),
-                          if (notified) ...[
-                            const SizedBox(width: 8),
-                            Tooltip(
-                              message: 'Veli Bilgilendirildi',
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
-                                decoration: BoxDecoration(
-                                  color: Colors.teal.shade50,
-                                  borderRadius: BorderRadius.circular(5),
-                                  border: Border.all(color: Colors.teal.shade100),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.family_restroom_rounded, size: 11, color: Colors.teal.shade700),
-                                    const SizedBox(width: 3),
-                                    Text(
-                                      'Veli Bilgi',
-                                      style: TextStyle(
-                                        fontSize: 9.5,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.teal.shade800,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                          if (success != null)
+                            miniChip(
+                              '%${success.toStringAsFixed(0)} başarı',
+                              Colors.red.shade50,
+                              Colors.red.shade700,
+                            ),
+                        ],
+                      );
+                    }
+
+                    Widget taskTile(
+                      Map<String, dynamic> t, {
+                      required bool full,
+                    }) {
+                      final isDone = t['done'] == true;
+                      final label = (t['label'] ?? '').toString();
+                      final icon = Icon(
+                        isDone
+                            ? Icons.check_circle_rounded
+                            : Icons.radio_button_unchecked_rounded,
+                        size: full ? 18 : 12,
+                        color: isDone
+                            ? Colors.green.shade700
+                            : Colors.grey.shade500,
+                      );
+                      final text = Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: full ? 13 : 11,
+                          height: 1.3,
+                          color: isDone
+                              ? Colors.green.shade800
+                              : Colors.grey.shade800,
+                          fontWeight: FontWeight.w500,
+                          decoration: isDone && full
+                              ? TextDecoration.lineThrough
+                              : null,
+                          decorationColor: Colors.green.shade300,
+                        ),
+                      );
+                      return Container(
+                        width: full ? double.infinity : null,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: full ? 10 : 8,
+                          vertical: full ? 8 : 3.5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isDone ? Colors.green.shade50 : Colors.white,
+                          borderRadius: BorderRadius.circular(full ? 8 : 6),
+                          border: Border.all(
+                            color: isDone
+                                ? Colors.green.shade200
+                                : Colors.grey.shade300,
+                            width: 0.8,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: full
+                              ? MainAxisSize.max
+                              : MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            icon,
+                            SizedBox(width: full ? 8 : 4),
+                            if (full) Expanded(child: text) else text,
+                          ],
+                        ),
+                      );
+                    }
+
+                    Widget emptyTaskTile({required bool full}) {
+                      return Container(
+                        width: full ? double.infinity : null,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: full ? 10 : 8,
+                          vertical: full ? 8 : 3.5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade50,
+                          borderRadius: BorderRadius.circular(full ? 8 : 6),
+                          border: Border.all(
+                            color: Colors.amber.shade200,
+                            width: 0.8,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: full
+                              ? MainAxisSize.max
+                              : MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.schedule_rounded,
+                              size: full ? 16 : 12,
+                              color: Colors.amber.shade800,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Bireysel Destek / Telafi Takibi',
+                              style: TextStyle(
+                                fontSize: full ? 12.5 : 11,
+                                color: Colors.amber.shade900,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                           ],
-                        ],
+                        ),
+                      );
+                    }
+
+                    Widget notifiedChip() {
+                      return Tooltip(
+                        message: 'Veli Bilgilendirildi',
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.shade50,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.teal.shade100),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.family_restroom_rounded,
+                                size: 12,
+                                color: Colors.teal.shade700,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Veli Bilgilendirildi',
+                                style: TextStyle(
+                                  fontSize: narrow ? 10.5 : 9.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.teal.shade800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+
+                    final dot = Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: subjColor,
+                        shape: BoxShape.circle,
                       ),
+                    );
+
+                    return Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: narrow ? 12 : 8,
+                      ),
+                      decoration: BoxDecoration(
+                        border: i < studentItems.length - 1
+                            ? Border(
+                                bottom: BorderSide(
+                                  color: Colors.grey.shade200,
+                                  width: 0.7,
+                                ),
+                              )
+                            : null,
+                      ),
+                      child: narrow
+                          // ── MOBİL: ders başlığı üstte, görevler alt alta tam genişlikte ──
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    dot,
+                                    const SizedBox(width: 8),
+                                    Expanded(child: subjectWrap()),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                if (tasksList.isEmpty)
+                                  emptyTaskTile(full: true)
+                                else
+                                  ...tasksList.map(
+                                    (t) => Padding(
+                                      padding: const EdgeInsets.only(bottom: 6),
+                                      child: taskTile(t, full: true),
+                                    ),
+                                  ),
+                                if (notified)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: notifiedChip(),
+                                  ),
+                              ],
+                            )
+                          // ── MASAÜSTÜ: tek satır düzeni ──
+                          : Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                dot,
+                                const SizedBox(width: 8),
+                                SizedBox(width: 190, child: subjectWrap()),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Wrap(
+                                    spacing: 6,
+                                    runSpacing: 5,
+                                    children: tasksList.isEmpty
+                                        ? [emptyTaskTile(full: false)]
+                                        : tasksList
+                                              .map(
+                                                (t) => taskTile(t, full: false),
+                                              )
+                                              .toList(),
+                                  ),
+                                ),
+                                if (notified) ...[
+                                  const SizedBox(width: 8),
+                                  notifiedChip(),
+                                ],
+                              ],
+                            ),
                     );
                   }),
                 ),
@@ -6782,7 +7782,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.menu_book_rounded, size: 15, color: Colors.deepPurple.shade600),
+                        Icon(
+                          Icons.menu_book_rounded,
+                          size: 15,
+                          color: Colors.deepPurple.shade600,
+                        ),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
@@ -6798,14 +7802,22 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                         ),
                         Text(
                           '${branchPlans.length} kazanım eylemi',
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade500,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 6),
                     Text(
                       branchDescText,
-                      style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600, height: 1.35),
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: Colors.grey.shade600,
+                        height: 1.35,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     ...groupedBranchPlans.entries.map((entry) {
@@ -6823,7 +7835,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                 Container(
                                   width: 6,
                                   height: 6,
-                                  decoration: BoxDecoration(color: subjColor, shape: BoxShape.circle),
+                                  decoration: BoxDecoration(
+                                    color: subjColor,
+                                    shape: BoxShape.circle,
+                                  ),
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
@@ -6839,18 +7854,32 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                             const SizedBox(height: 4),
                             ...items.map((bp) {
                               final outcome = (bp['outcome'] ?? '').toString();
-                              final problem = (bp['problemSource'] ?? '').toString();
-                              final action = (bp['actionPlan'] ?? '').toString();
+                              final problem = (bp['problemSource'] ?? '')
+                                  .toString();
+                              final action = (bp['actionPlan'] ?? '')
+                                  .toString();
                               final status = (bp['status'] ?? '').toString();
                               final double? rate = bp['success'] as double?;
 
-                              final rateText = rate != null ? ' (%${rate.toStringAsFixed(0)} başarı)' : '';
-                              final problemText = problem.isNotEmpty ? 'Sorun kaynağı: $problem. ' : '';
-                              final actionText = action.isNotEmpty ? 'Eylem planı: $action.' : '';
-                              final statusText = status.isNotEmpty && status != 'Belirlenmedi' ? ' [$status]' : '';
+                              final rateText = rate != null
+                                  ? ' (%${rate.toStringAsFixed(0)} başarı)'
+                                  : '';
+                              final problemText = problem.isNotEmpty
+                                  ? 'Sorun kaynağı: $problem. '
+                                  : '';
+                              final actionText = action.isNotEmpty
+                                  ? 'Eylem planı: $action.'
+                                  : '';
+                              final statusText =
+                                  status.isNotEmpty && status != 'Belirlenmedi'
+                                  ? ' [$status]'
+                                  : '';
 
                               return Padding(
-                                padding: const EdgeInsets.only(left: 12, bottom: 3),
+                                padding: const EdgeInsets.only(
+                                  left: 12,
+                                  bottom: 3,
+                                ),
                                 child: RichText(
                                   text: TextSpan(
                                     style: TextStyle(
@@ -6861,11 +7890,15 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                     children: [
                                       const TextSpan(
                                         text: '• ',
-                                        style: TextStyle(fontWeight: FontWeight.bold),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
                                       TextSpan(
                                         text: '$outcome$rateText: ',
-                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                       TextSpan(text: '$problemText$actionText'),
                                       if (statusText.isNotEmpty)
@@ -6897,7 +7930,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               const SizedBox(height: 10),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.amber.shade50.withValues(alpha: 0.6),
                   borderRadius: BorderRadius.circular(8),
@@ -6905,7 +7941,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                 ),
                 child: Text(
                   'İzleme Notu: $realizationNotes',
-                  style: TextStyle(fontSize: 11.5, color: Colors.amber.shade900),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: Colors.amber.shade900,
+                  ),
                 ),
               ),
             ],
@@ -7397,7 +8436,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     offset: Offset(0, 5),
                   ),
                 ],
-                border: Border.all(color: Colors.indigo.withValues(alpha: 0.05)),
+                border: Border.all(
+                  color: Colors.indigo.withValues(alpha: 0.05),
+                ),
               ),
               child: Theme(
                 data: Theme.of(
@@ -7471,7 +8512,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     ],
                   ),
                   children: [
-                    Divider(height: 1, color: Colors.grey.withValues(alpha: 0.1)),
+                    Divider(
+                      height: 1,
+                      color: Colors.grey.withValues(alpha: 0.1),
+                    ),
                     Padding(
                       padding: const EdgeInsets.all(20.0),
                       child: DevelopmentReportContent(
@@ -7519,30 +8563,20 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
           return _buildEmptyState('Uygulanan test bulunmuyor.');
 
+        final sortedDocs = _sortDocsDesc(snapshot.data!.docs, 'completedAt');
         return ListView.builder(
           padding: EdgeInsets.all(16),
-          itemCount: snapshot.data!.docs.length,
+          itemCount: sortedDocs.length,
           itemBuilder: (context, index) {
-            final data =
-                snapshot.data!.docs[index].data() as Map<String, dynamic>;
-            final date = (data['completedAt'] as Timestamp?)?.toDate();
-
-            return Card(
-              margin: EdgeInsets.only(bottom: 12),
-              child: ListTile(
-                leading: Icon(Icons.assignment_turned_in, color: Colors.teal),
-                title: Text(
-                  data['testName'] ?? 'Rehberlik Testi',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: Text(
-                  "Sonuç: ${data['resultSummary'] ?? 'Detay görüntüle'}",
-                ),
-                trailing: Text(
-                  date != null ? DateFormat('dd.MM.yyyy').format(date) : '-',
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-              ),
+            final data = sortedDocs[index].data() as Map<String, dynamic>;
+            // Başlığa tıklayınca rapor kartın altına doğru açılır.
+            return PortfolioGuidanceTestCard(
+              key: ValueKey(sortedDocs[index].id),
+              data: data,
+              studentId: (widget.student['id'] ?? '').toString(),
+              studentName:
+                  (widget.student['fullName'] ?? widget.student['name'] ?? '')
+                      .toString(),
             );
           },
         );
@@ -7700,7 +8734,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                         Divider(height: 1, color: Colors.indigo.shade100),
                         SizedBox(height: 16),
                         // Weekly Target Card (Part of Mentör Çalışmaları)
-                        if (data['weeklyTarget'] != null && data['weeklyTarget'].toString().trim().isNotEmpty) ...[
+                        if (data['weeklyTarget'] != null &&
+                            data['weeklyTarget']
+                                .toString()
+                                .trim()
+                                .isNotEmpty) ...[
                           Container(
                             width: double.infinity,
                             margin: const EdgeInsets.only(bottom: 16),
@@ -7708,19 +8746,42 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                             decoration: BoxDecoration(
                               color: Colors.amber.shade50,
                               borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.amber.shade200, width: 1),
+                              border: Border.all(
+                                color: Colors.amber.shade200,
+                                width: 1,
+                              ),
                             ),
                             child: Row(
                               children: [
-                                Icon(Icons.track_changes, color: Colors.amber.shade800, size: 20),
+                                Icon(
+                                  Icons.track_changes,
+                                  color: Colors.amber.shade800,
+                                  size: 20,
+                                ),
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      const Text('🎯 BU HAFTANIN HEDEFİ', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF78350F), letterSpacing: 0.5)),
+                                      const Text(
+                                        '🎯 BU HAFTANIN HEDEFİ',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF78350F),
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
                                       const SizedBox(height: 2),
-                                      Text(data['weeklyTarget'].toString(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF451A03))),
+                                      Text(
+                                        data['weeklyTarget'].toString(),
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF451A03),
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -7838,8 +8899,12 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                   }
 
                                   // Priority Task Check
-                                  final priorityTasks = data['priorityTasks'] as Map<String, dynamic>? ?? {};
-                                  final bool isPriority = priorityTasks["${key}_$idx"] == true;
+                                  final priorityTasks =
+                                      data['priorityTasks']
+                                          as Map<String, dynamic>? ??
+                                      {};
+                                  final bool isPriority =
+                                      priorityTasks["${key}_$idx"] == true;
 
                                   return InkWell(
                                     onTap: () async {
@@ -7857,15 +8922,23 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                       margin: const EdgeInsets.only(bottom: 12),
                                       padding: const EdgeInsets.all(12),
                                       decoration: BoxDecoration(
-                                        color: isPriority ? Colors.red.shade50.withValues(alpha: 0.3) : Colors.white,
+                                        color: isPriority
+                                            ? Colors.red.shade50.withValues(
+                                                alpha: 0.3,
+                                              )
+                                            : Colors.white,
                                         borderRadius: BorderRadius.circular(10),
                                         border: Border.all(
-                                          color: isPriority ? Colors.red.shade200 : Colors.grey.shade100,
+                                          color: isPriority
+                                              ? Colors.red.shade200
+                                              : Colors.grey.shade100,
                                           width: isPriority ? 1.5 : 1,
                                         ),
                                         boxShadow: [
                                           BoxShadow(
-                                            color: Colors.black.withValues(alpha: 0.01),
+                                            color: Colors.black.withValues(
+                                              alpha: 0.01,
+                                            ),
                                             blurRadius: 4,
                                             offset: const Offset(0, 2),
                                           ),
@@ -7879,21 +8952,32 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                           const SizedBox(width: 12),
                                           Expanded(
                                             child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
                                               children: [
                                                 if (isPriority) ...[
                                                   Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 6,
+                                                          vertical: 2,
+                                                        ),
                                                     decoration: BoxDecoration(
-                                                      color: Colors.red.shade100,
-                                                      borderRadius: BorderRadius.circular(4),
+                                                      color:
+                                                          Colors.red.shade100,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            4,
+                                                          ),
                                                     ),
                                                     child: Text(
                                                       '🚨 ÖNCELİKLİ GÖREV',
                                                       style: TextStyle(
                                                         fontSize: 9,
-                                                        fontWeight: FontWeight.bold,
-                                                        color: Colors.red.shade900,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color:
+                                                            Colors.red.shade900,
                                                       ),
                                                     ),
                                                   ),
@@ -7903,9 +8987,13 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                                   lessonText.trim(),
                                                   style: TextStyle(
                                                     fontSize: 13,
-                                                    color: Colors.blueGrey.shade900,
+                                                    color: Colors
+                                                        .blueGrey
+                                                        .shade900,
                                                     height: 1.3,
-                                                    fontWeight: isPriority ? FontWeight.bold : FontWeight.normal,
+                                                    fontWeight: isPriority
+                                                        ? FontWeight.bold
+                                                        : FontWeight.normal,
                                                   ),
                                                 ),
                                               ],
@@ -7923,7 +9011,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                         })(),
 
                         // Mentor Feedback Card (Part of Mentör Çalışmaları)
-                        if (data['mentorEvaluation'] != null && data['mentorEvaluation'].toString().trim().isNotEmpty) ...[
+                        if (data['mentorEvaluation'] != null &&
+                            data['mentorEvaluation']
+                                .toString()
+                                .trim()
+                                .isNotEmpty) ...[
                           const SizedBox(height: 20),
                           Container(
                             width: double.infinity,
@@ -7938,25 +9030,42 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                               children: [
                                 Row(
                                   children: [
-                                    Icon(Icons.rate_review_rounded, color: Colors.indigo.shade700, size: 18),
+                                    Icon(
+                                      Icons.rate_review_rounded,
+                                      color: Colors.indigo.shade700,
+                                      size: 18,
+                                    ),
                                     const SizedBox(width: 8),
                                     const Text(
                                       'Mentör Değerlendirmesi',
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.indigo),
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                        color: Colors.indigo,
+                                      ),
                                     ),
                                   ],
                                 ),
                                 const SizedBox(height: 10),
                                 Text(
                                   data['mentorEvaluation'].toString(),
-                                  style: TextStyle(fontSize: 13, color: Colors.blueGrey.shade800, height: 1.4, fontStyle: FontStyle.italic),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.blueGrey.shade800,
+                                    height: 1.4,
+                                    fontStyle: FontStyle.italic,
+                                  ),
                                 ),
                                 const SizedBox(height: 10),
                                 Align(
                                   alignment: Alignment.bottomRight,
                                   child: Text(
                                     'Değerlendiren: ${data['mentorEvaluationBy'] ?? "Mentör"}',
-                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade600,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -7984,15 +9093,37 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     Map<String, dynamic> executionStatus,
   ) async {
     final statusList = [
-      {'label': 'Beklemede (Atandı)', 'value': 0, 'color': Colors.grey, 'icon': Icons.circle_outlined},
-      {'label': 'Tamamlandı', 'value': 1, 'color': Colors.green, 'icon': Icons.check_circle},
-      {'label': 'Eksik Yapıldı', 'value': 2, 'color': Colors.orange, 'icon': Icons.access_time_filled},
-      {'label': 'Yapılamadı', 'value': 3, 'color': Colors.red, 'icon': Icons.cancel},
+      {
+        'label': 'Beklemede (Atandı)',
+        'value': 0,
+        'color': Colors.grey,
+        'icon': Icons.circle_outlined,
+      },
+      {
+        'label': 'Tamamlandı',
+        'value': 1,
+        'color': Colors.green,
+        'icon': Icons.check_circle,
+      },
+      {
+        'label': 'Eksik Yapıldı',
+        'value': 2,
+        'color': Colors.orange,
+        'icon': Icons.access_time_filled,
+      },
+      {
+        'label': 'Yapılamadı',
+        'value': 3,
+        'color': Colors.red,
+        'icon': Icons.cancel,
+      },
     ];
 
     await showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) {
         return Container(
           padding: const EdgeInsets.all(24),
@@ -8002,13 +9133,23 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             children: [
               const Text(
                 'Görev Durumu Güncelle',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: Colors.indigo,
+                ),
               ),
               const SizedBox(height: 16),
               ...statusList.map((status) {
                 return ListTile(
-                  leading: Icon(status['icon'] as IconData, color: status['color'] as Color),
-                  title: Text(status['label'] as String, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  leading: Icon(
+                    status['icon'] as IconData,
+                    color: status['color'] as Color,
+                  ),
+                  title: Text(
+                    status['label'] as String,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   onTap: () async {
                     final Map<String, List<int>> updatedStatus = {};
                     executionStatus.forEach((k, v) {
@@ -8210,6 +9351,22 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   }
 
   // --- 8. ETKİNLİK RAPORLARI TAB ---
+  /// Doküman listesini verilen Timestamp alanına göre yeni -> eski sıralar (indeks gerektirmez).
+  List<QueryDocumentSnapshot> _sortDocsDesc(
+    List<QueryDocumentSnapshot> docs,
+    String field,
+  ) {
+    final list = List<QueryDocumentSnapshot>.from(docs);
+    DateTime keyOf(QueryDocumentSnapshot d) {
+      final v = (d.data() as Map<String, dynamic>)[field];
+      if (v is Timestamp) return v.toDate();
+      return DateTime.fromMillisecondsSinceEpoch(0);
+    }
+
+    list.sort((a, b) => keyOf(b).compareTo(keyOf(a)));
+    return list;
+  }
+
   Widget _buildActivityReportsTab() {
     return SafeStreamBuilder<QuerySnapshot>(
       stream: _activityReportsStream,
@@ -8219,12 +9376,12 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
           return _buildEmptyState('Etkinlik raporu bulunmuyor.');
 
+        final sortedDocs = _sortDocsDesc(snapshot.data!.docs, 'date');
         return ListView.builder(
           padding: EdgeInsets.all(16),
-          itemCount: snapshot.data!.docs.length,
+          itemCount: sortedDocs.length,
           itemBuilder: (context, index) {
-            final data =
-                snapshot.data!.docs[index].data() as Map<String, dynamic>;
+            final data = sortedDocs[index].data() as Map<String, dynamic>;
             final date = (data['date'] as Timestamp?)?.toDate();
 
             return Card(
@@ -8309,9 +9466,15 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             children: [
               Text(
                 'Öğrenciye Ait Talepler',
-                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
               ),
-              if (UserPermissionService.canEditTeacherModule('rehberlik_islemleri', subModuleKey: 'portfolyo_talepler'))
+              if (UserPermissionService.canEditTeacherModule(
+                'rehberlik_islemleri',
+                subModuleKey: 'portfolyo_talepler',
+              ))
                 ElevatedButton.icon(
                   onPressed: () => _showCreateDemandDialogForStudent(),
                   icon: const Icon(Icons.add, size: 18),
@@ -8319,7 +9482,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.indigo,
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                 ),
             ],
@@ -8342,7 +9507,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                   .toList();
 
               if (demands.isEmpty) {
-                return _buildEmptyState('Bu öğrenciye ait bir talep bulunmuyor.');
+                return _buildEmptyState(
+                  'Bu öğrenciye ait bir talep bulunmuyor.',
+                );
               }
 
               return ListView.builder(
@@ -8350,9 +9517,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                 itemCount: demands.length,
                 itemBuilder: (context, index) {
                   final d = demands[index];
-                   return Card(
+                  return Card(
                     margin: const EdgeInsets.only(bottom: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     child: ListTile(
                       contentPadding: const EdgeInsets.all(16),
                       leading: Container(
@@ -8362,20 +9531,37 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
-                          d.status == DemandStatus.completed ? Icons.check_circle : Icons.pending_actions,
-                          color: d.status == DemandStatus.completed ? Colors.green : Colors.orange,
+                          d.status == DemandStatus.completed
+                              ? Icons.check_circle
+                              : Icons.pending_actions,
+                          color: d.status == DemandStatus.completed
+                              ? Colors.green
+                              : Colors.orange,
                         ),
                       ),
-                      title: Text(d.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      title: Text(
+                        d.title,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const SizedBox(height: 4),
-                          Text(d.description, maxLines: 2, overflow: TextOverflow.ellipsis),
+                          Text(
+                            d.description,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           const SizedBox(height: 8),
                           Row(
                             children: [
-                              Text(DateFormat('dd.MM.yyyy').format(d.createdAt), style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                              Text(
+                                DateFormat('dd.MM.yyyy').format(d.createdAt),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
                               const SizedBox(width: 12),
                               _buildStatusBadgeMini(d.status),
                             ],
@@ -8396,15 +9582,15 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   }
 
   void _showCreateDemandDialogForStudent() {
-     showDialog(
+    showDialog(
       context: context,
       builder: (context) => CreateDemandDialog(
         institutionId: widget.institutionId,
         schoolTypeId: widget.student['schoolTypeId'] ?? '',
         senderUid: FirebaseAuth.instance.currentUser?.uid ?? '',
-        senderName: 'Yönetici', 
+        senderName: 'Yönetici',
         senderRole: 'admin',
-        userData: null, 
+        userData: null,
       ),
     );
   }
@@ -8412,7 +9598,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   void _showDemandDetailProxy(DemandModel d) {
     // DemandDashboardScreen içinde kullandığımız detayı burada da kullanabiliriz
     // Kod tekrarı olmaması için ortak bir widget'a çıkarmıştık zaten (_DemandDetailSheet)
-    // Ancak o sınıf private (_) olduğu için erişemeyebiliriz. 
+    // Ancak o sınıf private (_) olduğu için erişemeyebiliriz.
     // Onu DemandDashboardScreen dosyasında public yapalım sonra burayı güncelleriz.
     // Şimdilik sadece alert dialog ile bir özet gösterelim.
     showDialog(
@@ -8427,13 +9613,19 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             Text("Açıklama: ${d.description}"),
             if (d.closingNote != null) ...[
               const SizedBox(height: 16),
-              const Text("Kapanış Notu:", style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                "Kapanış Notu:",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               Text(d.closingNote!),
             ],
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Kapat')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
         ],
       ),
     );
@@ -8443,8 +9635,14 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     Color c = status == DemandStatus.completed ? Colors.green : Colors.orange;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(color: c.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
-      child: Text(status.name, style: TextStyle(color: c, fontSize: 10, fontWeight: FontWeight.bold)),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        status.name,
+        style: TextStyle(color: c, fontSize: 10, fontWeight: FontWeight.bold),
+      ),
     );
   }
 
@@ -8547,7 +9745,8 @@ class FullScreenTrialChartPage extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  State<FullScreenTrialChartPage> createState() => _FullScreenTrialChartPageState();
+  State<FullScreenTrialChartPage> createState() =>
+      _FullScreenTrialChartPageState();
 }
 
 class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
@@ -8580,7 +9779,10 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
     results.sort((a, b) => (a['date'] as DateTime).compareTo(b['date']));
 
     // Dynamic width based on exam count
-    final chartWidth = math.max(MediaQuery.of(context).size.width, results.length * 60.0);
+    final chartWidth = math.max(
+      MediaQuery.of(context).size.width,
+      results.length * 60.0,
+    );
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -8592,71 +9794,77 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
           }
         },
         child: Stack(
-        children: [
-          SafeArea(
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        "${widget.examType} - ${widget.subject == 'Tümü' ? (widget.metric == 'score' ? 'Toplam Puan' : 'Toplam Net') : widget.subject}",
-                        style: GoogleFonts.poppins(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: Colors.indigo.shade900,
+          children: [
+            SafeArea(
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          "${widget.examType} - ${widget.subject == 'Tümü' ? (widget.metric == 'score' ? 'Toplam Puan' : 'Toplam Net') : widget.subject}",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: Colors.indigo.shade900,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        "(Tüm Geçmiş)",
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        Text(
+                          "(Tüm Geçmiş)",
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Container(
-                      width: chartWidth,
-                      padding: const EdgeInsets.fromLTRB(24, 24, 48, 24),
-                      child: Stack(
-                        children: [
-                          LineChart(_getLineChartData(results)),
-                          if (_fullTouchedIndex != null)
-                            Positioned(
-                              bottom: 30, // Tangent to zero line
-                              left: 30,   // Final alignment
-                              right: 0,
-                              child: _buildFullScreenDetailBar(results, _fullTouchedIndex!),
-                            ),
-                        ],
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Container(
+                        width: chartWidth,
+                        padding: const EdgeInsets.fromLTRB(24, 24, 48, 24),
+                        child: Stack(
+                          children: [
+                            LineChart(_getLineChartData(results)),
+                            if (_fullTouchedIndex != null)
+                              Positioned(
+                                bottom: 30, // Tangent to zero line
+                                left: 30, // Final alignment
+                                right: 0,
+                                child: _buildFullScreenDetailBar(
+                                  results,
+                                  _fullTouchedIndex!,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Positioned(
-            top: 10,
-            left: 10,
-            child: SafeArea(
-              child: CircleAvatar(
-                backgroundColor: Colors.black.withValues(alpha: 0.05),
-                child: IconButton(
-                  icon: const Icon(Icons.close, color: Colors.black87),
-                  onPressed: () => Navigator.pop(context),
+            Positioned(
+              top: 10,
+              left: 10,
+              child: SafeArea(
+                child: CircleAvatar(
+                  backgroundColor: Colors.black.withValues(alpha: 0.05),
+                  child: IconButton(
+                    icon: const Icon(Icons.close, color: Colors.black87),
+                    onPressed: () => Navigator.pop(context),
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
     );
   }
 
@@ -8676,7 +9884,8 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
         show: true,
         drawVerticalLine: false,
         horizontalInterval: interval,
-        getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.shade100, strokeWidth: 1),
+        getDrawingHorizontalLine: (value) =>
+            FlLine(color: Colors.grey.shade100, strokeWidth: 1),
       ),
       titlesData: FlTitlesData(
         show: true,
@@ -8695,7 +9904,11 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
                   padding: const EdgeInsets.only(top: 8.0),
                   child: Text(
                     DateFormat('dd.MM.yy').format(date),
-                    style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold, fontSize: 10),
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 10,
+                    ),
                   ),
                 );
               }
@@ -8709,7 +9922,11 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
             interval: interval,
             getTitlesWidget: (value, meta) => Text(
               value.toInt().toString(),
-              style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold, fontSize: 10),
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.bold,
+                fontSize: 10,
+              ),
             ),
             reservedSize: 30,
           ),
@@ -8733,7 +9950,9 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
                 final subMap = e.value['subjects'];
                 if (subMap is Map && subMap.containsKey(widget.subject)) {
                   final subData = subMap[widget.subject];
-                  yVal = subData is Map ? (subData['net'] ?? 0).toDouble() : (subData as num? ?? 0).toDouble();
+                  yVal = subData is Map
+                      ? (subData['net'] ?? 0).toDouble()
+                      : (subData as num? ?? 0).toDouble();
                 }
               }
             }
@@ -8745,15 +9964,23 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
           isStrokeCapRound: true,
           dotData: FlDotData(
             show: true,
-            getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(
-              radius: 4, color: Colors.white, strokeWidth: 2, strokeColor: Colors.indigo,
-            ),
+            getDotPainter: (spot, percent, barData, index) =>
+                FlDotCirclePainter(
+                  radius: 4,
+                  color: Colors.white,
+                  strokeWidth: 2,
+                  strokeColor: Colors.indigo,
+                ),
           ),
           belowBarData: BarAreaData(
             show: true,
             gradient: LinearGradient(
-              colors: [Colors.indigo.withValues(alpha: 0.3), Colors.indigo.withValues(alpha: 0.0)],
-              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              colors: [
+                Colors.indigo.withValues(alpha: 0.3),
+                Colors.indigo.withValues(alpha: 0.0),
+              ],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
             ),
           ),
         ),
@@ -8780,17 +10007,21 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
     );
   }
 
-  Widget _buildFullScreenDetailBar(List<Map<String, dynamic>> results, int index) {
+  Widget _buildFullScreenDetailBar(
+    List<Map<String, dynamic>> results,
+    int index,
+  ) {
     if (index < 0 || index >= results.length) return const SizedBox.shrink();
     final exam = results[index];
     final name = exam['examName'] ?? 'Sınav';
     final date = DateFormat('dd.MM.yyyy').format(exam['date']);
     final metric = widget.metric == 'score' ? 'Puan' : 'Net';
-    final val = widget.metric == 'score' 
+    final val = widget.metric == 'score'
         ? (exam['score'] as num).toStringAsFixed(2)
-        : (widget.subject == 'Tümü' 
-            ? (exam['net'] as num).toStringAsFixed(2)
-            : (exam['subjects']?[widget.subject]?['net'] ?? 0).toStringAsFixed(2));
+        : (widget.subject == 'Tümü'
+              ? (exam['net'] as num).toStringAsFixed(2)
+              : (exam['subjects']?[widget.subject]?['net'] ?? 0)
+                    .toStringAsFixed(2));
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -8803,7 +10034,11 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
           Flexible(
             child: Text(
               name,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -8819,7 +10054,11 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
           const SizedBox(width: 12),
           Text(
             "$val $metric",
-            style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 13),
+            style: const TextStyle(
+              color: Colors.cyanAccent,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
           ),
         ],
       ),

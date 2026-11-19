@@ -19,61 +19,122 @@ service cloud.firestore {
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data : {};
     }
 
-    // Kullanıcının kurum ID'sini döndürür
+    // Kullanıcının kurum ID'sini döndürür (null / boş string güvenli)
     function myInstitutionId() {
-      return 'institutionId' in getUserData() ? getUserData().institutionId : 
-             ('institution_id' in getUserData() ? getUserData().institution_id : '__NONE__');
+      let u = getUserData();
+      let id1 = u.get('institutionId', '');
+      let id2 = u.get('institution_id', '');
+      return (id1 is string && id1 != '')
+             ? id1
+             : ((id2 is string && id2 != '') ? id2 : '__NONE__');
     }
 
-    // Kullanıcının rolünü döndürür
+    // Kullanıcının rolünü döndürür (null / boş string güvenli)
     function myRole() {
-      return 'role' in getUserData() ? getUserData().role : 
-             (request.auth.token.email != null && request.auth.token.email.matches('.*@.*\\.edukn') ? 'ogretmen' : '__NONE__');
+      let r = getUserData().get('role', '');
+      return (r is string && r != '')
+             ? r
+             : (request.auth.token.email != null && request.auth.token.email.matches('.*@.*\\.edukn') ? 'ogretmen' : '__NONE__');
     }
 
     // Bir resourceData'nın aynı kuruma ait olup olmadığını kontrol eder
     function isSameInstitution(resourceData) {
+      let inst = myInstitutionId();
+      let instLow = inst.lower();
       return isSuperAdmin() ||
              resourceData == null ||
-             myInstitutionId() == '__NONE__' ||
-             myInstitutionId().lower() == resourceData.get('institutionId', '__DIFFERENT__').lower() ||
-             myInstitutionId().lower() == resourceData.get('institution_id', '__DIFFERENT__').lower();
+             inst == '__NONE__' ||
+             instLow == resourceData.get('institutionId', '__DIFFERENT__').lower() ||
+             instLow == resourceData.get('institution_id', '__DIFFERENT__').lower();
     }
 
     // Kullanıcının belirli bir institution'a ait olup olmadığını kontrol eder
     function belongsToInstitution(institutionId) {
-      return isSuperAdmin() || myInstitutionId() == '__NONE__' || myInstitutionId().lower() == institutionId.lower();
+      let inst = myInstitutionId();
+      return isSuperAdmin() || inst == '__NONE__' || inst.lower() == institutionId.lower();
     }
 
     // Kullanıcının belirli bir okula (school) ait olup olmadığını kontrol eder
     // Okullarda institutionId = schoolId varsayımı
     function belongsToSchool(schoolId) {
+      let inst = myInstitutionId();
+      let instLow = inst.lower();
+      let sDoc = exists(/databases/$(database)/documents/schools/$(schoolId))
+                 ? get(/databases/$(database)/documents/schools/$(schoolId)).data
+                 : {};
+      let sInst1 = sDoc.get('institutionId', '');
+      let sInst2 = sDoc.get('institution_id', '');
       return isSuperAdmin() ||
-             myInstitutionId() == '__NONE__' ||
-             myInstitutionId().lower() == schoolId.lower() || 
-             (exists(/databases/$(database)/documents/schools/$(schoolId)) && 
-              (('institutionId' in get(/databases/$(database)/documents/schools/$(schoolId)).data && get(/databases/$(database)/documents/schools/$(schoolId)).data.institutionId.lower() == myInstitutionId().lower()) ||
-               ('institution_id' in get(/databases/$(database)/documents/schools/$(schoolId)).data && get(/databases/$(database)/documents/schools/$(schoolId)).data.institution_id.lower() == myInstitutionId().lower())));
+             inst == '__NONE__' ||
+             instLow == schoolId.lower() ||
+             (sInst1 is string && sInst1 != '' && sInst1.lower() == instLow) ||
+             (sInst2 is string && sInst2 != '' && sInst2.lower() == instLow);
     }
 
     // Admin veya Müdür mü? (En yetkili rol grubu)
     function isAdminOrManager() {
-      return myRole() in ['admin', 'manager', 'genel_mudur', 'mudur', 'kurum_yoneticisi', 'kurum_muduru', 'müdür'];
+      return isSuperAdmin() || myRole() in ['admin', 'manager', 'genel_mudur', 'mudur', 'kurum_yoneticisi', 'kurum_muduru', 'müdür'];
     }
 
     // Yönetim (Müdür yardımcısı dahil)
     function isManagement() {
-      return myRole() in ['admin', 'manager', 'genel_mudur', 'mudur', 'mudur_yardimcisi', 'kurum_yoneticisi', 'kurum_muduru', 'müdür'];
+      return isSuperAdmin() || myRole() in ['admin', 'manager', 'genel_mudur', 'mudur', 'mudur_yardimcisi', 'kurum_yoneticisi', 'kurum_muduru', 'müdür'];
     }
 
     // Öğretmen veya üstü
-    function isTeacherOrAbove() {
-      return myRole() == '__NONE__' || myRole() in ['admin', 'manager', 'genel_mudur', 'mudur', 'mudur_yardimcisi', 'ogretmen', 'rehber_ogretmen', 'teacher', 'öğretmen', 'kurum_yoneticisi', 'kurum_muduru', 'müdür'];
+    function isHealthStaff() {
+      return myRole() in ['saglik_personeli', 'sağlık_personeli', 'destek_hizmetleri', 'personel', 'staff'];
     }
 
+    function isSecurityStaff() {
+      return myRole() in ['guvenlik', 'güvenlik', 'guvenlik_gorevlisi', 'destek_hizmetleri', 'personel', 'staff'];
+    }
+
+    function isWarehouseOrPurchasingStaff() {
+      return myRole().lower() in [
+        'depo', 'depocu', 'satin_alma', 'satın_alma', 'muhasebe', 'muhasebeci',
+        'destek_hizmetleri', 'personel', 'staff', 'memur',
+        'kantin', 'kantinci', 'kantin_personeli', 'kasiyer', 'canteen'
+      ];
+    }
+
+    function isTeacherOrAbove() {
+      let r = myRole();
+      return isSuperAdmin() || r == '__NONE__' || r.lower() in [
+        'admin', 'manager', 'genel_mudur', 'mudur', 'mudur_yardimcisi',
+        'okul_muduru', 'idareci', 'yonetici', 'yönetici',
+        'ogretmen', 'rehber_ogretmen', 'teacher', 'öğretmen',
+        'kurum_yoneticisi', 'kurum_muduru', 'müdür'
+      ];
+    }
+
+    function canManageSchoolStore(instId) {
+      return isAuthenticated() && (isSuperAdmin() || !isPortalUser());
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // KANTİN YETKİ MANTIĞI
+    // Veli/öğrenci portal hesaplarını negatif eleyerek kurum personelinin
+    // (rolsüz kanonik hesaplı okul yöneticileri + özel rol şablonlu personel dahil)
+    // kantini yönetmesini sağlar; transaction içinde get()/exists() limitine takılmaz.
+    // ─────────────────────────────────────────────────────────────
+    function isPortalUser() {
+      return myRole().lower() in ['parent', 'veli', 'student', 'ogrenci', 'öğrenci', 'ogrenci_veli', 'family'];
+    }
+
+    function canManageCanteen(instId) {
+      return isAuthenticated() && (isSuperAdmin() || !isPortalUser());
+    }
     // Sistem genelinde süper admin (kurumlar arası erişim)
     function isSuperAdmin() {
-      return request.auth.token.email.lower() == 'superadmin@edukn.com' || myRole() == 'super_admin';
+      let u = getUserData();
+      let r = u.get('role', '');
+      let id1 = u.get('institutionId', '');
+      let id2 = u.get('institution_id', '');
+      return (request.auth.token.email != null && request.auth.token.email.lower() in ['superadmin@edukn.com', 'admin@edukn.com']) ||
+             (r is string && r.lower() in ['super_admin', 'superadmin']) ||
+             (id1 is string && id1.upper() == 'SUPER_ADMIN') ||
+             (id2 is string && id2.upper() == 'SUPER_ADMIN');
     }
 
 
@@ -220,6 +281,12 @@ service cloud.firestore {
     match /butterflyExams/{examId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
+    match /exam_instruction_templates/{templateId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /examInstructionTemplates/{templateId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
     match /notifications/{notifId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
@@ -324,6 +391,12 @@ service cloud.firestore {
     match /field_trips/{docId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
+    match /lesson_notes/{docId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /lesson_note_links/{docId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
     match /class_exams/{docId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
@@ -362,6 +435,12 @@ service cloud.firestore {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /student_interviews/{docId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /official_documents/{docId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /officialDocuments/{docId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /assessment_action_plans/{docId} {
@@ -533,11 +612,46 @@ service cloud.firestore {
         allow delete: if isAuthenticated() && belongsToSchool(schoolId) && isAdminOrManager();
       }
 
+      match /warehouses/{whId} {
+        allow read: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin());
+        allow create, update: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && (isManagement() || isWarehouseOrPurchasingStaff());
+        allow delete: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && isAdminOrManager();
+      }
+
+      match /inventoryItems/{itemId} {
+        allow read: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin());
+        allow create, update: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && (isManagement() || isWarehouseOrPurchasingStaff());
+        allow delete: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && (isManagement() || isWarehouseOrPurchasingStaff());
+      }
+
+      match /stockTransactions/{txId} {
+        allow read: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin());
+        allow create: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && (isManagement() || isWarehouseOrPurchasingStaff());
+        allow update, delete: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && isAdminOrManager();
+      }
+
+      match /materialRequests/{reqId} {
+        allow read: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin());
+        allow create: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin());
+        allow update: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && (isTeacherOrAbove() || isWarehouseOrPurchasingStaff());
+        allow delete: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && isAdminOrManager();
+      }
+
+      match /visitorLogs/{logId} {
+        allow read: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin());
+        allow create, update: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && (isTeacherOrAbove() || isSecurityStaff());
+        allow delete: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && (isManagement() || isSecurityStaff());
+      }
+
+      match /studentMovements/{movementId} {
+        allow read, write: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin());
+      }
+
       match /healthVisits/{visitId} {
-        allow read: if isAuthenticated() && belongsToSchool(schoolId) && isTeacherOrAbove();
-        allow create: if isAuthenticated() && belongsToSchool(schoolId) && isTeacherOrAbove();
-        allow update: if isAuthenticated() && belongsToSchool(schoolId) && isTeacherOrAbove();
-        allow delete: if isAuthenticated() && belongsToSchool(schoolId) && isAdminOrManager();
+        allow read: if isAuthenticated() && belongsToSchool(schoolId) && (isTeacherOrAbove() || isHealthStaff());
+        allow create: if isAuthenticated() && belongsToSchool(schoolId) && (isTeacherOrAbove() || isHealthStaff());
+        allow update: if isAuthenticated() && belongsToSchool(schoolId) && (isTeacherOrAbove() || isHealthStaff());
+        allow delete: if isAuthenticated() && belongsToSchool(schoolId) && (isAdminOrManager() || isHealthStaff());
       }
 
       match /libraryBooks/{bookId} {
@@ -901,9 +1015,9 @@ service cloud.firestore {
       // periodId ile filtreleme zaten kurum yalıtımı sağlıyor;
       // list sorgularında resource.data null geldiğinden isSameInstitution yerine isAuthenticated kullanıyoruz
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isTeacherOrAbove();
+      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isTeacherOrAbove();
+      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isTeacherOrAbove();
     }
 
     match /dutyGlobalSettings/{institutionId} {
@@ -917,14 +1031,14 @@ service cloud.firestore {
     match /proctoringSlots/{slotId} {
       // list sorgularında resource.data null gelebilir; kurum yalıtımı periodId üzerinden sağlanıyor
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isTeacherOrAbove();
+      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isTeacherOrAbove();
+      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isTeacherOrAbove();
     }
 
     match /proctoringSettings/{settingId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdminOrManager();
+      allow write: if isAuthenticated() && isTeacherOrAbove();
     }
 
     match /proctoringGlobalSettings/{institutionId} {
@@ -934,9 +1048,9 @@ service cloud.firestore {
 
     match /proctoringExams/{examId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isTeacherOrAbove();
+      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isTeacherOrAbove();
+      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isTeacherOrAbove();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1487,6 +1601,25 @@ service cloud.firestore {
     }
 
     // ✅ Düzeltildi: Sadece belirli alanlar güncellenebilir
+    // Dış katılımlı sınav sonuçları (karne). Doküman kimliği: {examId}_{tcNo}
+    // Aday yalnızca kendi T.C. numarasıyla tekil doküman okuyabilir (liste/sorgu yalnızca yönetim).
+    match /external_exam_results/{resultId} {
+      // Yalnızca yönetici 'Paylaş' dediğinde (shared == true) herkese açık okunur.
+      // Paylaşılmamış sonuçları yalnızca yönetici/müdür görebilir.
+      allow get: if resource == null
+                 || resource.data.get('shared', false) == true
+                 || (isAuthenticated() && isAdminOrManager());
+      allow list: if isAuthenticated() && isAdminOrManager();
+      allow create, update, delete: if isAuthenticated() && isAdminOrManager();
+    }
+
+    // Dış katılımlı sınav: sınava özel salon şablonları (kuruma özel)
+    match /external_exam_room_templates/{templateId} {
+      allow read: if isAuthenticated() && isSameInstitution(resource.data);
+      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
+      allow update, delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+    }
+
     match /external_exam_attendance/{attendanceId} {
       allow read: if true;
       allow create: if true; // Gözetmen login olmadan oluşturabilir
@@ -1752,24 +1885,152 @@ service cloud.firestore {
     // 🏫 KURUMLAR & SORU HAVUZU
     // ═══════════════════════════════════════════════════════════════
     match /institutions/{institutionId} {
-      allow read: if isAuthenticated() && belongsToInstitution(institutionId);
-      allow write: if isAuthenticated() && belongsToInstitution(institutionId) && isAdminOrManager();
+      allow read: if isAuthenticated() && (institutionId == 'SUPER_ADMIN' || belongsToInstitution(institutionId));
+      allow write: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
 
       // Soru Havuzu – Testler & Ödevler
       match /question_pool_tests/{testId} {
-        allow read: if isAuthenticated() && belongsToInstitution(institutionId);
-        allow create: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
-        allow update: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
-        allow delete: if isAuthenticated() && belongsToInstitution(institutionId) && isManagement();
+        allow read: if isAuthenticated() && (institutionId == 'SUPER_ADMIN' || belongsToInstitution(institutionId));
+        allow create, update: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
+        allow delete: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
       }
 
       // Soru Havuzu – Sorular
       match /question_pool/{questionId} {
-        allow read: if isAuthenticated() && belongsToInstitution(institutionId);
-        allow create: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
-        allow update: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
-        allow delete: if isAuthenticated() && belongsToInstitution(institutionId) && isManagement();
+        allow read: if isAuthenticated() && (institutionId == 'SUPER_ADMIN' || belongsToInstitution(institutionId));
+        allow create, update: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
+        allow delete: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
       }
+
+      // Fokus Kitap – Kayıtlı Şablonlar & Üretim Geçmişi (Alt Koleksiyonlar)
+      match /personalized_book_configs/{configId} {
+        allow read: if isAuthenticated() && belongsToInstitution(institutionId);
+        allow create, update, delete: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
+      }
+
+      match /personalized_books/{bookId} {
+        allow read: if isAuthenticated() && belongsToInstitution(institutionId);
+        allow create, update, delete: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🏆 GENEL MERKEZ DENEMELERİ & RAPORLARI
+    // ═══════════════════════════════════════════════════════════════
+    match /central_exams/{examId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated() && isSuperAdmin();
+    }
+
+    match /central_exam_reports/{reportId} {
+      allow read: if isAuthenticated() && (isSuperAdmin() || isSameInstitution(resource.data));
+      allow create, update, delete: if isAuthenticated() && isSuperAdmin();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 📘 FOKUS KİTAP (KİŞİYE ÖZEL AKILLI SORU BANKASI)
+    // ═══════════════════════════════════════════════════════════════
+    match /personalized_book_configs/{configId} {
+      allow read: if isAuthenticated() && (isSuperAdmin() || isSameInstitution(resource.data));
+      allow create: if isAuthenticated() && (isSuperAdmin() || (isSameInstitution(request.resource.data) && isTeacherOrAbove()));
+      allow update, delete: if isAuthenticated() && (isSuperAdmin() || (isSameInstitution(resource.data) && isTeacherOrAbove()));
+    }
+
+    match /personalized_books/{bookId} {
+      allow read: if isAuthenticated() && (isSuperAdmin() || isSameInstitution(resource.data));
+      allow create: if isAuthenticated() && (isSuperAdmin() || (isSameInstitution(request.resource.data) && isTeacherOrAbove()));
+      allow update, delete: if isAuthenticated() && (isSuperAdmin() || (isSameInstitution(resource.data) && isTeacherOrAbove()));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🛒 MAĞAZA & ONLİNE SATIŞ (HQ + OKUL MAĞAZASI)
+    // ═══════════════════════════════════════════════════════════════
+    match /store_settings/{docId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (docId != 'SUPER_ADMIN' && canManageSchoolStore(docId))
+      );
+    }
+
+    match /store_products/{productId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated() && (
+        isSuperAdmin() ||
+        canManageSchoolStore(request.resource != null ? request.resource.data.get('sellerInstitutionId', '') : resource.data.get('sellerInstitutionId', '')) ||
+        (request.resource != null && resource != null &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'soldCount', 'updatedAt']))
+      );
+    }
+
+    match /store_orders/{orderId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        isSuperAdmin() ||
+        canManageSchoolStore(resource.data.get('sellerInstitutionId', '')) ||
+        resource.data.get('buyerUid', '') == request.auth.uid
+      );
+      allow delete: if isAuthenticated() && (
+        isSuperAdmin() ||
+        canManageSchoolStore(resource.data.get('sellerInstitutionId', ''))
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 💳 SANAL POS ÖDEME OTURUMLARI & KURUM/MODÜL POS YAPILANDIRMALARI
+    // ═══════════════════════════════════════════════════════════════
+    match /pos_configs/{docId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated() && (
+        isSuperAdmin() ||
+        docId != 'SUPER_ADMIN'
+      );
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        resource == null ||
+        resource.data.get('uid', '') == request.auth.uid
+      );
+      allow create, update, delete: if false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🍽️ KANTİN (KANTIN MODÜLÜ)
+    // Not: Satış (sell) ve bakiye yükleme (topUp) işlemleri çoklu belge
+    // transaction'ı kullandığından, transaction içinde get()/exists()
+    // limitine takılmamak ve özel rol şablonlu personelin / veli-öğrenci
+    // QR & bakiye işlemlerinin kesintisiz çalışması için hafif kurallar uygulanır.
+    // Detaylı işlem yetkileri UserPermissionService üzerinden kontrol edilir.
+    // ═══════════════════════════════════════════════════════════════
+    match /canteen_products/{docId} {
+      allow read, create, update, delete: if isAuthenticated();
+    }
+
+    match /canteen_warehouses/{docId} {
+      allow read, create, update, delete: if isAuthenticated();
+    }
+
+    match /canteen_stock_movements/{docId} {
+      allow read, create, update, delete: if isAuthenticated();
+    }
+
+    match /canteen_cards/{cardNo} {
+      allow read, create, update, delete: if isAuthenticated();
+    }
+
+    match /canteen_transactions/{docId} {
+      allow read, create, update, delete: if isAuthenticated();
+    }
+
+    match /canteen_ledger/{docId} {
+      allow read, create, update, delete: if isAuthenticated();
+    }
+
+    match /canteen_qr_sessions/{sessionId} {
+      allow read, create, update, delete: if isAuthenticated();
     }
   }
 }

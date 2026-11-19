@@ -71,7 +71,7 @@
         "headers": [
           {
             "key": "Cache-Control",
-            "value": "public, max-age=31536000, immutable"
+            "value": "public, no-cache"
           }
         ]
       },
@@ -85,11 +85,20 @@
         ]
       },
       {
-        "source": "**/*.@(ttf|woff|woff2|png|jpg|jpeg|svg|ico|webp)",
+        "source": "**/*.@(otf|ttf|woff|woff2)",
         "headers": [
           {
             "key": "Cache-Control",
-            "value": "public, max-age=31536000, immutable"
+            "value": "public, no-cache"
+          }
+        ]
+      },
+      {
+        "source": "**/*.@(png|jpg|jpeg|svg|ico|webp)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, no-cache"
           }
         ]
       },

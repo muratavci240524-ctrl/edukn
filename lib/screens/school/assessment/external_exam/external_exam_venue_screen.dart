@@ -53,6 +53,8 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
 
   // Kurumun salonları
   List<Map<String, dynamic>> _institutionClassrooms = [];
+  Map<String, String> _schoolTypeNames = {};
+  String? _roomsError;
   bool _loadingClassrooms = true;
 
   // Dış sınav için özel şablonlar (Firestore: external_exam_room_templates)
@@ -70,45 +72,64 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
 
   Future<void> _loadData() async {
     try {
-      // Kurumun salonlarını çek (schoolTypeIds'e göre)
-      final schoolTypeIds = widget.exam.venueConfig.schoolTypeIds;
-      QuerySnapshot snap;
-      if (schoolTypeIds.isNotEmpty) {
-        snap = await FirebaseFirestore.instance
-            .collection('classrooms')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .where('schoolTypeId', whereIn: schoolTypeIds)
-            .where('isActive', isEqualTo: true)
-            .get();
-      } else {
-        snap = await FirebaseFirestore.instance
-            .collection('classrooms')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .where('isActive', isEqualTo: true)
-            .get();
-      }
-
-      // Özel şablonları çek
-      final templSnap = await FirebaseFirestore.instance
-          .collection('external_exam_room_templates')
+      // Kurumun TÜM derslikleri (Okul Türleri › Derslik tanımlarından). Okul türü filtresi
+      // seçim penceresinde yapılır; böylece tanımlı hiçbir derslik gözden kaçmaz.
+      final snap = await FirebaseFirestore.instance
+          .collection('classrooms')
           .where('institutionId', isEqualTo: widget.institutionId)
           .get();
+      final classroomDocs = snap.docs.where((d) {
+        final m = d.data();
+        return m['isActive'] != false;
+      }).toList();
+
+      // Okul türü adları
+      final typeIds = <String>{
+        for (final d in classroomDocs)
+          if ((d.data()['schoolTypeId'] ?? '').toString().isNotEmpty) d.data()['schoolTypeId'].toString(),
+      };
+      final typeNames = <String, String>{};
+      for (final id in typeIds) {
+        try {
+          final td = await FirebaseFirestore.instance.collection('schoolTypes').doc(id).get();
+          final dm = td.data();
+          typeNames[id] = (dm?['name'] ?? dm?['schoolTypeName'] ?? dm?['schoolType'] ?? 'Okul Türü').toString();
+        } catch (_) {
+          typeNames[id] = 'Okul Türü';
+        }
+      }
+      // Özel şablonlar (yetki/ağ hatası derslik listesini ASLA engellemesin)
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> templDocs = [];
+      try {
+        final templSnap = await FirebaseFirestore.instance
+            .collection('external_exam_room_templates')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .get();
+        templDocs = templSnap.docs;
+      } catch (e) {
+        debugPrint('Salon şablonları okunamadı: $e');
+      }
 
       if (mounted) {
         setState(() {
-          _institutionClassrooms = snap.docs.map((d) {
-            final data = d.data() as Map<String, dynamic>;
+          _schoolTypeNames = typeNames;
+          _institutionClassrooms = classroomDocs.map((d) {
+            final data = d.data();
+            final stId = (data['schoolTypeId'] ?? '').toString();
             return {
               'id': d.id,
               'name': data['classroomName'] ?? data['name'] ?? '',
               'capacity': (data['capacity'] as num?)?.toInt() ?? 30,
               'code': data['classroomCode'] ?? '',
               'building': data['building'] ?? '',
+              'schoolTypeId': stId,
+              'schoolTypeName': typeNames[stId] ?? '',
+              'type': (data['classroomType'] ?? '').toString(),
             };
           }).toList()
             ..sort((a, b) => _naturalCompare(a['name'], b['name']));
 
-          _templates = templSnap.docs.map((d) {
+          _templates = templDocs.map((d) {
             final data = d.data();
             return {
               'id': d.id,
@@ -124,7 +145,13 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _loadingClassrooms = false);
+      debugPrint('Derslikler okunamadı: $e');
+      if (mounted) {
+        setState(() {
+          _roomsError = e.toString();
+          _loadingClassrooms = false;
+        });
+      }
     }
   }
 
@@ -178,14 +205,13 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
               // Seating mode chip
               _buildInfoCard(seatingModeName, venueConfig.seatingMode),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 14),
 
               if (venueConfig.seatingMode == SeatingMode.noSeating)
                 _buildNoSeatingNote()
               else ...[
                 // Each session
-                ...widget.exam.applicationSessions.map((session) =>
-                    _buildSessionCard(session)),
+                _buildSessionsSection(),
 
                 // Seating distribution list card (IF distributed)
                 if (showDistributionCard) ...[
@@ -290,27 +316,49 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
   }
 
   Widget _buildInfoCard(String modeName, SeatingMode mode) {
+    final sessions = widget.exam.applicationSessions.length;
+    final rooms = _assignments.fold<int>(0, (a, g) => a + g.rooms.length);
+    final capacity = _assignments.fold<int>(0, (a, g) => a + g.rooms.fold<int>(0, (s, r) => s + r.effectiveCapacity));
+    Widget pill(IconData i, String t, Color c) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(color: c.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(i, size: 14, color: c),
+            const SizedBox(width: 5),
+            Text(t, style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w700, color: c)),
+          ]),
+        );
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4))],
+        border: Border.all(color: Colors.grey.shade200),
       ),
-      child: Row(
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(color: Colors.orange.shade50, shape: BoxShape.circle),
             child: Icon(
-              mode == SeatingMode.butterfly ? Icons.scatter_plot_rounded
-                  : mode == SeatingMode.simpleRandom ? Icons.shuffle_rounded
-                  : Icons.no_accounts_rounded,
-              color: _primaryColor, size: 22,
+              mode == SeatingMode.butterfly
+                  ? Icons.scatter_plot_rounded
+                  : mode == SeatingMode.simpleRandom
+                      ? Icons.shuffle_rounded
+                      : Icons.no_accounts_rounded,
+              color: _primaryColor,
+              size: 18,
             ),
           ),
-          const SizedBox(width: 14),
-          Text(modeName, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text(modeName, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15)),
+          if (mode != SeatingMode.noSeating) ...[
+            pill(Icons.event_rounded, '$sessions oturum', Colors.indigo),
+            pill(Icons.meeting_room_rounded, '$rooms salon', Colors.teal.shade700),
+            pill(Icons.people_alt_rounded, '$capacity kişilik kapasite', Colors.blue.shade700),
+          ],
         ],
       ),
     );
@@ -332,74 +380,120 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
     );
   }
 
+  /// Oturumlar: geniş ekranda yan yana (3 / 2 sütun), dar ekranda tek sütun küçük kartlar.
+  Widget _buildSessionsSection() {
+    final sessions = widget.exam.applicationSessions;
+    if (sessions.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Icon(Icons.event_note_rounded, size: 18, color: Colors.grey.shade600),
+          const SizedBox(width: 8),
+          Text('Oturumlar', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold)),
+          const SizedBox(width: 8),
+          Text('${sessions.length}', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
+        ]),
+        const SizedBox(height: 10),
+        LayoutBuilder(builder: (context, cons) {
+          final w = cons.maxWidth;
+          final cols = w >= 1000 ? 4 : (w >= 720 ? 3 : (w >= 480 ? 2 : 1));
+          const gap = 10.0;
+          final cardW = (w - gap * (cols - 1)) / cols;
+          return Wrap(
+            spacing: gap,
+            runSpacing: gap,
+            children: [
+              for (final s in sessions) SizedBox(width: cardW, child: _buildSessionCard(s)),
+            ],
+          );
+        }),
+      ],
+    );
+  }
+
   Widget _buildSessionCard(ApplicationSession session) {
-    final dateStr = '${session.sessionDate.day.toString().padLeft(2, '0')}.${session.sessionDate.month.toString().padLeft(2, '0')}.${session.sessionDate.year}';
+    final dateStr =
+        '${session.sessionDate.day.toString().padLeft(2, '0')}.${session.sessionDate.month.toString().padLeft(2, '0')}.${session.sessionDate.year}';
+    final sessionRegs = _registrations.where((r) => r.sessionId == session.id && r.status != RegistrationStatus.cancelled).toList();
+    final placed = sessionRegs.where((r) => r.assignedRoomId != null).length;
+    final distributed = placed > 0;
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: distributed ? Colors.green.shade200 : Colors.grey.shade200),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Üst satır: tarih + saat bilgisi
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
-                child: Text(dateStr, style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: _primaryColor, fontSize: 13)),
+                child: Text(dateStr, style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: _primaryColor, fontSize: 12)),
               ),
               const SizedBox(width: 8),
-              Text(session.displayTime, style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500)),
+              Expanded(
+                child: Text(session.displayTime, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade600), overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
-          const SizedBox(height: 10),
-          // Butonlar – Wrap ile sığır, mobilden taşmaz
+          const SizedBox(height: 8),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 5,
+            runSpacing: 5,
+            children: session.gradeLevels.map((g) {
+              final quota = session.gradeLevelQuotas[g] ?? 0;
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(6)),
+                child: Text(
+                  g == 'Mezun' ? 'Mezun · $quota' : '$g. sınıf · $quota',
+                  style: TextStyle(fontSize: 10.5, color: Colors.blue.shade700, fontWeight: FontWeight.w600),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 8),
+          Row(
             children: [
+              Expanded(
+                child: Text(
+                  distributed ? '$placed/${sessionRegs.length} yerleşti' : '${sessionRegs.length} başvuru',
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: distributed ? Colors.green.shade700 : Colors.grey.shade500,
+                  ),
+                ),
+              ),
+              if (distributed)
+                IconButton(
+                  tooltip: 'Dağıtımı Sıfırla',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _isAssigning ? null : () => _resetDistribution(session),
+                  icon: Icon(Icons.delete_sweep_rounded, size: 18, color: Colors.red.shade600),
+                ),
               ElevatedButton.icon(
                 onPressed: _isAssigning ? null : () => _showDistributionDialog(session),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _primaryColor, foregroundColor: Colors.white,
-                  elevation: 0, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  backgroundColor: _primaryColor,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  minimumSize: const Size(0, 32),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                 ),
                 icon: _isAssigning
-                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Icon(Icons.scatter_plot_rounded, size: 15),
-                label: Text('Dağıt', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13)),
+                    ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Icon(Icons.scatter_plot_rounded, size: 14),
+                label: Text('Dağıt', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12)),
               ),
-              if (_registrations.any((r) => r.sessionId == session.id && r.assignedRoomId != null))
-                TextButton.icon(
-                  onPressed: _isAssigning ? null : () => _resetDistribution(session),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.red.shade700,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: Colors.red.shade100)),
-                  ),
-                  icon: const Icon(Icons.delete_sweep_rounded, size: 16),
-                  label: Text('Dağıtımı Sıfırla', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13)),
-                ),
             ],
-          ),
-          const SizedBox(height: 10),
-          // Sınıf seviyeleri
-          Wrap(
-            spacing: 8, runSpacing: 6,
-            children: session.gradeLevels.map((g) {
-              final quota = session.gradeLevelQuotas[g] ?? 0;
-              return Chip(
-                label: Text(g == 'Mezun' ? 'Mezun – $quota kota' : '$g. Sınıf – $quota kota', style: const TextStyle(fontSize: 12)),
-                backgroundColor: Colors.blue.shade50, side: BorderSide.none,
-                labelStyle: TextStyle(color: Colors.blue.shade700),
-              );
-            }).toList(),
           ),
         ],
       ),
@@ -497,7 +591,20 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
         else if (allGrades.isEmpty)
           Text('Sınav için sınıf seviyesi tanımlanmamış.', style: GoogleFonts.inter(color: Colors.grey.shade500))
         else
-          ...allGrades.map((grade) => _buildGradeAssignmentCard(grade, occupancyMap)),
+          LayoutBuilder(builder: (context, cons) {
+            final cols = cons.maxWidth >= 980 ? 2 : 1;
+            const gap = 12.0;
+            final cardW = (cons.maxWidth - gap * (cols - 1)) / cols;
+            return Wrap(
+              spacing: gap,
+              runSpacing: 0,
+              crossAxisAlignment: WrapCrossAlignment.start,
+              children: [
+                for (final grade in allGrades)
+                  SizedBox(width: cardW, child: _buildGradeAssignmentCard(grade, occupancyMap)),
+              ],
+            );
+          }),
       ],
     );
   }
@@ -889,60 +996,228 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
     );
   }
 
+  /// Salon seçimi: Okul Türleri › Derslik'te tanımlı dersliklerden çoklu seçim + arama + okul türü filtresi.
+  /// "Yeni Salon Tanımla" ile pencereden çıkmadan sınava özel salon da eklenebilir.
   void _showRoomPickerDialog(String grade) {
     final existing = _assignments.firstWhere(
       (a) => a.gradeLevel == grade,
       orElse: () => GradeClassroomAssignment(gradeLevel: grade, rooms: []),
     );
     final alreadyAdded = existing.rooms.map((r) => r.classroomId).toSet();
+    final selected = <String>{};
+    String query = '';
+    String? typeFilter; // null = tümü
+    final gradeLabel = grade == 'Mezun' ? 'Mezun' : '$grade. Sınıf';
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(children: [
-          const Icon(Icons.meeting_room_outlined, color: _primaryColor),
-          const SizedBox(width: 10),
-          Text('Salon Seç – ${grade == 'Mezun' ? 'Mezun' : '$grade. Sınıf'}', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15)),
-        ]),
-        content: SizedBox(
-          width: 380,
-          height: 400,
-          child: _allAvailableRooms.isEmpty
-              ? Center(child: Text('Kullanılabilir salon bulunamadı.\nYeni şablon ekleyebilirsiniz.', textAlign: TextAlign.center, style: GoogleFonts.inter(color: Colors.grey.shade500)))
-              : ListView.builder(
-                  itemCount: _allAvailableRooms.length,
-                  itemBuilder: (ctx, i) {
-                    final room = _allAvailableRooms[i];
-                    final id = room['id'] as String;
-                    final isAdded = alreadyAdded.contains(id);
-                    final isTemplate = room['isTemplate'] == true;
-                    return ListTile(
-                      leading: Icon(
-                        isTemplate ? Icons.bookmark_outline_rounded : Icons.meeting_room_outlined,
-                        color: isAdded ? Colors.green : _primaryColor,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) {
+          final all = _allAvailableRooms;
+          final typeIds = <String>{
+            for (final r in _institutionClassrooms)
+              if ((r['schoolTypeId'] ?? '').toString().isNotEmpty) r['schoolTypeId'].toString(),
+          };
+          final q = query.trim().toLowerCase();
+          final list = all.where((r) {
+            if (typeFilter == '_tpl') return r['isTemplate'] == true;
+            if (typeFilter != null && r['schoolTypeId'] != typeFilter) return false;
+            if (q.isEmpty) return true;
+            return r['name'].toString().toLowerCase().contains(q) ||
+                (r['code'] ?? '').toString().toLowerCase().contains(q) ||
+                (r['building'] ?? '').toString().toLowerCase().contains(q);
+          }).toList();
+          final selectable = list.where((r) => !alreadyAdded.contains(r['id'])).toList();
+
+          void addSelected() {
+            final picked = all.where((r) => selected.contains(r['id'])).toList();
+            Navigator.pop(ctx);
+            setState(() {
+              for (final room in picked) {
+                final idx = _assignments.indexWhere((a) => a.gradeLevel == grade);
+                final slot = RoomSlot(
+                  classroomId: room['id'] as String,
+                  classroomName: room['name'],
+                  classroomCode: room['code'] ?? '',
+                  originalCapacity: room['capacity'] as int,
+                  building: (room['building'] ?? '').toString().isEmpty ? null : room['building'].toString(),
+                );
+                if (idx >= 0) {
+                  final rooms = List<RoomSlot>.from(_assignments[idx].rooms)..add(slot);
+                  _assignments[idx] = GradeClassroomAssignment(gradeLevel: grade, rooms: rooms);
+                } else {
+                  _assignments.add(GradeClassroomAssignment(gradeLevel: grade, rooms: [slot]));
+                }
+              }
+            });
+            _autoSaveDebounced();
+          }
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            titlePadding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
+            contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+            title: Row(children: [
+              const Icon(Icons.meeting_room_outlined, color: _primaryColor),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text('Salon Seç – $gradeLabel', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15)),
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _showAddTemplateDialog(onSaved: () => _showRoomPickerDialog(grade));
+                },
+                icon: const Icon(Icons.add_rounded, size: 16),
+                label: const Text('Yeni Salon Tanımla'),
+              ),
+            ]),
+            content: SizedBox(
+              width: 520,
+              height: 460,
+              child: Column(
+                children: [
+                  TextField(
+                    onChanged: (v) => setDlg(() => query = v),
+                    decoration: InputDecoration(
+                      hintText: 'Salon adı, kod veya bina ara...',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      isDense: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 34,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: ChoiceChip(
+                            label: Text('Tümü (${all.length})'),
+                            selected: typeFilter == null,
+                            onSelected: (_) => setDlg(() => typeFilter = null),
+                          ),
+                        ),
+                        for (final id in typeIds)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              label: Text(_schoolTypeNames[id] ?? 'Okul Türü'),
+                              selected: typeFilter == id,
+                              onSelected: (_) => setDlg(() => typeFilter = id),
+                            ),
+                          ),
+                        if (_templates.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              label: Text('Sınava özel (${_templates.length})'),
+                              selected: typeFilter == '_tpl',
+                              onSelected: (_) => setDlg(() => typeFilter = '_tpl'),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Text(
+                        '${list.length} salon',
+                        style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500),
                       ),
-                      title: Text(room['name'], style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14)),
-                      subtitle: Text('${room['capacity']} kişi${isTemplate ? ' · Şablon' : ''}', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500)),
-                      trailing: isAdded
-                          ? const Icon(Icons.check_circle_rounded, color: Colors.green)
-                          : const Icon(Icons.add_circle_outline_rounded, color: _primaryColor),
-                      onTap: isAdded ? null : () {
-                        Navigator.pop(ctx);
-                        _addRoom(grade, RoomSlot(
-                          classroomId: id,
-                          classroomName: room['name'],
-                          classroomCode: room['code'] ?? '',
-                          originalCapacity: room['capacity'] as int,
-                        ));
-                      },
-                    );
-                  },
-                ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Kapat')),
-        ],
+                      const Spacer(),
+                      TextButton(
+                        onPressed: selectable.isEmpty
+                            ? null
+                            : () => setDlg(() {
+                                  final ids = selectable.map((r) => r['id'] as String);
+                                  if (ids.every(selected.contains)) {
+                                    selected.removeAll(ids);
+                                  } else {
+                                    selected.addAll(ids);
+                                  }
+                                }),
+                        child: Text(
+                          selectable.isNotEmpty && selectable.every((r) => selected.contains(r['id']))
+                              ? 'Seçimi Kaldır'
+                              : 'Listedekilerin Tümünü Seç',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: all.isEmpty
+                        ? Center(
+                            child: Text(
+                              _roomsError != null
+                                  ? 'Derslikler okunamadı: $_roomsError'
+                                  : 'Tanımlı derslik bulunamadı.\nOkul Türleri › Derslikler bölümünden derslik tanımlayabilir ya da "Yeni Salon Tanımla" ile ekleyebilirsiniz.',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.inter(color: Colors.grey.shade500, fontSize: 13),
+                            ),
+                          )
+                        : list.isEmpty
+                            ? Center(child: Text('Eşleşen salon yok.', style: TextStyle(color: Colors.grey.shade500)))
+                            : ListView.builder(
+                                itemCount: list.length,
+                                itemBuilder: (ctx, i) {
+                                  final room = list[i];
+                                  final id = room['id'] as String;
+                                  final isAdded = alreadyAdded.contains(id);
+                                  final isTemplate = room['isTemplate'] == true;
+                                  final stName = (room['schoolTypeName'] ?? '').toString();
+                                  final building = (room['building'] ?? '').toString();
+                                  final sub = [
+                                    '${room['capacity']} kişi',
+                                    if (isTemplate) 'Sınava özel',
+                                    if (stName.isNotEmpty) stName,
+                                    if (building.isNotEmpty) building,
+                                  ].join(' · ');
+                                  return CheckboxListTile(
+                                    dense: true,
+                                    value: isAdded || selected.contains(id),
+                                    onChanged: isAdded
+                                        ? null
+                                        : (v) => setDlg(() {
+                                              if (v == true) {
+                                                selected.add(id);
+                                              } else {
+                                                selected.remove(id);
+                                              }
+                                            }),
+                                    controlAffinity: ListTileControlAffinity.leading,
+                                    secondary: Icon(
+                                      isTemplate ? Icons.bookmark_outline_rounded : Icons.meeting_room_outlined,
+                                      color: isAdded ? Colors.green : _primaryColor,
+                                      size: 20,
+                                    ),
+                                    title: Text(room['name'], style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13.5)),
+                                    subtitle: Text(
+                                      isAdded ? '$sub · Bu sınıfa eklendi' : sub,
+                                      style: GoogleFonts.inter(fontSize: 11.5, color: Colors.grey.shade500),
+                                    ),
+                                  );
+                                },
+                              ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Kapat')),
+              FilledButton.icon(
+                onPressed: selected.isEmpty ? null : addSelected,
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: Text('Seçilenleri Ekle (${selected.length})'),
+                style: FilledButton.styleFrom(backgroundColor: _primaryColor),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -959,7 +1234,7 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
     });
   }
 
-  void _showAddTemplateDialog() {
+  void _showAddTemplateDialog({VoidCallback? onSaved}) {
     final nameCtrl = TextEditingController();
     final capCtrl = TextEditingController(text: '30');
     final codeCtrl = TextEditingController();
@@ -1026,6 +1301,7 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
                 });
                 _templates.sort((a, b) => _naturalCompare(a['name'], b['name']));
               });
+              onSaved?.call();
             },
             style: ElevatedButton.styleFrom(backgroundColor: _primaryColor, foregroundColor: Colors.white),
             child: const Text('Kaydet'),
@@ -1087,6 +1363,8 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
         showTicket: widget.exam.showTicket,
         showResults: widget.exam.showResults,
         showRegulation: widget.exam.showRegulation,
+        termId: widget.exam.termId,
+        levelDefinitions: widget.exam.levelDefinitions,
       );
       await _service.updateExternalExam(updatedExam);
       if (mounted) {

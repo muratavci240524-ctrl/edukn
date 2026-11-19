@@ -1815,6 +1815,7 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
         showResults: _showResults,
         showRegulation: _showRegulation,
         termId: activeTermId,
+        levelDefinitions: widget.existingExam?.levelDefinitions ?? const {},
       );
 
       if (widget.existingExam != null) {

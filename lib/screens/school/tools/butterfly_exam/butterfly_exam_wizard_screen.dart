@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../models/school/butterfly_exam_model.dart';
 import '../../../../models/school/seating_plan_model.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
@@ -106,25 +108,15 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
       _instructions = List<String>.from(existing.instructions);
     }
     if (existing.sessionSlots.isNotEmpty) {
+      final firstStart = existing.sessionSlots.first['startTime']?.toString();
+      if (firstStart != null && firstStart.trim().isNotEmpty) {
+        _examTime = _parseTimeOfDay(firstStart);
+      }
+      final parsedConfigs = _buildSessionConfigsFromRawSlots(existing.sessionSlots);
+      if (parsedConfigs.isNotEmpty) {
+        _sessionConfigs = parsedConfigs;
+      }
       _sessionSlots = List<Map<String, dynamic>>.from(existing.sessionSlots);
-      final Map<int, Map<String, dynamic>> bySession = {};
-      for (final slot in existing.sessionSlots) {
-        final sIdx = (slot['sessionIndex'] as int?) ?? 0;
-        if (!bySession.containsKey(sIdx)) {
-          bySession[sIdx] = {
-            'title': slot['sessionTitle'] ?? slot['label'] ?? '${sIdx + 1}. Oturum',
-            'durationMinutes': (slot['durationMinutes'] as int?) ?? 40,
-            'breakMinutes': (slot['breakMinutes'] as int?) ?? 15,
-            'splitCount': 1,
-          };
-        } else {
-          bySession[sIdx]!['splitCount'] = (bySession[sIdx]!['splitCount'] as int) + 1;
-          bySession[sIdx]!['durationMinutes'] = (bySession[sIdx]!['durationMinutes'] as int) + ((slot['durationMinutes'] as int?) ?? 40);
-        }
-      }
-      if (bySession.isNotEmpty) {
-        _sessionConfigs = bySession.values.toList();
-      }
       _sessionCount = _sessionConfigs.length;
     }
     _selectedClassIds.addAll(existing.selectedClassIds);
@@ -148,6 +140,7 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
           'supervisorId': r.supervisorId,
           'supervisorName': r.supervisorName ?? '',
           'supervisors': List<Map<String, dynamic>>.from(r.supervisors),
+          'sessionSplits': Map<String, dynamic>.from(r.sessionSplits),
           'auto': false,
         });
       }
@@ -329,6 +322,9 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
       startTime: _examTime,
       configs: _sessionConfigs,
     );
+    for (final r in _configuredRooms) {
+      _syncRoomSupervisorsWithEffectiveSlots(r);
+    }
   }
 
   void _initDefaultInstructions() {
@@ -345,332 +341,1493 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
     ];
   }
 
-  Map<String, dynamic>? _getSupervisorForRoomSlot(Map<String, dynamic> room, int slotIndex) {
-    if (room['supervisors'] is List) {
-      final list = room['supervisors'] as List;
-      for (final s in list) {
-        if (s is Map && s['slotIndex'] == slotIndex) {
-          return Map<String, dynamic>.from(s);
+  List<Map<String, dynamic>> _getEffectiveSlotsForRoom(Map<String, dynamic> room) {
+    final List<Map<String, dynamic>> baseSlots = _sessionSlots.isNotEmpty
+        ? _sessionSlots
+        : _computeSlotsFromConfigs(startTime: _examTime, configs: _sessionConfigs);
+
+    final Map<int, List<Map<String, dynamic>>> grouped = {};
+    for (int i = 0; i < baseSlots.length; i++) {
+      final s = baseSlots[i];
+      final sIdx = (s['sessionIndex'] as num?)?.toInt() ?? i;
+      grouped.putIfAbsent(sIdx, () => []).add(s);
+    }
+
+    final sessionKeys = grouped.keys.toList()..sort();
+    final rawSplits = room['sessionSplits'] as Map?;
+    final List<Map<String, dynamic>> effective = [];
+    int roomSlotIdx = 0;
+
+    for (final sIdx in sessionKeys) {
+      final gSlots = grouped[sIdx]!;
+      final firstSlot = gSlots.first;
+      final lastSlot = gSlots.last;
+
+      String sessionTitle = (firstSlot['sessionTitle'] ?? firstSlot['label'] ?? '${sIdx + 1}. Oturum').toString().trim();
+      sessionTitle = sessionTitle.replaceAll(RegExp(r'\s*\(\d+\.\s*Devre\)\s*$', caseSensitive: false), '').trim();
+      if (sessionTitle.isEmpty) sessionTitle = '${sIdx + 1}. Oturum';
+
+      final String startStr = firstSlot['startTime']?.toString() ??
+          DateFormat('HH:mm').format(DateTime(_examDate.year, _examDate.month, _examDate.day, _examTime.hour, _examTime.minute));
+      final String endStr = lastSlot['endTime']?.toString() ?? '';
+      final int totalDuration = gSlots
+          .fold<int>(0, (acc, s) => acc + ((s['durationMinutes'] as num?)?.toInt() ?? 40))
+          .clamp(5, 600);
+      final int breakAfter = (lastSlot['breakMinutes'] as num?)?.toInt() ?? 0;
+
+      final dynamic overrideRaw = rawSplits != null ? rawSplits['$sIdx'] : null;
+      if (overrideRaw is Map) {
+        final splitMap = Map<String, dynamic>.from(overrideRaw);
+        final int splitCount = ((splitMap['splitCount'] as num?)?.toInt() ?? 1).clamp(1, 4);
+
+        if (splitCount <= 1) {
+          effective.add({
+            'slotIndex': roomSlotIdx++,
+            'sessionIndex': sIdx,
+            'sessionTitle': sessionTitle,
+            'dutyIndex': 0,
+            'label': sessionTitle,
+            'startTime': startStr,
+            'endTime': endStr,
+            'durationMinutes': totalDuration,
+            'breakMinutes': breakAfter,
+            'isRoomCustomSplit': gSlots.length != 1,
+          });
+        } else {
+          List<int> durations = [];
+          final rawDur = splitMap['durations'];
+          if (rawDur is List && rawDur.length == splitCount) {
+            durations = rawDur.map((e) => ((e as num?)?.toInt() ?? (totalDuration ~/ splitCount)).clamp(5, 600)).toList();
+            final currentSum = durations.fold<int>(0, (acc, d) => acc + d);
+            if (currentSum != totalDuration) {
+              if (currentSum > 0 && (totalDuration - currentSum).abs() > splitCount * 2) {
+                int assigned = 0;
+                for (int p = 0; p < splitCount - 1; p++) {
+                  final scaled = ((durations[p] * totalDuration) / currentSum).round().clamp(5, totalDuration - 5);
+                  durations[p] = scaled;
+                  assigned += scaled;
+                }
+                durations[splitCount - 1] = (totalDuration - assigned).clamp(5, 600);
+              } else {
+                durations[splitCount - 1] = (durations[splitCount - 1] + (totalDuration - currentSum)).clamp(5, 600);
+              }
+            }
+          } else {
+            final basePart = totalDuration ~/ splitCount;
+            durations = List.generate(splitCount, (_) => basePart);
+            durations[splitCount - 1] += totalDuration - (basePart * splitCount);
+          }
+
+          final parsedStart = _parseTimeOfDay(startStr);
+          DateTime partStart = DateTime(
+            _examDate.year,
+            _examDate.month,
+            _examDate.day,
+            parsedStart.hour,
+            parsedStart.minute,
+          );
+
+          for (int p = 0; p < splitCount; p++) {
+            final pDur = durations[p];
+            final partEnd = partStart.add(Duration(minutes: pDur));
+            effective.add({
+              'slotIndex': roomSlotIdx++,
+              'sessionIndex': sIdx,
+              'sessionTitle': sessionTitle,
+              'dutyIndex': p,
+              'label': '$sessionTitle (${p + 1}. Devre)',
+              'startTime': DateFormat('HH:mm').format(partStart),
+              'endTime': DateFormat('HH:mm').format(partEnd),
+              'durationMinutes': pDur,
+              'breakMinutes': p == splitCount - 1 ? breakAfter : 0,
+              'isRoomCustomSplit': true,
+            });
+            partStart = partEnd;
+          }
+        }
+      } else {
+        for (final gs in gSlots) {
+          effective.add({
+            ...gs,
+            'slotIndex': roomSlotIdx++,
+            'isRoomCustomSplit': false,
+          });
         }
       }
     }
-    if (slotIndex == 0 && room['supervisorId'] != null) {
-      return {
+
+    return effective;
+  }
+
+  Map<String, Map<String, dynamic>> _extractRoomSupervisorsBySessionDuty(Map<String, dynamic> room) {
+    final Map<String, Map<String, dynamic>> byKey = {};
+    final rawList = room['supervisors'];
+    if (rawList is List && rawList.isNotEmpty) {
+      for (final raw in rawList) {
+        if (raw is! Map) continue;
+        final m = Map<String, dynamic>.from(raw);
+        final supId = m['supervisorId']?.toString() ?? '';
+        if (supId.isEmpty) continue;
+
+        int sIdx;
+        int dIdx;
+        if (m['sessionIndex'] is num) {
+          sIdx = (m['sessionIndex'] as num).toInt();
+          dIdx = (m['dutyIndex'] as num?)?.toInt() ?? 0;
+        } else {
+          final legacySlot = (m['slotIndex'] as num?)?.toInt() ?? 0;
+          if (legacySlot >= 0 && legacySlot < _sessionSlots.length) {
+            sIdx = (_sessionSlots[legacySlot]['sessionIndex'] as num?)?.toInt() ?? legacySlot;
+            dIdx = (_sessionSlots[legacySlot]['dutyIndex'] as num?)?.toInt() ?? 0;
+          } else {
+            sIdx = legacySlot;
+            dIdx = 0;
+          }
+        }
+        byKey['$sIdx:$dIdx'] = m;
+      }
+    } else if (room['supervisorId'] != null && room['supervisorId'].toString().isNotEmpty) {
+      byKey['0:0'] = {
         'slotIndex': 0,
-        'supervisorId': room['supervisorId'],
-        'supervisorName': room['supervisorName'] ?? '',
+        'sessionIndex': 0,
+        'dutyIndex': 0,
+        'supervisorId': room['supervisorId'].toString(),
+        'supervisorName': room['supervisorName']?.toString() ?? '',
       };
+    }
+    return byKey;
+  }
+
+  void _syncRoomSupervisorsWithEffectiveSlots(Map<String, dynamic> room) {
+    final effectiveSlots = _getEffectiveSlotsForRoom(room);
+    final byKey = _extractRoomSupervisorsBySessionDuty(room);
+    final List<Map<String, dynamic>> synced = [];
+
+    for (int i = 0; i < effectiveSlots.length; i++) {
+      final slot = effectiveSlots[i];
+      final sIdx = (slot['sessionIndex'] as num?)?.toInt() ?? i;
+      final dIdx = (slot['dutyIndex'] as num?)?.toInt() ?? 0;
+      final existing = byKey['$sIdx:$dIdx'];
+      if (existing != null) {
+        final supId = existing['supervisorId']?.toString() ?? '';
+        if (supId.isNotEmpty) {
+          synced.add({
+            'slotIndex': i,
+            'sessionIndex': sIdx,
+            'dutyIndex': dIdx,
+            'slotLabel': slot['label']?.toString() ?? '${i + 1}. Oturum',
+            'startTime': slot['startTime']?.toString() ?? '',
+            'endTime': slot['endTime']?.toString() ?? '',
+            'durationMinutes': slot['durationMinutes'],
+            'supervisorId': supId,
+            'supervisorName': existing['supervisorName']?.toString() ?? '',
+          });
+        }
+      }
+    }
+
+    room['supervisors'] = synced;
+    final firstSlotSup = byKey['0:0'];
+    if (firstSlotSup != null && (firstSlotSup['supervisorId']?.toString().isNotEmpty ?? false)) {
+      room['supervisorId'] = firstSlotSup['supervisorId']?.toString();
+      room['supervisorName'] = firstSlotSup['supervisorName']?.toString() ?? '';
+    } else if (synced.isNotEmpty) {
+      room['supervisorId'] = synced.first['supervisorId']?.toString();
+      room['supervisorName'] = synced.first['supervisorName']?.toString() ?? '';
+    } else {
+      room['supervisorId'] = null;
+      room['supervisorName'] = '';
+    }
+  }
+
+  Map<String, dynamic>? _getSupervisorForRoomSlot(Map<String, dynamic> room, int slotIndex) {
+    final effectiveSlots = _getEffectiveSlotsForRoom(room);
+    if (slotIndex >= 0 && slotIndex < effectiveSlots.length) {
+      final slot = effectiveSlots[slotIndex];
+      final sIdx = (slot['sessionIndex'] as num?)?.toInt() ?? slotIndex;
+      final dIdx = (slot['dutyIndex'] as num?)?.toInt() ?? 0;
+      final byKey = _extractRoomSupervisorsBySessionDuty(room);
+      final found = byKey['$sIdx:$dIdx'];
+      if (found != null) return Map<String, dynamic>.from(found);
     }
     return null;
   }
 
   void _setSupervisorForRoomSlot(Map<String, dynamic> room, int slotIndex, String? teacherId, String? teacherName) {
-    List<Map<String, dynamic>> sups = [];
-    if (room['supervisors'] is List) {
-      sups = List<Map<String, dynamic>>.from(
-        (room['supervisors'] as List).map((x) => Map<String, dynamic>.from(x as Map))
-      );
-    }
-    final existingIdx = sups.indexWhere((s) => s['slotIndex'] == slotIndex);
+    final effectiveSlots = _getEffectiveSlotsForRoom(room);
+    if (slotIndex < 0 || slotIndex >= effectiveSlots.length) return;
+    final slot = effectiveSlots[slotIndex];
+    final sIdx = (slot['sessionIndex'] as num?)?.toInt() ?? slotIndex;
+    final dIdx = (slot['dutyIndex'] as num?)?.toInt() ?? 0;
+
+    final byKey = _extractRoomSupervisorsBySessionDuty(room);
     if (teacherId == null || teacherId.isEmpty) {
-      if (existingIdx >= 0) sups.removeAt(existingIdx);
+      byKey.remove('$sIdx:$dIdx');
     } else {
-      final entry = {
+      byKey['$sIdx:$dIdx'] = {
         'slotIndex': slotIndex,
+        'sessionIndex': sIdx,
+        'dutyIndex': dIdx,
         'supervisorId': teacherId,
         'supervisorName': teacherName ?? '',
       };
-      if (existingIdx >= 0) {
-        sups[existingIdx] = entry;
-      } else {
-        sups.add(entry);
+    }
+
+    final List<Map<String, dynamic>> synced = [];
+    for (int i = 0; i < effectiveSlots.length; i++) {
+      final sl = effectiveSlots[i];
+      final slS = (sl['sessionIndex'] as num?)?.toInt() ?? i;
+      final slD = (sl['dutyIndex'] as num?)?.toInt() ?? 0;
+      final ex = byKey['$slS:$slD'];
+      if (ex != null && (ex['supervisorId']?.toString().isNotEmpty ?? false)) {
+        synced.add({
+          'slotIndex': i,
+          'sessionIndex': slS,
+          'dutyIndex': slD,
+          'slotLabel': sl['label']?.toString() ?? '${i + 1}. Oturum',
+          'startTime': sl['startTime']?.toString() ?? '',
+          'endTime': sl['endTime']?.toString() ?? '',
+          'durationMinutes': sl['durationMinutes'],
+          'supervisorId': ex['supervisorId'],
+          'supervisorName': ex['supervisorName'] ?? '',
+        });
       }
     }
-    room['supervisors'] = sups;
-    if (slotIndex == 0) {
-      room['supervisorId'] = teacherId;
-      room['supervisorName'] = teacherName ?? '';
+
+    room['supervisors'] = synced;
+    final firstSup = byKey['0:0'];
+    if (firstSup != null && (firstSup['supervisorId']?.toString().isNotEmpty ?? false)) {
+      room['supervisorId'] = firstSup['supervisorId']?.toString();
+      room['supervisorName'] = firstSup['supervisorName']?.toString() ?? '';
+    } else if (synced.isNotEmpty) {
+      room['supervisorId'] = synced.first['supervisorId']?.toString();
+      room['supervisorName'] = synced.first['supervisorName']?.toString() ?? '';
+    } else {
+      room['supervisorId'] = null;
+      room['supervisorName'] = '';
     }
   }
 
-  /// Önceki Sınavdan Gözetmenleri Çek Modalı
-  Future<void> _showCopySupervisorsModal() async {
+  /// Sadece seçili salonda ilgili oturumu 1, 2, 3 veya 4 gözetmen devresine bölme modalı (Uzun basılı tutunca açılır)
+  void _showRoomSessionSplitModal(Map<String, dynamic> room, int sessionIndex) {
+    final baseSlots = _sessionSlots.isNotEmpty
+        ? _sessionSlots
+        : _computeSlotsFromConfigs(startTime: _examTime, configs: _sessionConfigs);
+    final gSlots = baseSlots.where((s) => ((s['sessionIndex'] as num?)?.toInt() ?? 0) == sessionIndex).toList();
+    if (gSlots.isEmpty) return;
+
+    String sessionTitle = (gSlots.first['sessionTitle'] ?? gSlots.first['label'] ?? '${sessionIndex + 1}. Oturum')
+        .toString()
+        .replaceAll(RegExp(r'\s*\(\d+\.\s*Devre\)\s*$', caseSensitive: false), '')
+        .trim();
+    if (sessionTitle.isEmpty) sessionTitle = '${sessionIndex + 1}. Oturum';
+
+    final String startStr = gSlots.first['startTime']?.toString() ?? '09:00';
+    final String endStr = gSlots.last['endTime']?.toString() ?? '';
+    final int totalDuration = gSlots
+        .fold<int>(0, (acc, s) => acc + ((s['durationMinutes'] as num?)?.toInt() ?? 40))
+        .clamp(8, 600);
+    final int globalSplitCount = gSlots.length.clamp(1, 4);
+
+    final rawSplits = room['sessionSplits'] as Map?;
+    final existingOverride = (rawSplits != null && rawSplits['$sessionIndex'] is Map)
+        ? Map<String, dynamic>.from(rawSplits['$sessionIndex'] as Map)
+        : null;
+
+    int selectedSplit = existingOverride != null
+        ? (((existingOverride['splitCount'] as num?)?.toInt() ?? globalSplitCount).clamp(1, 4))
+        : globalSplitCount;
+
+    List<int> buildDefaultDurations(int count) {
+      final base = totalDuration ~/ count;
+      final list = List<int>.generate(count, (_) => base);
+      list[count - 1] += totalDuration - (base * count);
+      return list;
+    }
+
+    List<int> tempDurations;
+    if (existingOverride != null &&
+        existingOverride['durations'] is List &&
+        (existingOverride['durations'] as List).length == selectedSplit) {
+      tempDurations = (existingOverride['durations'] as List)
+          .map((e) => ((e as num?)?.toInt() ?? (totalDuration ~/ selectedSplit)).clamp(5, totalDuration))
+          .toList();
+      final sum = tempDurations.fold<int>(0, (acc, d) => acc + d);
+      if (sum != totalDuration) {
+        tempDurations[selectedSplit - 1] = (tempDurations[selectedSplit - 1] + (totalDuration - sum)).clamp(5, totalDuration);
+      }
+    } else if (selectedSplit == globalSplitCount && gSlots.length == selectedSplit) {
+      tempDurations = gSlots.map((s) => ((s['durationMinutes'] as num?)?.toInt() ?? (totalDuration ~/ selectedSplit))).toList();
+    } else {
+      tempDurations = buildDefaultDurations(selectedSplit);
+    }
+
+    final roomName = (room['classroomName'] ?? 'Salon').toString();
+    final byKey = _extractRoomSupervisorsBySessionDuty(room);
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          height: MediaQuery.of(context).size.height * 0.75,
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            children: [
-              Container(
-                margin: const EdgeInsets.only(top: 12, bottom: 8),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFCBD5E1),
-                  borderRadius: BorderRadius.circular(2),
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final parsedStart = _parseTimeOfDay(startStr);
+            DateTime cursor = DateTime(_examDate.year, _examDate.month, _examDate.day, parsedStart.hour, parsedStart.minute);
+            final List<Map<String, String>> previewRanges = [];
+            for (int p = 0; p < selectedSplit; p++) {
+              final next = cursor.add(Duration(minutes: tempDurations[p]));
+              previewRanges.add({
+                'start': DateFormat('HH:mm').format(cursor),
+                'end': DateFormat('HH:mm').format(next),
+              });
+              cursor = next;
+            }
+
+            void selectCount(int newCount) {
+              setModalState(() {
+                selectedSplit = newCount;
+                tempDurations = buildDefaultDurations(newCount);
+              });
+            }
+
+            void adjustPartDuration(int pIdx, int delta) {
+              if (selectedSplit <= 1) return;
+              final int neighborIdx = pIdx < selectedSplit - 1 ? pIdx + 1 : pIdx - 1;
+              final int newVal = tempDurations[pIdx] + delta;
+              final int newNeighbor = tempDurations[neighborIdx] - delta;
+              if (newVal < 5 || newNeighbor < 5) return;
+              setModalState(() {
+                tempDurations[pIdx] = newVal;
+                tempDurations[neighborIdx] = newNeighbor;
+              });
+            }
+
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(sheetCtx).size.height * 0.84),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEEF2FF),
-                        borderRadius: BorderRadius.circular(10),
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        margin: const EdgeInsets.only(top: 12, bottom: 8),
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFCBD5E1),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
-                      child: const Icon(Icons.copy_all_rounded, color: Color(0xFF4F46E5), size: 20),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Önceki Sınavdan Gözetmenleri Çek',
-                            style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFF1E293B)),
-                          ),
-                          Text(
-                            'Geçmiş bir sınavdaki gözetmen atamalarını bu sınavın salonlarına kopyalayın',
-                            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded, size: 20),
-                      onPressed: () => Navigator.pop(ctx),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: FutureBuilder<QuerySnapshot>(
-                  future: FirebaseFirestore.instance
-                      .collection('butterfly_exams')
-                      .where('institutionId', isEqualTo: widget.institutionId)
-                      .limit(30)
-                      .get(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    final docs = snapshot.data?.docs ?? [];
-                    if (docs.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                        child: Row(
                           children: [
-                            Icon(Icons.history_rounded, size: 48, color: Colors.grey.shade400),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Henüz kayıtlı önceki kelebek sınavı bulunamadı.',
-                              style: GoogleFonts.inter(color: Colors.grey.shade600, fontSize: 13.5),
+                            Container(
+                              padding: const EdgeInsets.all(9),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF3E8FF),
+                                borderRadius: BorderRadius.circular(11),
+                              ),
+                              child: const Icon(Icons.call_split_rounded, color: Color(0xFF7C3AED), size: 20),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Derslik $roomName • $sessionTitle Devre Bölme',
+                                    style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15.5, color: const Color(0xFF1E293B)),
+                                  ),
+                                  Text(
+                                    'Sadece bu salonda "$sessionTitle ($startStr - $endStr • $totalDuration dk)" oturumunu bölün. Diğer salonlar etkilenmez.',
+                                    style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close_rounded, size: 20),
+                              onPressed: () => Navigator.pop(sheetCtx),
                             ),
                           ],
                         ),
-                      );
-                    }
-
-                    final sortedDocs = List<QueryDocumentSnapshot>.from(docs);
-                    sortedDocs.sort((a, b) {
-                      final aDate = (a.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
-                      final bDate = (b.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
-                      if (aDate == null || bDate == null) return 0;
-                      return bDate.compareTo(aDate);
-                    });
-
-                    return ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: sortedDocs.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final data = sortedDocs[index].data() as Map<String, dynamic>;
-                        final examTitle = data['title']?.toString() ?? 'İsimsiz Sınav';
-                        final lesson = data['lessonName']?.toString() ?? '';
-                        final roomsList = (data['rooms'] as List<dynamic>?) ?? [];
-                        
-                        int totalSups = 0;
-                        for (final r in roomsList) {
-                          if (r is Map) {
-                            if (r['supervisors'] is List && (r['supervisors'] as List).isNotEmpty) {
-                              totalSups += (r['supervisors'] as List).length;
-                            } else if (r['supervisorId'] != null && r['supervisorId'].toString().isNotEmpty) {
-                              totalSups++;
-                            }
-                          }
-                        }
-
-                        DateTime? examDate;
-                        final dt = data['examDate'];
-                        if (dt is Timestamp) examDate = dt.toDate();
-
-                        return Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.03),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
+                      ),
+                      const Divider(height: 1),
+                      Flexible(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Kaç Gözetmen Devresine Bölünsün?',
+                                style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w800, color: const Color(0xFF334155)),
                               ),
-                            ],
-                          ),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            title: Text(
-                              examTitle,
-                              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14.5, color: const Color(0xFF1E293B)),
-                            ),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const SizedBox(height: 4),
-                                Row(
-                                  children: [
-                                    if (lesson.isNotEmpty) ...[
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFEEF2FF),
-                                          borderRadius: BorderRadius.circular(6),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [1, 2, 3, 4].map((cnt) {
+                                  final bool isSelected = selectedSplit == cnt;
+                                  return Expanded(
+                                    child: Padding(
+                                      padding: EdgeInsets.only(right: cnt < 4 ? 8 : 0),
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(12),
+                                        onTap: () => selectCount(cnt),
+                                        child: AnimatedContainer(
+                                          duration: const Duration(milliseconds: 150),
+                                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+                                          decoration: BoxDecoration(
+                                            color: isSelected ? const Color(0xFFF3E8FF) : const Color(0xFFF8FAFC),
+                                            borderRadius: BorderRadius.circular(12),
+                                            border: Border.all(
+                                              color: isSelected ? const Color(0xFF7C3AED) : const Color(0xFFE2E8F0),
+                                              width: isSelected ? 1.8 : 1,
+                                            ),
+                                          ),
+                                          child: Column(
+                                            children: [
+                                              Text(
+                                                cnt == 1 ? '1 Devre' : '$cnt Devre',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: isSelected ? const Color(0xFF6D28D9) : const Color(0xFF1E293B),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                cnt == 1 ? 'Tek Gözetmen' : '$cnt Gözetmen',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 10.5,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: isSelected ? const Color(0xFF7C3AED) : const Color(0xFF64748B),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                        child: Text(
-                                          lesson,
-                                          style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF4F46E5)),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                    ],
-                                    if (examDate != null)
-                                      Text(
-                                        DateFormat('dd.MM.yyyy').format(examDate),
-                                        style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
-                                      ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    Icon(Icons.meeting_room_outlined, size: 14, color: Colors.grey.shade600),
-                                    const SizedBox(width: 4),
-                                    Text('${roomsList.length} Salon', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF475569))),
-                                    const SizedBox(width: 12),
-                                    Icon(Icons.person_outline_rounded, size: 14, color: totalSups > 0 ? const Color(0xFF047857) : Colors.grey.shade600),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      '$totalSups Gözetmen',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 12,
-                                        fontWeight: totalSups > 0 ? FontWeight.bold : FontWeight.normal,
-                                        color: totalSups > 0 ? const Color(0xFF047857) : const Color(0xFF64748B),
                                       ),
                                     ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            trailing: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF4F46E5),
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  );
+                                }).toList(),
                               ),
-                              icon: const Icon(Icons.arrow_downward_rounded, size: 16),
-                              label: Text('Çek', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold)),
-                              onPressed: () {
-                                _applySupervisorsFromExam(roomsList);
-                                Navigator.pop(ctx);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('✅ "$examTitle" sınavındaki gözetmenler salonlara aktarıldı!'),
-                                    backgroundColor: const Color(0xFF10B981),
+                              const SizedBox(height: 16),
+                              Text(
+                                selectedSplit == 1
+                                    ? 'Önizleme (Tek Gözetmen)'
+                                    : 'Devre Saatleri & Süre Dağılımı (Toplam $totalDuration dk)',
+                                style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: const Color(0xFF475569)),
+                              ),
+                              const SizedBox(height: 8),
+                              ...List.generate(selectedSplit, (p) {
+                                final existingSupName = byKey['$sessionIndex:$p']?['supervisorName']?.toString() ?? '';
+                                final range = previewRanges[p];
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEDE9FE),
+                                          borderRadius: BorderRadius.circular(7),
+                                        ),
+                                        child: Text(
+                                          selectedSplit == 1 ? sessionTitle : '${p + 1}. Devre',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.w800,
+                                            color: const Color(0xFF6D28D9),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              '${range['start']} - ${range['end']}',
+                                              style: GoogleFonts.inter(
+                                                fontSize: 12.5,
+                                                fontWeight: FontWeight.w700,
+                                                color: const Color(0xFF1E293B),
+                                              ),
+                                            ),
+                                            Text(
+                                              existingSupName.isNotEmpty
+                                                  ? 'Atanmış: $existingSupName'
+                                                  : 'Uygulandıktan sonra gözetmen seçilebilir',
+                                              style: GoogleFonts.inter(
+                                                fontSize: 11,
+                                                color: existingSupName.isNotEmpty
+                                                    ? const Color(0xFF059669)
+                                                    : const Color(0xFF94A3B8),
+                                                fontWeight: existingSupName.isNotEmpty ? FontWeight.w600 : FontWeight.normal,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (selectedSplit > 1) ...[
+                                        IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          onPressed: () => adjustPartDuration(p, -5),
+                                          icon: const Icon(Icons.remove_circle_outline_rounded, size: 20, color: Color(0xFF64748B)),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(7),
+                                            border: Border.all(color: const Color(0xFFCBD5E1)),
+                                          ),
+                                          child: Text(
+                                            '${tempDurations[p]} dk',
+                                            style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w800, color: const Color(0xFF4F46E5)),
+                                          ),
+                                        ),
+                                        IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          onPressed: () => adjustPartDuration(p, 5),
+                                          icon: const Icon(Icons.add_circle_outline_rounded, size: 20, color: Color(0xFF7C3AED)),
+                                        ),
+                                      ] else
+                                        Text(
+                                          '$totalDuration dk',
+                                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: const Color(0xFF64748B)),
+                                        ),
+                                    ],
                                   ),
                                 );
-                              },
-                            ),
+                              }),
+                            ],
                           ),
-                        );
-                      },
-                    );
-                  },
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+                        child: Row(
+                          children: [
+                            if (existingOverride != null) ...[
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF64748B),
+                                  side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                  minimumSize: const Size(0, 46),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    final map = Map<String, dynamic>.from((room['sessionSplits'] as Map?) ?? {});
+                                    map.remove('$sessionIndex');
+                                    room['sessionSplits'] = map;
+                                    _syncRoomSupervisorsWithEffectiveSlots(room);
+                                  });
+                                  Navigator.pop(sheetCtx);
+                                  ScaffoldMessenger.of(this.context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('↩️ Derslik $roomName "$sessionTitle" genel oturum düzenine döndürüldü.'),
+                                      backgroundColor: const Color(0xFF475569),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.restart_alt_rounded, size: 17),
+                                label: const Text('Genel Ayara Dön'),
+                              ),
+                              const SizedBox(width: 10),
+                            ],
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF7C3AED),
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size(double.infinity, 46),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    final map = Map<String, dynamic>.from((room['sessionSplits'] as Map?) ?? {});
+                                    final defaultGlobalDurs = gSlots
+                                        .map((s) => (s['durationMinutes'] as num?)?.toInt() ?? (totalDuration ~/ globalSplitCount))
+                                        .toList();
+                                    bool matchesGlobal = selectedSplit == globalSplitCount &&
+                                        defaultGlobalDurs.length == tempDurations.length;
+                                    if (matchesGlobal) {
+                                      for (int k = 0; k < tempDurations.length; k++) {
+                                        if (defaultGlobalDurs[k] != tempDurations[k]) {
+                                          matchesGlobal = false;
+                                          break;
+                                        }
+                                      }
+                                    }
+
+                                    if (matchesGlobal) {
+                                      map.remove('$sessionIndex');
+                                    } else {
+                                      map['$sessionIndex'] = {
+                                        'splitCount': selectedSplit,
+                                        'durations': List<int>.from(tempDurations),
+                                      };
+                                    }
+                                    room['sessionSplits'] = map;
+                                    _syncRoomSupervisorsWithEffectiveSlots(room);
+                                  });
+                                  Navigator.pop(sheetCtx);
+                                  ScaffoldMessenger.of(this.context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        selectedSplit == 1
+                                            ? '✅ Derslik $roomName • "$sessionTitle" tek devre olarak ayarlandı!'
+                                            : '✅ Derslik $roomName • "$sessionTitle" sadece bu salonda $selectedSplit devreye bölündü!',
+                                      ),
+                                      backgroundColor: const Color(0xFF10B981),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                                label: Text(
+                                  'Sadece Bu Salona Uygula',
+                                  style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13.5),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
   }
 
-  void _applySupervisorsFromExam(List<dynamic> prevRooms) {
-    setState(() {
-      for (int i = 0; i < _configuredRooms.length; i++) {
-        final curRoom = _configuredRooms[i];
-        final curName = (curRoom['classroomName'] as String?)?.toLowerCase().trim() ?? '';
-        final curId = curRoom['classroomId']?.toString() ?? '';
+  int? _minutesBetweenTimes(String? startStr, String? endStr) {
+    if (startStr == null || endStr == null) return null;
+    final m1 = RegExp(r'(\d{1,2})[:.](\d{2})').firstMatch(startStr);
+    final m2 = RegExp(r'(\d{1,2})[:.](\d{2})').firstMatch(endStr);
+    if (m1 == null || m2 == null) return null;
+    final startMins = (int.tryParse(m1.group(1)!) ?? 0) * 60 + (int.tryParse(m1.group(2)!) ?? 0);
+    final endMins = (int.tryParse(m2.group(1)!) ?? 0) * 60 + (int.tryParse(m2.group(2)!) ?? 0);
+    final diff = endMins - startMins;
+    return diff > 0 ? diff : null;
+  }
 
-        Map<String, dynamic>? matchRoom;
-        for (final pr in prevRooms) {
-          if (pr is Map) {
-            final pName = (pr['classroomName'] ?? pr['name'])?.toString().toLowerCase().trim() ?? '';
-            final pId = (pr['classroomId'] ?? pr['id'])?.toString() ?? '';
-            if (pName.isNotEmpty && pName == curName) {
-              matchRoom = Map<String, dynamic>.from(pr);
-              break;
-            }
-            if (pId.isNotEmpty && pId == curId) {
-              matchRoom = Map<String, dynamic>.from(pr);
-              break;
-            }
-          }
-        }
+  /// Kayıtlı sessionSlots listesinden oturum sayısı, süreler, devre bölünmeleri ve mola düzenini birebir geri üretir.
+  List<Map<String, dynamic>> _buildSessionConfigsFromRawSlots(List<dynamic> rawSlots) {
+    final Map<int, List<Map<String, dynamic>>> grouped = {};
+    for (int i = 0; i < rawSlots.length; i++) {
+      final raw = rawSlots[i];
+      if (raw is! Map) continue;
+      final slot = Map<String, dynamic>.from(raw);
+      final sIdx = (slot['sessionIndex'] as num?)?.toInt() ?? (slot['slotIndex'] as num?)?.toInt() ?? i;
+      grouped.putIfAbsent(sIdx, () => []).add(slot);
+    }
 
-        if (matchRoom == null && i < prevRooms.length && prevRooms[i] is Map) {
-          matchRoom = Map<String, dynamic>.from(prevRooms[i] as Map);
-        }
+    final sessionKeys = grouped.keys.toList()..sort();
+    final List<Map<String, dynamic>> configs = [];
 
-        if (matchRoom != null) {
-          if (matchRoom['supervisors'] is List && (matchRoom['supervisors'] as List).isNotEmpty) {
-            final sups = (matchRoom['supervisors'] as List)
-                .map((e) => Map<String, dynamic>.from(e as Map))
-                .toList();
-            curRoom['supervisors'] = sups;
-            final slot0 = sups.firstWhere(
-              (s) => s['slotIndex'] == 0,
-              orElse: () => sups.first,
-            );
-            curRoom['supervisorId'] = slot0['supervisorId'];
-            curRoom['supervisorName'] = slot0['supervisorName'];
-          } else if (matchRoom['supervisorId'] != null && matchRoom['supervisorId'].toString().isNotEmpty) {
-            final supId = matchRoom['supervisorId'].toString();
-            final supName = matchRoom['supervisorName']?.toString() ?? '';
-            curRoom['supervisorId'] = supId;
-            curRoom['supervisorName'] = supName;
-            curRoom['supervisors'] = [
-              {
-                'slotIndex': 0,
-                'supervisorId': supId,
-                'supervisorName': supName,
-              }
-            ];
-          }
+    for (int k = 0; k < sessionKeys.length; k++) {
+      final key = sessionKeys[k];
+      final groupSlots = grouped[key]!;
+      groupSlots.sort((a, b) {
+        final da = (a['dutyIndex'] as num?)?.toInt() ?? (a['slotIndex'] as num?)?.toInt() ?? 0;
+        final db = (b['dutyIndex'] as num?)?.toInt() ?? (b['slotIndex'] as num?)?.toInt() ?? 0;
+        return da.compareTo(db);
+      });
+
+      final firstSlot = groupSlots.first;
+      final lastSlot = groupSlots.last;
+
+      String rawTitle = (firstSlot['sessionTitle'] ?? firstSlot['label'] ?? '${k + 1}. Oturum').toString().trim();
+      rawTitle = rawTitle.replaceAll(RegExp(r'\s*\(\d+\.\s*Devre\)\s*$', caseSensitive: false), '').trim();
+      if (rawTitle.isEmpty) rawTitle = '${k + 1}. Oturum';
+
+      final List<int> splitDurations = [];
+      for (final s in groupSlots) {
+        final dur = (s['durationMinutes'] as num?)?.toInt() ??
+            _minutesBetweenTimes(s['startTime']?.toString(), s['endTime']?.toString()) ??
+            40;
+        splitDurations.add(dur.clamp(5, 300));
+      }
+      final int totalDuration = splitDurations.fold<int>(0, (acc, d) => acc + d);
+
+      int? breakMins = (lastSlot['breakMinutes'] as num?)?.toInt();
+      if (breakMins == null) {
+        if (k + 1 < sessionKeys.length) {
+          final nextFirst = grouped[sessionKeys[k + 1]]!.first;
+          breakMins = _minutesBetweenTimes(lastSlot['endTime']?.toString(), nextFirst['startTime']?.toString()) ?? 15;
+        } else {
+          breakMins = 15;
         }
       }
+
+      final conf = <String, dynamic>{
+        'title': rawTitle,
+        'durationMinutes': totalDuration,
+        'breakMinutes': breakMins.clamp(0, 180),
+        'splitCount': groupSlots.length,
+      };
+      if (groupSlots.length > 1) {
+        conf['customSplitDurations'] = splitDurations;
+      }
+      configs.add(conf);
+    }
+
+    return configs;
+  }
+
+  Future<List<Map<String, dynamic>>> _loadPreviousExamsForCopy() async {
+    final List<Map<String, dynamic>> results = [];
+    final Set<String> seenIds = {};
+    final currentId = widget.existingDistribution?.id;
+
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('butterfly_exams')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+      for (final d in snap.docs) {
+        if (currentId != null && currentId.isNotEmpty && d.id == currentId) continue;
+        if (seenIds.add(d.id)) {
+          results.add({...d.data(), '_docId': d.id});
+        }
+      }
+    } catch (e) {
+      debugPrint('butterfly_exams okuma hatası (fallback denenecek): $e');
+    }
+
+    if (results.isEmpty) {
+      try {
+        final snap2 = await FirebaseFirestore.instance
+            .collection('seating_plans')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('type', isEqualTo: 'butterfly_exam')
+            .get();
+        for (final d in snap2.docs) {
+          if (currentId != null && currentId.isNotEmpty && d.id == currentId) continue;
+          if (seenIds.add(d.id)) {
+            results.add({...d.data(), '_docId': d.id});
+          }
+        }
+      } catch (e) {
+        debugPrint('seating_plans fallback okuma hatası: $e');
+      }
+    }
+
+    DateTime extractSortDate(Map<String, dynamic> m) {
+      final c = m['createdAt'];
+      if (c is Timestamp) return c.toDate();
+      if (c is DateTime) return c;
+      final ed = m['examDate'];
+      if (ed is Timestamp) return ed.toDate();
+      if (ed is DateTime) return ed;
+      return DateTime.fromMillisecondsSinceEpoch(0);
+    }
+
+    results.sort((a, b) => extractSortDate(b).compareTo(extractSortDate(a)));
+    return results;
+  }
+
+  /// Önceki Sınavdan Seçmeli Olarak Salon, Gözetmen, Oturum/Saat/Mola ve Sınav Kurallarını Çek Modalı
+  Future<void> _showCopySupervisorsModal() async {
+    final futureExams = _loadPreviousExamsForCopy();
+    String searchQuery = '';
+    final Map<String, Set<String>> activePartsByExam = {};
+
+    Set<String> getActiveParts(String examKey) {
+      return activePartsByExam.putIfAbsent(
+        examKey,
+        () => <String>{'rooms', 'sessions', 'supervisors', 'rules'},
+      );
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.80,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 12, bottom: 8),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEEF2FF),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.copy_all_rounded, color: Color(0xFF4F46E5), size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Önceki Sınavdan Tüm Düzeni Çek',
+                                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFF1E293B)),
+                              ),
+                              Text(
+                                'Tüm başlıklar aktif gelir. Çekilmesini istemediğiniz başlığın üstüne tıklayarak pasif yapabilirsiniz.',
+                                style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 20),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: TextField(
+                        onChanged: (v) => setModalState(() => searchQuery = v.trim().toLowerCase()),
+                        decoration: InputDecoration(
+                          hintText: 'Önceki sınav adı veya ders ara...',
+                          hintStyle: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF94A3B8)),
+                          prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Color(0xFF64748B)),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: FutureBuilder<List<Map<String, dynamic>>>(
+                      future: futureExams,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        final allExams = snapshot.data ?? [];
+                        final filteredExams = searchQuery.isEmpty
+                            ? allExams
+                            : allExams.where((data) {
+                                final t = (data['title'] ?? '').toString().toLowerCase();
+                                final l = (data['lessonName'] ?? '').toString().toLowerCase();
+                                return t.contains(searchQuery) || l.contains(searchQuery);
+                              }).toList();
+
+                        if (filteredExams.isEmpty) {
+                          return Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.history_rounded, size: 48, color: Colors.grey.shade400),
+                                const SizedBox(height: 12),
+                                Text(
+                                  allExams.isEmpty
+                                      ? 'Henüz kayıtlı önceki kelebek sınavı bulunamadı.'
+                                      : 'Aramanızla eşleşen önceki sınav bulunamadı.',
+                                  style: GoogleFonts.inter(color: Colors.grey.shade600, fontSize: 13.5),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        return ListView.separated(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: filteredExams.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final data = filteredExams[index];
+                            final String examKey = (data['_docId'] ?? 'exam_$index').toString();
+                            final Set<String> activeParts = getActiveParts(examKey);
+
+                            final examTitle = data['title']?.toString() ?? 'İsimsiz Sınav';
+                            final lesson = data['lessonName']?.toString() ?? '';
+                            final roomsList = (data['rooms'] as List<dynamic>?) ?? [];
+                            final rawSlots = (data['sessionSlots'] as List<dynamic>?) ?? [];
+                            final rawRules = (data['instructions'] as List<dynamic>?) ?? [];
+
+                            int totalSups = 0;
+                            int totalSeats = 0;
+                            for (final r in roomsList) {
+                              if (r is Map) {
+                                if (r['supervisors'] is List && (r['supervisors'] as List).isNotEmpty) {
+                                  totalSups += (r['supervisors'] as List)
+                                      .where((s) => s is Map && (s['supervisorId']?.toString().isNotEmpty ?? false))
+                                      .length;
+                                } else if (r['supervisorId'] != null && r['supervisorId'].toString().isNotEmpty) {
+                                  totalSups++;
+                                }
+                                if (r['seats'] is List && (r['seats'] as List).isNotEmpty) {
+                                  totalSeats += (r['seats'] as List).length;
+                                } else if (r['customCapacity'] is num) {
+                                  totalSeats += (r['customCapacity'] as num).toInt();
+                                }
+                              }
+                            }
+
+                            final parsedConfigs = _buildSessionConfigsFromRawSlots(rawSlots);
+                            final int sessionCnt = parsedConfigs.isNotEmpty ? parsedConfigs.length : 1;
+                            String timeSummary = data['examTime']?.toString() ?? '';
+                            if (rawSlots.isNotEmpty && rawSlots.first is Map && rawSlots.last is Map) {
+                              final st = (rawSlots.first as Map)['startTime']?.toString() ?? '';
+                              final et = (rawSlots.last as Map)['endTime']?.toString() ?? '';
+                              if (st.isNotEmpty && et.isNotEmpty) {
+                                timeSummary = '$st - $et';
+                              }
+                            }
+
+                            DateTime? examDate;
+                            final dt = data['examDate'];
+                            if (dt is Timestamp) examDate = dt.toDate();
+
+                            void togglePart(String partKey) {
+                              setModalState(() {
+                                if (activeParts.contains(partKey)) {
+                                  activeParts.remove(partKey);
+                                } else {
+                                  activeParts.add(partKey);
+                                }
+                              });
+                            }
+
+                            final int activeCount = activeParts.length;
+                            final String btnLabel = activeCount == 4
+                                ? 'Tümünü Çek'
+                                : (activeCount == 0 ? 'Seçim Yapın' : 'Seçilenleri Çek ($activeCount)');
+
+                            return Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.03),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            examTitle,
+                                            style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14.5, color: const Color(0xFF1E293B)),
+                                          ),
+                                          const SizedBox(height: 5),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 4,
+                                            crossAxisAlignment: WrapCrossAlignment.center,
+                                            children: [
+                                              if (lesson.isNotEmpty)
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFFEEF2FF),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    lesson,
+                                                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF4F46E5)),
+                                                  ),
+                                                ),
+                                              if (examDate != null)
+                                                Text(
+                                                  DateFormat('dd.MM.yyyy').format(examDate),
+                                                  style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                                ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 6,
+                                            children: [
+                                              _buildExamCopyMetaChip(
+                                                icon: Icons.meeting_room_outlined,
+                                                label: totalSeats > 0
+                                                    ? '${roomsList.length} Salon ($totalSeats Koltuk)'
+                                                    : '${roomsList.length} Salon',
+                                                color: const Color(0xFF4F46E5),
+                                                isActive: activeParts.contains('rooms'),
+                                                onTap: () => togglePart('rooms'),
+                                              ),
+                                              _buildExamCopyMetaChip(
+                                                icon: Icons.schedule_rounded,
+                                                label: timeSummary.isNotEmpty
+                                                    ? '$sessionCnt Oturum ($timeSummary)'
+                                                    : '$sessionCnt Oturum',
+                                                color: const Color(0xFF0284C7),
+                                                isActive: activeParts.contains('sessions'),
+                                                onTap: () => togglePart('sessions'),
+                                              ),
+                                              _buildExamCopyMetaChip(
+                                                icon: Icons.person_outline_rounded,
+                                                label: '$totalSups Gözetmen',
+                                                color: const Color(0xFF047857),
+                                                isActive: activeParts.contains('supervisors'),
+                                                onTap: () => togglePart('supervisors'),
+                                              ),
+                                              _buildExamCopyMetaChip(
+                                                icon: Icons.gavel_rounded,
+                                                label: '${rawRules.length} Kural',
+                                                color: const Color(0xFF7C3AED),
+                                                isActive: activeParts.contains('rules'),
+                                                onTap: () => togglePart('rules'),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF4F46E5),
+                                        foregroundColor: Colors.white,
+                                        disabledBackgroundColor: const Color(0xFFE2E8F0),
+                                        disabledForegroundColor: const Color(0xFF94A3B8),
+                                        elevation: 0,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                      ),
+                                      icon: Icon(
+                                        activeCount == 0 ? Icons.block_rounded : Icons.arrow_downward_rounded,
+                                        size: 16,
+                                      ),
+                                      label: Text(btnLabel, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold)),
+                                      onPressed: activeCount == 0
+                                          ? null
+                                          : () {
+                                              final summaryParts = _applyFullSetupFromExam(
+                                                data,
+                                                activeParts: Set<String>.from(activeParts),
+                                              );
+                                              Navigator.pop(ctx);
+                                              if (summaryParts.isNotEmpty) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('✅ "$examTitle" sınavından ${summaryParts.join(', ')} aktarıldı!'),
+                                                    backgroundColor: const Color(0xFF10B981),
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildExamCopyMetaChip({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    const Color passiveFg = Color(0xFF94A3B8);
+    return Tooltip(
+      message: isActive
+          ? 'Aktif (Çekilecek) — Pasif yapmak için tıklayın'
+          : 'Pasif (Çekilmeyecek) — Aktif yapmak için tıklayın',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            decoration: BoxDecoration(
+              color: isActive ? color.withValues(alpha: 0.11) : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isActive ? color.withValues(alpha: 0.45) : const Color(0xFFCBD5E1),
+                width: isActive ? 1.2 : 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isActive ? Icons.check_circle_rounded : Icons.remove_circle_outline_rounded,
+                  size: 13.5,
+                  color: isActive ? color : passiveFg,
+                ),
+                const SizedBox(width: 4),
+                Icon(icon, size: 13, color: isActive ? color : passiveFg),
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                    color: isActive ? color : passiveFg,
+                    decoration: isActive ? TextDecoration.none : TextDecoration.lineThrough,
+                    decorationColor: passiveFg,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Seçilen önceki sınavın yalnızca aktif (seçili) bırakılan bölümlerini
+  /// (`rooms`, `sessions`, `supervisors`, `rules`) bu sınava aktarır.
+  List<String> _applyFullSetupFromExam(
+    Map<String, dynamic> examData, {
+    Set<String> activeParts = const {'rooms', 'sessions', 'supervisors', 'rules'},
+  }) {
+    String normName(String s) => s.toLowerCase().replaceAll(RegExp(r'[\s\-_/.]'), '');
+
+    final bool pullRooms = activeParts.contains('rooms');
+    final bool pullSessions = activeParts.contains('sessions');
+    final bool pullSupervisors = activeParts.contains('supervisors');
+    final bool pullRules = activeParts.contains('rules');
+
+    final List<String> pulledSummary = [];
+
+    String resolveTeacherName(String? tId, String? fallbackName) {
+      final cleanFallback = (fallbackName ?? '').trim();
+      if (cleanFallback.isNotEmpty) return cleanFallback;
+      if (tId != null && tId.isNotEmpty) {
+        final foundT = _availableTeachers.where((t) => t['id']?.toString() == tId).firstOrNull;
+        if (foundT != null) return (foundT['name'] ?? '').toString();
+      }
+      return '';
+    }
+
+    ({String? primaryId, String primaryName, List<Map<String, dynamic>> list}) extractRoomSupervisors(Map<String, dynamic> pr) {
+      final List<Map<String, dynamic>> resolvedSupervisors = [];
+      if (pr['supervisors'] is List && (pr['supervisors'] as List).isNotEmpty) {
+        for (final rawSup in (pr['supervisors'] as List)) {
+          if (rawSup is! Map) continue;
+          final sm = Map<String, dynamic>.from(rawSup);
+          final sId = sm['supervisorId']?.toString();
+          if (sId == null || sId.isEmpty) continue;
+          final sSlotIdx = (sm['slotIndex'] as num?)?.toInt() ?? 0;
+          final sName = resolveTeacherName(sId, sm['supervisorName']?.toString());
+          resolvedSupervisors.add({
+            ...sm,
+            'slotIndex': sSlotIdx,
+            'supervisorId': sId,
+            'supervisorName': sName,
+          });
+        }
+      }
+
+      String? primarySupId = pr['supervisorId']?.toString();
+      String primarySupName = resolveTeacherName(primarySupId, pr['supervisorName']?.toString());
+
+      if (resolvedSupervisors.isNotEmpty) {
+        final slot0 = resolvedSupervisors.firstWhere(
+          (s) => s['slotIndex'] == 0,
+          orElse: () => resolvedSupervisors.first,
+        );
+        primarySupId = slot0['supervisorId']?.toString();
+        primarySupName = (slot0['supervisorName'] ?? '').toString();
+      } else if (primarySupId != null && primarySupId.isNotEmpty) {
+        resolvedSupervisors.add({
+          'slotIndex': 0,
+          'supervisorId': primarySupId,
+          'supervisorName': primarySupName,
+        });
+      }
+
+      return (
+        primaryId: (primarySupId != null && primarySupId.isNotEmpty) ? primarySupId : null,
+        primaryName: primarySupName,
+        list: resolvedSupervisors,
+      );
+    }
+
+    setState(() {
+      if (pullSessions) {
+        final rawSlots = (examData['sessionSlots'] as List<dynamic>?) ?? [];
+        if (rawSlots.isNotEmpty) {
+          final firstSlot = rawSlots.first;
+          if (firstSlot is Map && (firstSlot['startTime']?.toString().trim().isNotEmpty ?? false)) {
+            _examTime = _parseTimeOfDay(firstSlot['startTime'].toString());
+          } else if (examData['examTime']?.toString().trim().isNotEmpty ?? false) {
+            _examTime = _parseTimeOfDay(examData['examTime'].toString());
+          }
+
+          final parsedConfigs = _buildSessionConfigsFromRawSlots(rawSlots);
+          if (parsedConfigs.isNotEmpty) {
+            _sessionConfigs = parsedConfigs;
+          }
+          _recalcSessionSlots();
+          pulledSummary.add('$_sessionCount oturum/saat-mola düzeni');
+        } else if (examData['examTime']?.toString().trim().isNotEmpty ?? false) {
+          final rawExamTime = examData['examTime'].toString();
+          _examTime = _parseTimeOfDay(rawExamTime);
+          int? durFromStr;
+          if (rawExamTime.contains('-')) {
+            final parts = rawExamTime.split('-');
+            if (parts.length >= 2) {
+              durFromStr = _minutesBetweenTimes(parts[0].trim(), parts[1].trim());
+            }
+          }
+          _sessionConfigs = [
+            {
+              'title': '1. Oturum',
+              'durationMinutes': durFromStr ?? 75,
+              'breakMinutes': 15,
+              'splitCount': 1,
+            },
+          ];
+          _recalcSessionSlots();
+          pulledSummary.add('$_sessionCount oturum/saat düzeni');
+        }
+      }
+
+      if (pullRules) {
+        if (examData['instructions'] is List) {
+          final pulledRules = (examData['instructions'] as List)
+              .map((e) => e.toString().trim())
+              .where((s) => s.isNotEmpty)
+              .toList();
+          if (pulledRules.isNotEmpty) {
+            _instructions = pulledRules;
+            pulledSummary.add('${_instructions.length} sınav kuralı');
+          }
+        }
+        if (examData['showExamTitleOnPdf'] is bool) {
+          _showExamTitleOnPdf = examData['showExamTitleOnPdf'] as bool;
+        }
+      }
+
+      final prevRooms = (examData['rooms'] as List<dynamic>?) ?? [];
+      if (pullRooms && prevRooms.isNotEmpty) {
+        final existingRoomsSnapshot = List<Map<String, dynamic>>.from(_configuredRooms);
+        final List<Map<String, dynamic>> rebuiltRooms = [];
+
+        for (int i = 0; i < prevRooms.length; i++) {
+          final rawRoom = prevRooms[i];
+          if (rawRoom is! Map) continue;
+          final pr = Map<String, dynamic>.from(rawRoom);
+
+          final String pClassroomId = (pr['classroomId'] ?? pr['id'] ?? '').toString();
+          final String pClassroomName = (pr['classroomName'] ?? pr['name'] ?? 'Salon ${i + 1}').toString();
+
+          Map<String, dynamic>? matchedClassroom;
+          if (pClassroomId.isNotEmpty) {
+            matchedClassroom = _availableClassrooms.where((c) => c['id']?.toString() == pClassroomId).firstOrNull;
+          }
+          matchedClassroom ??= _availableClassrooms
+              .where((c) => normName(c['name']?.toString() ?? '') == normName(pClassroomName))
+              .firstOrNull;
+
+          final String finalClassroomId =
+              matchedClassroom?['id']?.toString() ?? (pClassroomId.isNotEmpty ? pClassroomId : 'salon_${i + 1}');
+          final String finalClassroomName = pClassroomName.isNotEmpty
+              ? pClassroomName
+              : (matchedClassroom?['name']?.toString() ?? 'Salon ${i + 1}');
+
+          final String pLayoutId = (pr['layoutId'] ?? '').toString();
+          final String pLayoutName = (pr['layoutName'] ?? '').toString();
+          ClassroomLayout? matchedLayout;
+
+          if (pLayoutId.isNotEmpty) {
+            matchedLayout = _availableLayouts.where((l) => l.id == pLayoutId).firstOrNull;
+          }
+          if (matchedLayout == null && pLayoutName.isNotEmpty) {
+            matchedLayout = _availableLayouts
+                .where((l) => l.name.toLowerCase().trim() == pLayoutName.toLowerCase().trim())
+                .firstOrNull;
+          }
+
+          ClassroomLayout resolvedLayout;
+          if (pr['layoutSnapshot'] is Map && (pr['layoutSnapshot'] as Map).isNotEmpty) {
+            final snapMap = Map<String, dynamic>.from(pr['layoutSnapshot'] as Map);
+            final effectiveId =
+                matchedLayout?.id ?? (pLayoutId.isNotEmpty ? pLayoutId : 'snapshot_${finalClassroomId}_$i');
+            final snapLayout = ClassroomLayout.fromMap(snapMap, effectiveId);
+            if (!_availableLayouts.any((l) => l.id == snapLayout.id)) {
+              _availableLayouts.add(snapLayout);
+            }
+            resolvedLayout = snapLayout;
+          } else {
+            resolvedLayout = matchedLayout ?? _findLayoutForClassroom(matchedClassroom?['layoutId']?.toString());
+          }
+
+          int resolvedCapacity;
+          if (pr['customCapacity'] is num && (pr['customCapacity'] as num).toInt() > 0) {
+            resolvedCapacity = (pr['customCapacity'] as num).toInt();
+          } else if (pr['seats'] is List && (pr['seats'] as List).isNotEmpty) {
+            resolvedCapacity = (pr['seats'] as List).length;
+          } else {
+            resolvedCapacity = resolvedLayout.totalCapacity;
+          }
+
+          String? roomSupId;
+          String roomSupName = '';
+          List<Map<String, dynamic>> roomSupList = [];
+
+          Map<String, dynamic> roomSessionSplits = {};
+          if ((pullSessions || pullSupervisors) && pr['sessionSplits'] is Map) {
+            roomSessionSplits = Map<String, dynamic>.from(pr['sessionSplits'] as Map);
+          }
+
+          if (pullSupervisors) {
+            final sups = extractRoomSupervisors(pr);
+            roomSupId = sups.primaryId;
+            roomSupName = sups.primaryName;
+            roomSupList = sups.list;
+          } else {
+            final curMatch = existingRoomsSnapshot.where((cr) {
+              final cid = cr['classroomId']?.toString() ?? '';
+              final cname = normName(cr['classroomName']?.toString() ?? '');
+              return (cid.isNotEmpty && cid == finalClassroomId) ||
+                  (cname.isNotEmpty && cname == normName(finalClassroomName));
+            }).firstOrNull;
+            if (curMatch != null) {
+              roomSupId = curMatch['supervisorId']?.toString();
+              roomSupName = (curMatch['supervisorName'] ?? '').toString();
+              if (curMatch['supervisors'] is List) {
+                roomSupList = (curMatch['supervisors'] as List)
+                    .whereType<Map>()
+                    .map((e) => Map<String, dynamic>.from(e))
+                    .toList();
+              }
+              if (!pullSessions && curMatch['sessionSplits'] is Map) {
+                roomSessionSplits = Map<String, dynamic>.from(curMatch['sessionSplits'] as Map);
+              }
+            }
+          }
+
+          rebuiltRooms.add({
+            'classroomId': finalClassroomId,
+            'classroomName': finalClassroomName,
+            'layoutId': resolvedLayout.id ?? 'preset_default',
+            'layout': resolvedLayout,
+            'customCapacity': resolvedCapacity,
+            'supervisorId': roomSupId,
+            'supervisorName': roomSupName,
+            'supervisors': roomSupList,
+            'sessionSplits': roomSessionSplits,
+            'auto': false,
+          });
+        }
+
+        if (rebuiltRooms.isNotEmpty) {
+          _configuredRooms
+            ..clear()
+            ..addAll(rebuiltRooms);
+          for (final r in _configuredRooms) {
+            _syncRoomSupervisorsWithEffectiveSlots(r);
+          }
+          pulledSummary.insert(0, '${_configuredRooms.length} salon');
+          if (pullSupervisors) {
+            pulledSummary.add('gözetmenler');
+          }
+        }
+      } else if (!pullRooms && pullSupervisors && prevRooms.isNotEmpty) {
+        int matchedSupRooms = 0;
+        for (int i = 0; i < _configuredRooms.length; i++) {
+          final curRoom = _configuredRooms[i];
+          final curName = normName(curRoom['classroomName']?.toString() ?? '');
+          final curId = curRoom['classroomId']?.toString() ?? '';
+
+          Map<String, dynamic>? matchRoom;
+          for (final rawPr in prevRooms) {
+            if (rawPr is! Map) continue;
+            final pName = normName((rawPr['classroomName'] ?? rawPr['name'] ?? '').toString());
+            final pId = (rawPr['classroomId'] ?? rawPr['id'] ?? '').toString();
+            if ((pName.isNotEmpty && pName == curName) || (pId.isNotEmpty && pId == curId)) {
+              matchRoom = Map<String, dynamic>.from(rawPr);
+              break;
+            }
+          }
+          if (matchRoom == null && i < prevRooms.length && prevRooms[i] is Map) {
+            matchRoom = Map<String, dynamic>.from(prevRooms[i] as Map);
+          }
+
+          if (matchRoom != null) {
+            final sups = extractRoomSupervisors(matchRoom);
+            curRoom['supervisorId'] = sups.primaryId;
+            curRoom['supervisorName'] = sups.primaryName;
+            curRoom['supervisors'] = sups.list;
+            if (matchRoom['sessionSplits'] is Map) {
+              curRoom['sessionSplits'] = Map<String, dynamic>.from(matchRoom['sessionSplits'] as Map);
+            }
+            _syncRoomSupervisorsWithEffectiveSlots(curRoom);
+            if (sups.primaryId != null || sups.list.isNotEmpty) {
+              matchedSupRooms++;
+            }
+          }
+        }
+        pulledSummary.add('gözetmenler ($matchedSupRooms salon)');
+      }
     });
+
+    return pulledSummary;
   }
 
   /// Oturum Saatleri, Süreleri & Gözetmenlik Devreleri Düzenleme Modalı
@@ -1713,11 +2870,10 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                             buildDefaultDragHandles: false,
                             itemCount: _instructions.length,
-                            onReorder: (oldIndex, newIndex) {
+                            onReorderItem: (oldIndex, newIndex) {
                               setState(() {
-                                if (newIndex > oldIndex) newIndex -= 1;
                                 final item = _instructions.removeAt(oldIndex);
-                                _instructions.insert(newIndex, item);
+                                _instructions.insert(newIndex.clamp(0, _instructions.length), item);
                               });
                               setModalState(() {});
                             },
@@ -1855,6 +3011,185 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
     );
   }
 
+  String get _instructionTemplatesPrefsKey => 'exam_instruction_templates_${widget.institutionId}';
+
+  Future<List<Map<String, dynamic>>> _loadSavedInstructionTemplates() async {
+    final List<Map<String, dynamic>> merged = [];
+    final Set<String> seenKeys = {};
+
+    void addTemplateItem({
+      required String id,
+      required String source,
+      required String title,
+      required List<String> rules,
+      required int createdAtMs,
+    }) {
+      final cleanTitle = title.trim();
+      final cleanRules = rules.map((e) => e.trim()).where((s) => s.isNotEmpty).toList();
+      if (cleanTitle.isEmpty || cleanRules.isEmpty) return;
+      final dedupKey = cleanTitle.toLowerCase();
+      if (!seenKeys.add(dedupKey)) return;
+      merged.add({
+        'id': id,
+        'source': source,
+        'title': cleanTitle,
+        'rules': cleanRules,
+        'createdAtMs': createdAtMs,
+      });
+    }
+
+    int parseCreatedMs(dynamic raw) {
+      if (raw is Timestamp) return raw.millisecondsSinceEpoch;
+      if (raw is DateTime) return raw.millisecondsSinceEpoch;
+      if (raw is num) return raw.toInt();
+      return 0;
+    }
+
+    // 1. Kurum alt koleksiyonu (institutions/{instId}/exam_instruction_templates)
+    try {
+      final instSnap = await FirebaseFirestore.instance
+          .collection('institutions')
+          .doc(widget.institutionId)
+          .collection('exam_instruction_templates')
+          .get();
+      final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(instSnap.docs);
+      docs.sort((a, b) => parseCreatedMs(b.data()['createdAt']).compareTo(parseCreatedMs(a.data()['createdAt'])));
+      for (final d in docs) {
+        final data = d.data();
+        final rawList = (data['instructions'] ?? data['rules']) as List<dynamic>? ?? [];
+        addTemplateItem(
+          id: d.id,
+          source: 'institution',
+          title: (data['title'] ?? '').toString(),
+          rules: rawList.map((e) => e.toString()).toList(),
+          createdAtMs: parseCreatedMs(data['createdAt']),
+        );
+      }
+    } catch (e) {
+      debugPrint('Kurum yönerge şablonları okunamadı: $e');
+    }
+
+    // 2. Üst seviye koleksiyon fallback (exam_instruction_templates)
+    try {
+      final topSnap = await FirebaseFirestore.instance
+          .collection('exam_instruction_templates')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+      final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(topSnap.docs);
+      docs.sort((a, b) => parseCreatedMs(b.data()['createdAt']).compareTo(parseCreatedMs(a.data()['createdAt'])));
+      for (final d in docs) {
+        final data = d.data();
+        final rawList = (data['instructions'] ?? data['rules']) as List<dynamic>? ?? [];
+        addTemplateItem(
+          id: d.id,
+          source: 'top',
+          title: (data['title'] ?? '').toString(),
+          rules: rawList.map((e) => e.toString()).toList(),
+          createdAtMs: parseCreatedMs(data['createdAt']),
+        );
+      }
+    } catch (_) {}
+
+    // 3. Yerel önbellek fallback (SharedPreferences)
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rawJson = prefs.getString(_instructionTemplatesPrefsKey);
+      if (rawJson != null && rawJson.isNotEmpty) {
+        final decoded = jsonDecode(rawJson);
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is Map) {
+              final rawList = (item['rules'] ?? item['instructions']) as List<dynamic>? ?? [];
+              addTemplateItem(
+                id: (item['id'] ?? '').toString(),
+                source: 'local',
+                title: (item['title'] ?? '').toString(),
+                rules: rawList.map((e) => e.toString()).toList(),
+                createdAtMs: parseCreatedMs(item['createdAtMs']),
+              );
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Yerel yönerge şablonları okunamadı: $e');
+    }
+
+    merged.sort((a, b) => ((b['createdAtMs'] as int?) ?? 0).compareTo((a['createdAtMs'] as int?) ?? 0));
+    return merged;
+  }
+
+  Future<void> _saveTemplateToLocalCache({
+    required String id,
+    required String title,
+    required List<String> rules,
+    required int createdAtMs,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final List<Map<String, dynamic>> current = [];
+      final rawJson = prefs.getString(_instructionTemplatesPrefsKey);
+      if (rawJson != null && rawJson.isNotEmpty) {
+        final decoded = jsonDecode(rawJson);
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is Map) {
+              final existingTitle = (item['title'] ?? '').toString().trim().toLowerCase();
+              if (existingTitle != title.trim().toLowerCase()) {
+                current.add(Map<String, dynamic>.from(item));
+              }
+            }
+          }
+        }
+      }
+      current.insert(0, {
+        'id': id,
+        'title': title.trim(),
+        'rules': rules,
+        'createdAtMs': createdAtMs,
+      });
+      await prefs.setString(_instructionTemplatesPrefsKey, jsonEncode(current));
+    } catch (e) {
+      debugPrint('Yerel şablon önbelleği yazılamadı: $e');
+    }
+  }
+
+  Future<void> _deleteSavedInstructionTemplate(Map<String, dynamic> tpl) async {
+    final String id = (tpl['id'] ?? '').toString();
+    final String titleLower = (tpl['title'] ?? '').toString().trim().toLowerCase();
+
+    if (id.isNotEmpty) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('institutions')
+            .doc(widget.institutionId)
+            .collection('exam_instruction_templates')
+            .doc(id)
+            .delete();
+      } catch (_) {}
+      try {
+        await FirebaseFirestore.instance.collection('exam_instruction_templates').doc(id).delete();
+      } catch (_) {}
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rawJson = prefs.getString(_instructionTemplatesPrefsKey);
+      if (rawJson != null && rawJson.isNotEmpty) {
+        final decoded = jsonDecode(rawJson);
+        if (decoded is List) {
+          final remaining = decoded.where((item) {
+            if (item is! Map) return false;
+            final itemId = (item['id'] ?? '').toString();
+            final itemTitle = (item['title'] ?? '').toString().trim().toLowerCase();
+            return itemId != id && itemTitle != titleLower;
+          }).toList();
+          await prefs.setString(_instructionTemplatesPrefsKey, jsonEncode(remaining));
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> _pickInstructionTemplate(StateSetter setModalState) async {
     final defaultTemplates = [
       {
@@ -1888,107 +3223,178 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
       },
     ];
 
+    List<Map<String, dynamic>> customTemplates = [];
+    bool isLoadingCustom = true;
+    bool didTriggerLoad = false;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (sheetCtx) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  margin: const EdgeInsets.only(top: 12, bottom: 8),
-                  width: 40,
-                  height: 4,
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            if (!didTriggerLoad) {
+              didTriggerLoad = true;
+              _loadSavedInstructionTemplates().then((loaded) {
+                if (sheetCtx.mounted) {
+                  setSheetState(() {
+                    customTemplates = loaded;
+                    isLoadingCustom = false;
+                  });
+                }
+              });
+            }
+
+            Widget buildTemplateCard({
+              required String title,
+              required List<String> rules,
+              required bool isCustom,
+              VoidCallback? onDelete,
+            }) {
+              final String previewText = rules.isNotEmpty ? rules.first : '';
+              return InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () {
+                  setState(() {
+                    _instructions = List<String>.from(rules);
+                  });
+                  setModalState(() {});
+                  Navigator.pop(sheetCtx);
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    SnackBar(
+                      content: Text('✅ "$title" şablonu yüklendi (${rules.length} madde)'),
+                      backgroundColor: const Color(0xFF10B981),
+                    ),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFCBD5E1),
-                    borderRadius: BorderRadius.circular(2),
+                    color: isCustom ? const Color(0xFFF5F3FF) : const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isCustom ? const Color(0xFFDDD6FE) : const Color(0xFFE2E8F0),
+                    ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                   child: Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEEF2FF),
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isCustom ? const Color(0xFFC4B5FD) : const Color(0xFFCBD5E1),
+                          ),
                         ),
-                        child: const Icon(Icons.auto_stories_outlined, color: Color(0xFF4F46E5), size: 20),
+                        child: Icon(
+                          isCustom ? Icons.bookmark_added_rounded : Icons.description_outlined,
+                          color: isCustom ? const Color(0xFF7C3AED) : const Color(0xFF4F46E5),
+                          size: 20,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'Hazır Yönerge Şablonu Seçin',
-                              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFF1E293B)),
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    title,
+                                    style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13.5,
+                                      color: const Color(0xFF1E293B),
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (isCustom) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEDE9FE),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      'Kayıtlı',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: const Color(0xFF6D28D9),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
+                            const SizedBox(height: 2),
                             Text(
-                              'Sınav türünüze uygun yönerge şablonunu seçin',
+                              '${rules.length} kural maddesi içerir',
                               style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
                             ),
+                            if (previewText.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                '• $previewText',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8)),
+                              ),
+                            ],
                           ],
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close_rounded, size: 20),
-                        onPressed: () => Navigator.pop(sheetCtx),
-                      ),
+                      if (onDelete != null) ...[
+                        IconButton(
+                          tooltip: 'Şablonu Sil',
+                          icon: const Icon(Icons.delete_outline_rounded, size: 19, color: Color(0xFFEF4444)),
+                          onPressed: onDelete,
+                        ),
+                      ] else
+                        const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF94A3B8)),
                     ],
                   ),
                 ),
-                const Divider(height: 1),
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(16),
-                  itemCount: defaultTemplates.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (context, i) {
-                    final t = defaultTemplates[i];
-                    final rList = t['rules'] as List<String>;
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: () {
-                        setState(() {
-                          _instructions = List<String>.from(rList);
-                        });
-                        setModalState(() {});
-                        Navigator.pop(sheetCtx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('✅ "${t['title']}" şablonu yüklendi (${rList.length} madde)'),
-                            backgroundColor: const Color(0xFF10B981),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
+              );
+            }
+
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(sheetCtx).size.height * 0.82),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        margin: const EdgeInsets.only(top: 12, bottom: 8),
+                        width: 40,
+                        height: 4,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                          color: const Color(0xFFCBD5E1),
+                          borderRadius: BorderRadius.circular(2),
                         ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                         child: Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.all(10),
+                              padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: Colors.white,
+                                color: const Color(0xFFEEF2FF),
                                 borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: const Color(0xFFCBD5E1)),
                               ),
-                              child: const Icon(Icons.description_outlined, color: Color(0xFF4F46E5), size: 20),
+                              child: const Icon(Icons.auto_stories_outlined, color: Color(0xFF4F46E5), size: 20),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -1996,91 +3402,294 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    t['title'] as String,
-                                    style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13.5, color: const Color(0xFF1E293B)),
+                                    'Yönerge Şablonu Seçin',
+                                    style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFF1E293B)),
                                   ),
-                                  const SizedBox(height: 2),
                                   Text(
-                                    '${rList.length} kural maddesi içerir',
+                                    'Kayıtlı özel şablonlarınızı veya hazır sistem şablonlarını yükleyin',
                                     style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
                                   ),
                                 ],
                               ),
                             ),
-                            const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF94A3B8)),
+                            IconButton(
+                              icon: const Icon(Icons.close_rounded, size: 20),
+                              onPressed: () => Navigator.pop(sheetCtx),
+                            ),
                           ],
                         ),
                       ),
-                    );
-                  },
+                      const Divider(height: 1),
+                      Flexible(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.bookmark_rounded, size: 15, color: Color(0xFF7C3AED)),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Kayıtlı Şablonlarım (${customTemplates.length})',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: const Color(0xFF6D28D9),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              if (isLoadingCustom)
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 14),
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(strokeWidth: 2.2),
+                                    ),
+                                  ),
+                                )
+                              else if (customTemplates.isEmpty)
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  ),
+                                  child: Text(
+                                    'Henüz kaydettiğiniz özel bir şablon bulunmuyor. "Şablon Olarak Kaydet" butonuyla oluşturduğunuz şablonlar burada listelenir.',
+                                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                                  ),
+                                )
+                              else
+                                ListView.separated(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  itemCount: customTemplates.length,
+                                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                                  itemBuilder: (context, i) {
+                                    final ct = customTemplates[i];
+                                    final rList = List<String>.from(ct['rules'] as List);
+                                    return buildTemplateCard(
+                                      title: ct['title'] as String,
+                                      rules: rList,
+                                      isCustom: true,
+                                      onDelete: () async {
+                                        await _deleteSavedInstructionTemplate(ct);
+                                        if (sheetCtx.mounted) {
+                                          setSheetState(() {
+                                            customTemplates.removeAt(i);
+                                          });
+                                        }
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(this.context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('🗑️ "${ct['title']}" şablonu silindi.'),
+                                              backgroundColor: const Color(0xFF475569),
+                                            ),
+                                          );
+                                        }
+                                      },
+                                    );
+                                  },
+                                ),
+                              const SizedBox(height: 18),
+                              Row(
+                                children: [
+                                  const Icon(Icons.verified_outlined, size: 15, color: Color(0xFF4F46E5)),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Hazır Sistem Şablonları (${defaultTemplates.length})',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: const Color(0xFF4338CA),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              ListView.separated(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: defaultTemplates.length,
+                                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                                itemBuilder: (context, i) {
+                                  final t = defaultTemplates[i];
+                                  final rList = t['rules'] as List<String>;
+                                  return buildTemplateCard(
+                                    title: t['title'] as String,
+                                    rules: rList,
+                                    isCustom: false,
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
   }
 
   Future<void> _saveAsInstructionTemplate() async {
+    if (_instructions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Şablon olarak kaydetmek için önce en az 1 sınav kuralı maddesi ekleyin.'),
+          backgroundColor: Color(0xFFF59E0B),
+        ),
+      );
+      return;
+    }
+
     final titleController = TextEditingController();
+    String? errorText;
+    bool isSaving = false;
+
     showDialog(
       context: context,
       builder: (dialogCtx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text('Yönergeyi Şablon Olarak Kaydet', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Mevcut ${_instructions.length} adet kural maddesini daha sonraki sınavlarınızda da kullanmak üzere şablon olarak kaydedin.',
-                style: GoogleFonts.inter(fontSize: 12.5, color: Colors.grey.shade600),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: titleController,
-                decoration: InputDecoration(
-                  hintText: 'Şablon Adı (Örn: Okul Standart Sınav Yönergesi)',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogCtx),
-              child: const Text('Vazgeç'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5), foregroundColor: Colors.white),
-              onPressed: () async {
-                final tName = titleController.text.trim();
-                if (tName.isNotEmpty) {
-                  try {
-                    await FirebaseFirestore.instance.collection('exam_instruction_templates').add({
-                      'institutionId': widget.institutionId,
-                      'title': tName,
-                      'instructions': _instructions,
-                      'createdAt': Timestamp.now(),
-                    });
-                    if (dialogCtx.mounted) {
-                      Navigator.pop(dialogCtx);
-                    }
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('✅ "$tName" şablon olarak kaydedildi!'), backgroundColor: const Color(0xFF10B981)),
-                      );
-                    }
-                  } catch (e) {
-                    debugPrint('Şablon kaydetme hatası: $e');
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> submitSave() async {
+              final tName = titleController.text.trim();
+              if (tName.isEmpty) {
+                setDialogState(() {
+                  errorText = 'Lütfen şablon için bir ad girin.';
+                });
+                return;
+              }
+              setDialogState(() {
+                errorText = null;
+                isSaving = true;
+              });
+
+              final int nowMs = DateTime.now().millisecondsSinceEpoch;
+              final rulesSnapshot = List<String>.from(_instructions);
+              String savedId = 'local_$nowMs';
+
+              try {
+                final colRef = FirebaseFirestore.instance
+                    .collection('institutions')
+                    .doc(widget.institutionId)
+                    .collection('exam_instruction_templates');
+
+                final existingSnap = await colRef.get();
+                QueryDocumentSnapshot<Map<String, dynamic>>? sameTitleDoc;
+                for (final d in existingSnap.docs) {
+                  final dt = (d.data()['title'] ?? '').toString().trim().toLowerCase();
+                  if (dt == tName.toLowerCase()) {
+                    sameTitleDoc = d;
+                    break;
                   }
                 }
-              },
-              child: const Text('Kaydet'),
-            ),
-          ],
+
+                final payload = <String, dynamic>{
+                  'institutionId': widget.institutionId,
+                  'title': tName,
+                  'instructions': rulesSnapshot,
+                  'createdAt': Timestamp.fromMillisecondsSinceEpoch(nowMs),
+                };
+
+                if (sameTitleDoc != null) {
+                  await sameTitleDoc.reference.set(payload);
+                  savedId = sameTitleDoc.id;
+                } else {
+                  final added = await colRef.add(payload);
+                  savedId = added.id;
+                }
+              } catch (e) {
+                debugPrint('Firestore şablon kaydı uyarısı (yerel önbelleğe kaydedilecek): $e');
+              }
+
+              await _saveTemplateToLocalCache(
+                id: savedId,
+                title: tName,
+                rules: rulesSnapshot,
+                createdAtMs: nowMs,
+              );
+
+              if (dialogCtx.mounted) {
+                Navigator.pop(dialogCtx);
+              }
+              if (mounted) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text('✅ "$tName" şablon olarak kaydedildi! "Şablondan Yükle" bölümünden açabilirsiniz.'),
+                    backgroundColor: const Color(0xFF10B981),
+                  ),
+                );
+              }
+            }
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Text(
+                'Yönergeyi Şablon Olarak Kaydet',
+                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Mevcut ${_instructions.length} adet kural maddesini daha sonraki sınavlarınızda "Şablondan Yükle" menüsünden tek tıkla açmak üzere kaydedin.',
+                    style: GoogleFonts.inter(fontSize: 12.5, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: titleController,
+                    autofocus: true,
+                    onSubmitted: (_) => isSaving ? null : submitSave(),
+                    onChanged: (_) {
+                      if (errorText != null) {
+                        setDialogState(() => errorText = null);
+                      }
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'Şablon Adı (Örn: Okul Standart Sınav Yönergesi)',
+                      errorText: errorText,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving ? null : () => Navigator.pop(dialogCtx),
+                  child: const Text('Vazgeç'),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: isSaving ? null : submitSave,
+                  icon: isSaving
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.bookmark_add_outlined, size: 17),
+                  label: Text(isSaving ? 'Kaydediliyor...' : 'Kaydet'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -2750,11 +4359,30 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          _sessionCount > 1
-                              ? '${slotIndex + 1}. Oturum Gözetmeni Seçin'
-                              : 'Gözetmen Öğretmen Seçin',
-                          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFF1E293B)),
+                        Expanded(
+                          child: Builder(
+                            builder: (_) {
+                              final rSlots = _getEffectiveSlotsForRoom(room);
+                              final rName = (room['classroomName'] ?? '').toString().trim();
+                              if (rSlots.length > 1 && slotIndex >= 0 && slotIndex < rSlots.length) {
+                                final sl = rSlots[slotIndex];
+                                final lbl = sl['label']?.toString() ?? '${slotIndex + 1}. Oturum';
+                                final tm = (sl['startTime'] != null && sl['endTime'] != null)
+                                    ? ' (${sl['startTime']} - ${sl['endTime']})'
+                                    : '';
+                                return Text(
+                                  '${rName.isNotEmpty ? 'Derslik $rName • ' : ''}$lbl$tm Gözetmeni',
+                                  style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: const Color(0xFF1E293B)),
+                                  overflow: TextOverflow.ellipsis,
+                                );
+                              }
+                              return Text(
+                                rName.isNotEmpty ? 'Derslik $rName • Gözetmen Seçin' : 'Gözetmen Öğretmen Seçin',
+                                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFF1E293B)),
+                                overflow: TextOverflow.ellipsis,
+                              );
+                            },
+                          ),
                         ),
                         IconButton(
                           icon: const Icon(Icons.close_rounded, size: 20),
@@ -4056,6 +5684,7 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
 
                     // 3. Masa Düzeni Şablonu Dropdown
                     DropdownButtonFormField<String>(
+                      key: ValueKey('room_layout_${idx}_${room['classroomId']}_$selectedLayoutId'),
                       isExpanded: true,
                       initialValue: _availableLayouts.any((l) => l.id == selectedLayoutId)
                           ? selectedLayoutId
@@ -4086,143 +5715,183 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
                     ),
                     const SizedBox(height: 10),
 
-                    // 4. Gözetmen Öğretmen Seçici Alanı
-                    if (_sessionSlots.length <= 1)
-                      InkWell(
-                        onTap: () => _showSupervisorPickerModal(room, 0),
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                supName0.isNotEmpty
-                                    ? Icons.person_rounded
-                                    : Icons.person_add_alt_1_rounded,
-                                color: const Color(0xFF4F46E5),
-                                size: 18,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  supName0.isNotEmpty
-                                      ? 'Gözetmen: $supName0'
-                                      : 'Gözetmen Öğretmen Seç (İsteğe Bağlı)',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 13,
-                                    fontWeight: supName0.isNotEmpty
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                    color: supName0.isNotEmpty
-                                        ? const Color(0xFF1E293B)
-                                        : const Color(0xFF94A3B8),
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF64748B)),
-                            ],
-                          ),
-                        ),
-                      )
-                    else
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.badge_rounded, color: Color(0xFF4F46E5), size: 16),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    'Gözetmenler ($_sessionCount Oturum • ${_sessionSlots.length} Devre)',
-                                    style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12.5, color: const Color(0xFF1E293B)),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            ...List.generate(_sessionSlots.length, (slotIdx) {
-                              final slot = _sessionSlots[slotIdx];
-                              final sup = _getSupervisorForRoomSlot(room, slotIdx);
-                              final sName = sup?['supervisorName'] ?? '';
-                              final hasSup = sName.isNotEmpty;
-                              final slotLabel = slot['label']?.toString() ?? '${slotIdx + 1}. Oturum';
+                    // 4. Gözetmen Öğretmen Seçici Alanı (Uzun basılı tutarak sadece bu salonda 2/3/4 devreye bölünebilir)
+                    Builder(
+                      builder: (_) {
+                        final roomSlots = _getEffectiveSlotsForRoom(room);
+                        final bool hasRoomCustomSplit = (room['sessionSplits'] is Map) && (room['sessionSplits'] as Map).isNotEmpty;
+                        final String s0Name = supName0.toString();
 
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: InkWell(
-                                  onTap: () => _showSupervisorPickerModal(room, slotIdx),
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: hasSup ? Colors.white : const Color(0xFFF1F5F9),
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: hasSup ? const Color(0xFF818CF8) : const Color(0xFFE2E8F0),
+                        if (roomSlots.length <= 1 && !hasRoomCustomSplit) {
+                          return Tooltip(
+                            message: 'Tıklayın: Gözetmen seç • Uzun basılı tutun: Bu salonda 2, 3 veya 4 devreye böl',
+                            child: InkWell(
+                              onTap: () => _showSupervisorPickerModal(room, 0),
+                              onLongPress: () => _showRoomSessionSplitModal(room, 0),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      s0Name.isNotEmpty ? Icons.person_rounded : Icons.person_add_alt_1_rounded,
+                                      color: const Color(0xFF4F46E5),
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        s0Name.isNotEmpty
+                                            ? 'Gözetmen: $s0Name'
+                                            : 'Gözetmen Öğretmen Seç (İsteğe Bağlı)',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 13,
+                                          fontWeight: s0Name.isNotEmpty ? FontWeight.bold : FontWeight.normal,
+                                          color: s0Name.isNotEmpty ? const Color(0xFF1E293B) : const Color(0xFF94A3B8),
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: hasSup ? const Color(0xFFEEF2FF) : Colors.grey.shade200,
-                                            borderRadius: BorderRadius.circular(6),
-                                          ),
-                                          child: Text(
-                                            slotLabel,
-                                            style: GoogleFonts.inter(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 10.5,
-                                              color: hasSup ? const Color(0xFF4F46E5) : Colors.grey.shade700,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          '(${slot['startTime']} - ${slot['endTime']})',
-                                          style: GoogleFonts.inter(fontSize: 10.5, color: const Color(0xFF64748B)),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            hasSup ? sName : 'Gözetmen Seç...',
-                                            style: GoogleFonts.inter(
-                                              fontSize: 12,
-                                              fontWeight: hasSup ? FontWeight.bold : FontWeight.normal,
-                                              color: hasSup ? const Color(0xFF1E293B) : const Color(0xFF94A3B8),
-                                            ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        Icon(
-                                          hasSup ? Icons.edit_outlined : Icons.add_circle_outline_rounded,
-                                          size: 16,
-                                          color: hasSup ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
-                                        ),
-                                      ],
+                                    const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF64748B)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: hasRoomCustomSplit ? const Color(0xFFDDD6FE) : const Color(0xFFE2E8F0),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.badge_rounded,
+                                    color: hasRoomCustomSplit ? const Color(0xFF7C3AED) : const Color(0xFF4F46E5),
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'Gözetmenler ($_sessionCount Oturum • ${roomSlots.length} Devre)',
+                                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12.5, color: const Color(0xFF1E293B)),
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                ),
-                              );
-                            }),
-                          ],
-                        ),
-                      ),
+                                  if (hasRoomCustomSplit)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFEDE9FE),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        'Özel Bölünmüş',
+                                        style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w700, color: const Color(0xFF6D28D9)),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              ...List.generate(roomSlots.length, (slotIdx) {
+                                final slot = roomSlots[slotIdx];
+                                final sSessionIdx = (slot['sessionIndex'] as num?)?.toInt() ?? 0;
+                                final bool isCustomSlot = slot['isRoomCustomSplit'] == true;
+                                final sup = _getSupervisorForRoomSlot(room, slotIdx);
+                                final sName = sup?['supervisorName']?.toString() ?? '';
+                                final hasSup = sName.isNotEmpty;
+                                final slotLabel = slot['label']?.toString() ?? '${slotIdx + 1}. Oturum';
+
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: Tooltip(
+                                    message: 'Tıklayın: Gözetmen seç • Uzun basılı tutun: Bu oturumu sadece bu salonda 2, 3 veya 4 devreye böl',
+                                    child: InkWell(
+                                      onTap: () => _showSupervisorPickerModal(room, slotIdx),
+                                      onLongPress: () => _showRoomSessionSplitModal(room, sSessionIdx),
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: hasSup ? Colors.white : const Color(0xFFF1F5F9),
+                                          borderRadius: BorderRadius.circular(10),
+                                          border: Border.all(
+                                            color: isCustomSlot
+                                                ? (hasSup ? const Color(0xFFA78BFA) : const Color(0xFFDDD6FE))
+                                                : (hasSup ? const Color(0xFF818CF8) : const Color(0xFFE2E8F0)),
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: isCustomSlot
+                                                    ? const Color(0xFFF3E8FF)
+                                                    : (hasSup ? const Color(0xFFEEF2FF) : Colors.grey.shade200),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                slotLabel,
+                                                style: GoogleFonts.inter(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 10.5,
+                                                  color: isCustomSlot
+                                                      ? const Color(0xFF6D28D9)
+                                                      : (hasSup ? const Color(0xFF4F46E5) : Colors.grey.shade700),
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              '(${slot['startTime']} - ${slot['endTime']})',
+                                              style: GoogleFonts.inter(fontSize: 10.5, color: const Color(0xFF64748B)),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                hasSup ? sName : 'Gözetmen Seç...',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 12,
+                                                  fontWeight: hasSup ? FontWeight.bold : FontWeight.normal,
+                                                  color: hasSup ? const Color(0xFF1E293B) : const Color(0xFF94A3B8),
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            Icon(
+                                              hasSup ? Icons.edit_outlined : Icons.add_circle_outline_rounded,
+                                              size: 16,
+                                              color: isCustomSlot
+                                                  ? const Color(0xFF7C3AED)
+                                                  : (hasSup ? const Color(0xFF4F46E5) : const Color(0xFF64748B)),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -4633,6 +6302,9 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
     setState(() => _isDistributing = true);
 
     try {
+      for (final r in _configuredRooms) {
+        _syncRoomSupervisorsWithEffectiveSlots(r);
+      }
       final selectedClassNames = _availableClasses
           .where((c) => _selectedClassIds.contains(c['id']))
           .map((c) => c['name'] as String)

@@ -30,6 +30,14 @@ import '../school/assessment/assessment_reports_screen.dart';
 import 'teacher_qr_scan_screen.dart';
 import '../school/tools/tools_hub_screen.dart';
 import '../school/notes/personal_notes_screen.dart';
+import '../support_services/inventory/teacher_material_requests_screen.dart';
+import '../school/daily_report/daily_report_screen.dart';
+import '../../services/daily_report_service.dart';
+import '../../services/school_module_guard.dart';
+import '../store/store_shop_screen.dart';
+import '../canteen_user/canteen_student_screen.dart';
+import '../canteen_user/canteen_qr_pay_sheet.dart';
+import '../../widgets/web_qr_login_scanner_sheet.dart';
 
 class TeacherOperationsScreen extends StatefulWidget {
   final String institutionId;
@@ -42,13 +50,18 @@ class TeacherOperationsScreen extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  State<TeacherOperationsScreen> createState() => _TeacherOperationsScreenState();
+  State<TeacherOperationsScreen> createState() =>
+      _TeacherOperationsScreenState();
 }
 
 class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
   String? _expandedCategory;
   String _selectedCategory = 'Tümü';
   final bool _isNavigating = false;
+  bool _dailyReportEnabled = true;
+  Map<String, dynamic>? _appSettings;
+  Map<String, dynamic>? _schoolData;
+  List<String> _teacherSchoolTypeIds = [];
 
   static List<Map<String, String>>? _cachedTeacherSchoolTypes;
 
@@ -56,16 +69,85 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
   void initState() {
     super.initState();
     _preloadTeacherSchoolTypes();
+    _loadDailyReportModuleStatus();
+  }
+
+  Future<void> _loadDailyReportModuleStatus() async {
+    try {
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
+      if (instId.isEmpty) return;
+      final service = DailyReportService();
+      final schoolDocId = await service.resolveSchoolDocId(instId);
+      if (schoolDocId.isEmpty) return;
+      final schoolSnap = await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(schoolDocId)
+          .get();
+      final sData = schoolSnap.data();
+      final appSettings = sData?['appSettings'] as Map<String, dynamic>?;
+      final cfg = await service.loadConfig(schoolDocId);
+      final types = await _getTeacherSchoolTypesWithNames();
+      final stIds = types
+          .map((t) => (t['id'] ?? '').toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      bool allowed = cfg.enabled;
+      if (allowed && stIds.isNotEmpty) {
+        allowed = stIds.any((stId) => cfg.isEnabledForSchoolType(stId));
+      }
+      if (mounted) {
+        setState(() {
+          _schoolData = sData;
+          _appSettings = appSettings;
+          _teacherSchoolTypeIds = stIds;
+          _dailyReportEnabled = allowed;
+        });
+      }
+    } catch (_) {}
+  }
+
+  bool _isTeacherItemAllowed(String moduleKey, {String? subModuleKey}) {
+    if (!UserPermissionService.hasTeacherModuleAccess(
+      moduleKey,
+      subModuleKey: subModuleKey,
+    )) {
+      return false;
+    }
+    final appKey = subModuleKey == null
+        ? 't.$moduleKey'
+        : 't.$moduleKey.$subModuleKey';
+    if (!UserPermissionService.isAppSettingEnabled(_appSettings, appKey)) {
+      return false;
+    }
+    if (_teacherSchoolTypeIds.isNotEmpty) {
+      final allowedInAnyType = _teacherSchoolTypeIds.any(
+        (stId) => UserPermissionService.isAppSettingEnabled(
+          _appSettings,
+          appKey,
+          schoolTypeId: stId,
+        ),
+      );
+      if (!allowedInAnyType) return false;
+    }
+    return true;
   }
 
   void _preloadTeacherSchoolTypes() async {
     try {
       await _getTeacherSchoolTypesWithNames();
-    } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
+    } catch (silentError) {
+      debugPrint('[teacher_operations_screen] hata yutuldu: $silentError');
+    }
   }
 
   Future<List<Map<String, String>>> _getTeacherSchoolTypesWithNames() async {
-    if (_cachedTeacherSchoolTypes != null && _cachedTeacherSchoolTypes!.isNotEmpty) {
+    if (_cachedTeacherSchoolTypes != null &&
+        _cachedTeacherSchoolTypes!.isNotEmpty) {
       return _cachedTeacherSchoolTypes!;
     }
 
@@ -75,24 +157,40 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     // ⚡ SharedPreferences Disk Önbelleği (Cold Start Anında Açılış)
     try {
       final prefs = await SharedPreferences.getInstance();
-      final cachedStr = prefs.getString('cached_teacher_school_types_${user.uid}');
+      final cachedStr = prefs.getString(
+        'cached_teacher_school_types_${user.uid}',
+      );
       if (cachedStr != null && cachedStr.isNotEmpty) {
         final List dec = json.decode(cachedStr);
-        final list = dec.map((e) => Map<String, String>.from(e as Map)).toList();
+        final list = dec
+            .map((e) => Map<String, String>.from(e as Map))
+            .toList();
         if (list.isNotEmpty) {
           _cachedTeacherSchoolTypes = list;
           return list;
         }
       }
-    } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
+    } catch (silentError) {
+      debugPrint('[teacher_operations_screen] hata yutuldu: $silentError');
+    }
 
-    final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-    final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+    final userData =
+        UserPermissionService.getCachedUserData() ??
+        await UserPermissionService.loadUserData();
+    final instId = (userData?['institutionId'] ?? widget.institutionId)
+        .toString()
+        .toUpperCase();
 
     // 1. Direct from userData
     List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-    final singleSTId = (userData?['schoolTypeId'] ?? userData?['schoolType'] ?? userData?['activeSchoolTypeId'])?.toString();
-    if (singleSTId != null && singleSTId.isNotEmpty && !userSTIds.contains(singleSTId)) {
+    final singleSTId =
+        (userData?['schoolTypeId'] ??
+                userData?['schoolType'] ??
+                userData?['activeSchoolTypeId'])
+            ?.toString();
+    if (singleSTId != null &&
+        singleSTId.isNotEmpty &&
+        !userSTIds.contains(singleSTId)) {
       userSTIds.add(singleSTId);
     }
 
@@ -105,7 +203,11 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     final List<Map<String, String>> result = [];
     if (userSTIds.isNotEmpty) {
       try {
-        final instIds = [instId, instId.toLowerCase(), instId.toUpperCase()].toSet().toList();
+        final instIds = [
+          instId,
+          instId.toLowerCase(),
+          instId.toUpperCase(),
+        ].toSet().toList();
         final typesSnap = await FirebaseFirestore.instance
             .collection('school_types')
             .where('institutionId', whereIn: instIds)
@@ -117,17 +219,11 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         }
 
         for (final id in userSTIds) {
-          result.add({
-            'id': id,
-            'name': nameMap[id] ?? 'Okul',
-          });
+          result.add({'id': id, 'name': nameMap[id] ?? 'Okul'});
         }
       } catch (_) {
         for (final id in userSTIds) {
-          result.add({
-            'id': id,
-            'name': 'Okul',
-          });
+          result.add({'id': id, 'name': 'Okul'});
         }
       }
     }
@@ -136,8 +232,13 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       _cachedTeacherSchoolTypes = result;
       try {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('cached_teacher_school_types_${user.uid}', json.encode(result));
-      } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
+        await prefs.setString(
+          'cached_teacher_school_types_${user.uid}',
+          json.encode(result),
+        );
+      } catch (silentError) {
+        debugPrint('[teacher_operations_screen] hata yutuldu: $silentError');
+      }
     }
     return result;
   }
@@ -148,8 +249,14 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     User user,
   ) async {
     List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-    final singleSTId = (userData?['schoolTypeId'] ?? userData?['schoolType'] ?? userData?['activeSchoolTypeId'])?.toString();
-    if (singleSTId != null && singleSTId.isNotEmpty && !userSTIds.contains(singleSTId)) {
+    final singleSTId =
+        (userData?['schoolTypeId'] ??
+                userData?['schoolType'] ??
+                userData?['activeSchoolTypeId'])
+            ?.toString();
+    if (singleSTId != null &&
+        singleSTId.isNotEmpty &&
+        !userSTIds.contains(singleSTId)) {
       userSTIds.add(singleSTId);
     }
     if (userSTIds.isNotEmpty) return userSTIds;
@@ -158,66 +265,86 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     final docId = userData?['id']?.toString();
     if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
     final authUserId = userData?['authUserId']?.toString();
-    if (authUserId != null && authUserId.isNotEmpty) validTeacherIds.add(authUserId);
+    if (authUserId != null && authUserId.isNotEmpty)
+      validTeacherIds.add(authUserId);
     final tId = userData?['teacherId']?.toString();
     if (tId != null && tId.isNotEmpty) validTeacherIds.add(tId);
     final sId = userData?['staffId']?.toString();
     if (sId != null && sId.isNotEmpty) validTeacherIds.add(sId);
     final uName = userData?['username']?.toString();
     if (uName != null && uName.isNotEmpty) validTeacherIds.add(uName);
-    final fullName = (userData?['fullName'] ?? userData?['name'] ?? '').toString().trim();
+    final fullName = (userData?['fullName'] ?? userData?['name'] ?? '')
+        .toString()
+        .trim();
 
-    final instIds = [instId, instId.toLowerCase(), instId.toUpperCase()].toSet().toList();
+    final instIds = [
+      instId,
+      instId.toLowerCase(),
+      instId.toUpperCase(),
+    ].toSet().toList();
     final Set<String> foundTypes = {};
 
     try {
       final List<Future<QuerySnapshot>> queries = [];
       for (final tid in validTeacherIds) {
-        queries.add(FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', whereIn: instIds)
-            .where('teacherIds', arrayContains: tid)
-            .where('isActive', isEqualTo: true)
-            .limit(10)
-            .get());
+        queries.add(
+          FirebaseFirestore.instance
+              .collection('lessonAssignments')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherIds', arrayContains: tid)
+              .where('isActive', isEqualTo: true)
+              .limit(10)
+              .get(),
+        );
       }
       final snaps = await Future.wait(queries);
       for (var snap in snaps) {
         for (var doc in snap.docs) {
-          final stId = (doc.data() as Map<String, dynamic>)['schoolTypeId']?.toString();
+          final stId = (doc.data() as Map<String, dynamic>)['schoolTypeId']
+              ?.toString();
           if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
         }
       }
-    } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
+    } catch (silentError) {
+      debugPrint('[teacher_operations_screen] hata yutuldu: $silentError');
+    }
 
     // İsim bazlı arama (Failsafe)
     if (foundTypes.isEmpty && fullName.isNotEmpty) {
       try {
-        final nameSnaps = await Future.wait(instIds.map((inst) => FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', isEqualTo: inst)
-            .where('teacherNames', arrayContains: fullName)
-            .where('isActive', isEqualTo: true)
-            .limit(10)
-            .get()));
+        final nameSnaps = await Future.wait(
+          instIds.map(
+            (inst) => FirebaseFirestore.instance
+                .collection('lessonAssignments')
+                .where('institutionId', isEqualTo: inst)
+                .where('teacherNames', arrayContains: fullName)
+                .where('isActive', isEqualTo: true)
+                .limit(10)
+                .get(),
+          ),
+        );
         for (var snap in nameSnaps) {
           for (var doc in snap.docs) {
             final stId = (doc.data())['schoolTypeId']?.toString();
             if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
           }
         }
-      } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
+      } catch (silentError) {
+        debugPrint('[teacher_operations_screen] hata yutuldu: $silentError');
+      }
     }
 
     // classSchedules üzerinden okul türü tespiti
     if (foundTypes.isEmpty) {
       try {
-        final csQueries = validTeacherIds.map((tid) => FirebaseFirestore.instance
-            .collection('classSchedules')
-            .where('institutionId', whereIn: instIds)
-            .where('teacherId', isEqualTo: tid)
-            .limit(10)
-            .get());
+        final csQueries = validTeacherIds.map(
+          (tid) => FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherId', isEqualTo: tid)
+              .limit(10)
+              .get(),
+        );
         final csSnaps = await Future.wait(csQueries);
         for (var snap in csSnaps) {
           for (var doc in snap.docs) {
@@ -225,7 +352,9 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
             if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
           }
         }
-      } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
+      } catch (silentError) {
+        debugPrint('[teacher_operations_screen] hata yutuldu: $silentError');
+      }
     }
 
     // Kurumun okul türleri genel fallback
@@ -238,7 +367,9 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         for (var doc in stSnap.docs) {
           foundTypes.add(doc.id);
         }
-      } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
+      } catch (silentError) {
+        debugPrint('[teacher_operations_screen] hata yutuldu: $silentError');
+      }
     }
 
     return foundTypes.toList();
@@ -261,7 +392,9 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     // ⚡ SharedPreferences Disk Önbelleği (Cold Start Anında Açılış)
     try {
       final prefs = await SharedPreferences.getInstance();
-      final cachedClassStr = prefs.getString('cached_assigned_classes_${user.uid}_$termId');
+      final cachedClassStr = prefs.getString(
+        'cached_assigned_classes_${user.uid}_$termId',
+      );
       if (cachedClassStr != null && cachedClassStr.isNotEmpty) {
         final List dec = json.decode(cachedClassStr);
         final list = dec.map((e) => e.toString()).toList();
@@ -270,22 +403,31 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           return list;
         }
       }
-    } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
+    } catch (silentError) {
+      debugPrint('[teacher_operations_screen] hata yutuldu: $silentError');
+    }
 
     final Set<String> validTeacherIds = {user.uid};
     final docId = userData?['id']?.toString();
     if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
     final authUserId = userData?['authUserId']?.toString();
-    if (authUserId != null && authUserId.isNotEmpty) validTeacherIds.add(authUserId);
+    if (authUserId != null && authUserId.isNotEmpty)
+      validTeacherIds.add(authUserId);
     final tId = userData?['teacherId']?.toString();
     if (tId != null && tId.isNotEmpty) validTeacherIds.add(tId);
     final sId = userData?['staffId']?.toString();
     if (sId != null && sId.isNotEmpty) validTeacherIds.add(sId);
     final uName = userData?['username']?.toString();
     if (uName != null && uName.isNotEmpty) validTeacherIds.add(uName);
-    final fullName = (userData?['fullName'] ?? userData?['name'] ?? '').toString().trim();
+    final fullName = (userData?['fullName'] ?? userData?['name'] ?? '')
+        .toString()
+        .trim();
 
-    final instIds = [instId, instId.toLowerCase(), instId.toUpperCase()].toSet().toList();
+    final instIds = [
+      instId,
+      instId.toLowerCase(),
+      instId.toUpperCase(),
+    ].toSet().toList();
 
     final Set<String> classIds = {};
     final Set<String> termFilteredClassIds = {};
@@ -295,50 +437,62 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     for (final inst in instIds) {
       for (final tid in validTeacherIds) {
         // Array teacherIds
-        queries.add(FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', isEqualTo: inst)
-            .where('teacherIds', arrayContains: tid)
-            .where('isActive', isEqualTo: true)
-            .get());
+        queries.add(
+          FirebaseFirestore.instance
+              .collection('lessonAssignments')
+              .where('institutionId', isEqualTo: inst)
+              .where('teacherIds', arrayContains: tid)
+              .where('isActive', isEqualTo: true)
+              .get(),
+        );
 
         // Single teacherId
-        queries.add(FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', isEqualTo: inst)
-            .where('teacherId', isEqualTo: tid)
-            .where('isActive', isEqualTo: true)
-            .get());
+        queries.add(
+          FirebaseFirestore.instance
+              .collection('lessonAssignments')
+              .where('institutionId', isEqualTo: inst)
+              .where('teacherId', isEqualTo: tid)
+              .where('isActive', isEqualTo: true)
+              .get(),
+        );
 
         // classSchedules teacherId
-        queries.add(FirebaseFirestore.instance
-            .collection('classSchedules')
-            .where('institutionId', isEqualTo: inst)
-            .where('teacherId', isEqualTo: tid)
-            .get());
+        queries.add(
+          FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', isEqualTo: inst)
+              .where('teacherId', isEqualTo: tid)
+              .get(),
+        );
 
         // classSchedules teacherIds array
-        queries.add(FirebaseFirestore.instance
-            .collection('classSchedules')
-            .where('institutionId', isEqualTo: inst)
-            .where('teacherIds', arrayContains: tid)
-            .get());
+        queries.add(
+          FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', isEqualTo: inst)
+              .where('teacherIds', arrayContains: tid)
+              .get(),
+        );
       }
 
       // Name-based lessonAssignments & classSchedules
       if (fullName.isNotEmpty) {
-        queries.add(FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', isEqualTo: inst)
-            .where('teacherNames', arrayContains: fullName)
-            .where('isActive', isEqualTo: true)
-            .get());
+        queries.add(
+          FirebaseFirestore.instance
+              .collection('lessonAssignments')
+              .where('institutionId', isEqualTo: inst)
+              .where('teacherNames', arrayContains: fullName)
+              .where('isActive', isEqualTo: true)
+              .get(),
+        );
 
-        queries.add(FirebaseFirestore.instance
-            .collection('classSchedules')
-            .where('institutionId', isEqualTo: inst)
-            .where('teacherName', isEqualTo: fullName)
-            .get());
+        queries.add(
+          FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', isEqualTo: inst)
+              .where('teacherName', isEqualTo: fullName)
+              .get(),
+        );
       }
     }
 
@@ -350,7 +504,8 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           final cid = data['classId']?.toString();
           if (cid != null && cid.isNotEmpty) {
             classIds.add(cid);
-            final docTerm = data['termId']?.toString() ?? data['periodId']?.toString();
+            final docTerm =
+                data['termId']?.toString() ?? data['periodId']?.toString();
             if (termId != null && docTerm == termId) {
               termFilteredClassIds.add(cid);
             }
@@ -361,13 +516,20 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       debugPrint('Error in _resolveTeacherAssignedClassIds parallel fetch: $e');
     }
 
-    final result = termFilteredClassIds.isNotEmpty ? termFilteredClassIds.toList() : classIds.toList();
+    final result = termFilteredClassIds.isNotEmpty
+        ? termFilteredClassIds.toList()
+        : classIds.toList();
     if (result.isNotEmpty) {
       _cachedTeacherAssignedClassIdsMap[cacheKey] = result;
       try {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('cached_assigned_classes_${user.uid}_$termId', json.encode(result));
-      } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
+        await prefs.setString(
+          'cached_assigned_classes_${user.uid}_$termId',
+          json.encode(result),
+        );
+      } catch (silentError) {
+        debugPrint('[teacher_operations_screen] hata yutuldu: $silentError');
+      }
     }
     return result;
   }
@@ -376,15 +538,21 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
 
       final types = await _getTeacherSchoolTypesWithNames();
 
       if (types.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
+            const SnackBar(
+              content: Text('Bağlı olduğunuz bir okul türü bulunamadı.'),
+            ),
           );
         }
         return;
@@ -409,27 +577,33 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               title: const Text('Okul Türü Seçin'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: types.map((st) => ListTile(
-                  title: Text(st['name']!),
-                  leading: const Icon(Icons.school, color: Colors.orange),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (ctx) => AssessmentReportsScreen(
-                          institutionId: instId,
-                          schoolTypeId: st['id']!,
-                          isTeacher: true,
-                        ),
+                children: types
+                    .map(
+                      (st) => ListTile(
+                        title: Text(st['name']!),
+                        leading: const Icon(Icons.school, color: Colors.orange),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (ctx) => AssessmentReportsScreen(
+                                institutionId: instId,
+                                schoolTypeId: st['id']!,
+                                isTeacher: true,
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                )).toList(),
+                    )
+                    .toList(),
               ),
             ),
           );
@@ -450,17 +624,17 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         if (value == 'profile') {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (ctx) => const ProfileSettingsScreen(),
-            ),
+            MaterialPageRoute(builder: (ctx) => const ProfileSettingsScreen()),
           );
         } else if (value == 'qr_scan') {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (ctx) => const TeacherQrScanScreen(),
-            ),
+            MaterialPageRoute(builder: (ctx) => const TeacherQrScanScreen()),
           );
+        } else if (value == 'web_qr_login') {
+          WebQrLoginScannerSheet.show(context);
+        } else if (value == 'canteen_qr') {
+          _quickScanCanteenQr();
         } else if (value == 'logout') {
           _logout();
         }
@@ -476,14 +650,24 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
                   color: Colors.indigo.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(Icons.person_outline_rounded, color: Colors.indigo.shade700, size: 18),
+                child: Icon(
+                  Icons.person_outline_rounded,
+                  color: Colors.indigo.shade700,
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 12),
               const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Profilim', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  Text('Profili Düzenle', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                  Text(
+                    'Profilim',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    'Profili Düzenle',
+                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                  ),
                 ],
               ),
             ],
@@ -500,14 +684,90 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
                   color: Colors.orange.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(Icons.qr_code_scanner_rounded, color: Colors.orange.shade700, size: 18),
+                child: Icon(
+                  Icons.qr_code_scanner_rounded,
+                  color: Colors.orange.shade700,
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 12),
               const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Giriş / Çıkış (QR)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  Text('Kamera ile QR tarama', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                  Text(
+                    'Giriş / Çıkış (QR)',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    'Kamera ile QR tarama',
+                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'web_qr_login',
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.devices_rounded,
+                  color: Colors.indigo.shade700,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Web\'de QR ile Oturum Aç',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    'Bilgisayarda QR okutarak giriş yap',
+                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'canteen_qr',
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.pink.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.qr_code_2_rounded,
+                  color: Colors.pink.shade700,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Kantin Mobil QR Öde',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    'Kasadaki karekodu okut',
+                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                  ),
                 ],
               ),
             ],
@@ -524,10 +784,21 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
                   color: Colors.red.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(Icons.logout_rounded, color: Colors.red.shade600, size: 18),
+                child: Icon(
+                  Icons.logout_rounded,
+                  color: Colors.red.shade600,
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 12),
-              Text('Çıkış Yap', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red.shade700)),
+              Text(
+                'Çıkış Yap',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.red.shade700,
+                ),
+              ),
             ],
           ),
         ),
@@ -552,9 +823,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
               title: 'Öğretmen İşlemleri',
               subtitle: 'Size Tanımlı Modüller',
               showBackButton: false,
-              actions: [
-                _buildProfileButton(),
-              ],
+              actions: [_buildProfileButton()],
             )
           : null,
       body: Stack(
@@ -566,15 +835,19 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
                 child: Container(
                   constraints: const BoxConstraints(maxWidth: 1400),
                   padding: EdgeInsets.symmetric(
-                    horizontal: MediaQuery.of(context).size.width < 768 ? 16 : 24, 
-                    vertical: MediaQuery.of(context).size.width < 768 ? 24 : 32
+                    horizontal: MediaQuery.of(context).size.width < 768
+                        ? 16
+                        : 24,
+                    vertical: MediaQuery.of(context).size.width < 768 ? 24 : 32,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildCategorySelector(),
                       const SizedBox(height: 24),
-                      _buildGridSections(MediaQuery.of(context).size.width < 768),
+                      _buildGridSections(
+                        MediaQuery.of(context).size.width < 768,
+                      ),
                       const SizedBox(height: 32),
                     ],
                   ),
@@ -598,8 +871,12 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
       final teacherId = userData?['id'] ?? user.uid;
 
       final types = await _getTeacherSchoolTypesWithNames();
@@ -607,7 +884,9 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       if (types.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
+            const SnackBar(
+              content: Text('Bağlı olduğunuz bir okul türü bulunamadı.'),
+            ),
           );
         }
         return;
@@ -634,29 +913,35 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               title: const Text('Okul Türü Seçin'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: types.map((st) => ListTile(
-                  title: Text(st['name']!),
-                  leading: const Icon(Icons.school, color: Colors.orange),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (ctx) => SurveyListScreen(
-                          institutionId: instId,
-                          schoolTypeId: st['id']!,
-                          schoolTypeName: st['name']!,
-                          isTeacher: true,
-                          teacherId: teacherId,
-                        ),
+                children: types
+                    .map(
+                      (st) => ListTile(
+                        title: Text(st['name']!),
+                        leading: const Icon(Icons.school, color: Colors.orange),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (ctx) => SurveyListScreen(
+                                institutionId: instId,
+                                schoolTypeId: st['id']!,
+                                schoolTypeName: st['name']!,
+                                isTeacher: true,
+                                teacherId: teacherId,
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                )).toList(),
+                    )
+                    .toList(),
               ),
             ),
           );
@@ -671,8 +956,12 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
       final teacherId = userData?['id'] ?? user.uid;
 
       final types = await _getTeacherSchoolTypesWithNames();
@@ -680,7 +969,9 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       if (types.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
+            const SnackBar(
+              content: Text('Bağlı olduğunuz bir okul türü bulunamadı.'),
+            ),
           );
         }
         return;
@@ -707,29 +998,35 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               title: const Text('Okul Türü Seçin'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: types.map((st) => ListTile(
-                  title: Text(st['name']!),
-                  leading: const Icon(Icons.school, color: Colors.orange),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (ctx) => EtutProcessScreen(
-                          institutionId: instId,
-                          schoolTypeId: st['id']!,
-                          schoolTypeName: st['name']!,
-                          isTeacher: true,
-                          teacherId: teacherId,
-                        ),
+                children: types
+                    .map(
+                      (st) => ListTile(
+                        title: Text(st['name']!),
+                        leading: const Icon(Icons.school, color: Colors.orange),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (ctx) => EtutProcessScreen(
+                                institutionId: instId,
+                                schoolTypeId: st['id']!,
+                                schoolTypeName: st['name']!,
+                                isTeacher: true,
+                                teacherId: teacherId,
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                )).toList(),
+                    )
+                    .toList(),
               ),
             ),
           );
@@ -744,15 +1041,21 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
 
       final types = await _getTeacherSchoolTypesWithNames();
 
       if (types.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
+            const SnackBar(
+              content: Text('Bağlı olduğunuz bir okul türü bulunamadı.'),
+            ),
           );
         }
         return;
@@ -777,27 +1080,33 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               title: const Text('Okul Türü Seçin'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: types.map((st) => ListTile(
-                  title: Text(st['name']!),
-                  leading: const Icon(Icons.school, color: Colors.orange),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (ctx) => HomeworkOperationsScreen(
-                          institutionId: instId,
-                          schoolTypeId: st['id']!,
-                          isTeacher: true,
-                        ),
+                children: types
+                    .map(
+                      (st) => ListTile(
+                        title: Text(st['name']!),
+                        leading: const Icon(Icons.school, color: Colors.orange),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (ctx) => HomeworkOperationsScreen(
+                                institutionId: instId,
+                                schoolTypeId: st['id']!,
+                                isTeacher: true,
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                )).toList(),
+                    )
+                    .toList(),
               ),
             ),
           );
@@ -812,15 +1121,21 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
 
       final types = await _getTeacherSchoolTypesWithNames();
 
       if (types.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
+            const SnackBar(
+              content: Text('Bağlı olduğunuz bir okul türü bulunamadı.'),
+            ),
           );
         }
         return;
@@ -845,27 +1160,33 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               title: const Text('Okul Türü Seçin'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: types.map((st) => ListTile(
-                  title: Text(st['name']!),
-                  leading: const Icon(Icons.school, color: Colors.orange),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (ctx) => AttendanceStatisticsScreen(
-                          institutionId: instId,
-                          schoolTypeId: st['id']!,
-                          schoolTypeName: st['name']!,
-                        ),
+                children: types
+                    .map(
+                      (st) => ListTile(
+                        title: Text(st['name']!),
+                        leading: const Icon(Icons.school, color: Colors.orange),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (ctx) => AttendanceStatisticsScreen(
+                                institutionId: instId,
+                                schoolTypeId: st['id']!,
+                                schoolTypeName: st['name']!,
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                )).toList(),
+                    )
+                    .toList(),
               ),
             ),
           );
@@ -880,15 +1201,21 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
 
       final types = await _getTeacherSchoolTypesWithNames();
 
       if (types.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
+            const SnackBar(
+              content: Text('Bağlı olduğunuz bir okul türü bulunamadı.'),
+            ),
           );
         }
         return;
@@ -914,28 +1241,34 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               title: const Text('Okul Türü Seçin'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: types.map((st) => ListTile(
-                  title: Text(st['name']!),
-                  leading: const Icon(Icons.school, color: Colors.indigo),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (ctx) => WorkCalendarScreen(
-                          institutionId: instId,
-                          schoolTypeId: st['id']!,
-                          schoolTypeName: st['name']!,
-                          isTeacher: true,
-                        ),
+                children: types
+                    .map(
+                      (st) => ListTile(
+                        title: Text(st['name']!),
+                        leading: const Icon(Icons.school, color: Colors.indigo),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (ctx) => WorkCalendarScreen(
+                                institutionId: instId,
+                                schoolTypeId: st['id']!,
+                                schoolTypeName: st['name']!,
+                                isTeacher: true,
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                )).toList(),
+                    )
+                    .toList(),
               ),
             ),
           );
@@ -950,9 +1283,8 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (ctx) => TeacherPortfolioScreen(
-          institutionId: widget.institutionId,
-        ),
+        builder: (ctx) =>
+            TeacherPortfolioScreen(institutionId: widget.institutionId),
       ),
     );
   }
@@ -961,7 +1293,9 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     final user = FirebaseAuth.instance.currentUser;
     final userData = UserPermissionService.getCachedUserData();
     final teacherId = userData?['id']?.toString() ?? user?.uid ?? '';
-    final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+    final instId = (userData?['institutionId'] ?? widget.institutionId)
+        .toString()
+        .toUpperCase();
 
     Navigator.push(
       context,
@@ -981,13 +1315,22 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
 
       final types = await _getTeacherSchoolTypesWithNames();
 
       if (types.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bağlı olduğunuz bir okul türü bulunamadı.'),
+            ),
+          );
         return;
       }
 
@@ -1013,25 +1356,40 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
 
       final types = await _getTeacherSchoolTypesWithNames();
 
       if (types.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bağlı olduğunuz bir okul türü bulunamadı.'),
+            ),
+          );
         return;
       }
 
       final stId = types.first['id']!;
 
-      final classIds = await _resolveTeacherAssignedClassIds(instId, userData, user);
+      final classIds = await _resolveTeacherAssignedClassIds(
+        instId,
+        userData,
+        user,
+      );
 
       List<String> classNames = [];
       List<String> studentIds = [];
       if (classIds.isNotEmpty) {
-        final limitIds = classIds.length > 30 ? classIds.take(30).toList() : classIds;
-        
+        final limitIds = classIds.length > 30
+            ? classIds.take(30).toList()
+            : classIds;
+
         final classesSnapFuture = FirebaseFirestore.instance
             .collection('classes')
             .where(FieldPath.documentId, whereIn: limitIds)
@@ -1039,19 +1397,30 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
 
         final List<Future<QuerySnapshot>> studentFutures = [];
         for (var i = 0; i < limitIds.length; i += 10) {
-          final chunk = limitIds.sublist(i, i + 10 > limitIds.length ? limitIds.length : i + 10);
-          studentFutures.add(FirebaseFirestore.instance
-              .collection('students')
-              .where('institutionId', isEqualTo: instId)
-              .where('classId', whereIn: chunk)
-              .where('isActive', isEqualTo: true)
-              .get());
+          final chunk = limitIds.sublist(
+            i,
+            i + 10 > limitIds.length ? limitIds.length : i + 10,
+          );
+          studentFutures.add(
+            FirebaseFirestore.instance
+                .collection('students')
+                .where('institutionId', isEqualTo: instId)
+                .where('classId', whereIn: chunk)
+                .where('isActive', isEqualTo: true)
+                .get(),
+          );
         }
 
-        final results = await Future.wait<dynamic>([classesSnapFuture, ...studentFutures]);
+        final results = await Future.wait<dynamic>([
+          classesSnapFuture,
+          ...studentFutures,
+        ]);
         final classesSnap = results[0] as QuerySnapshot;
         classNames = classesSnap.docs
-            .map((d) => ((d.data() as Map<String, dynamic>)['name'] ?? '').toString())
+            .map(
+              (d) =>
+                  ((d.data() as Map<String, dynamic>)['name'] ?? '').toString(),
+            )
             .where((n) => n.isNotEmpty)
             .toList();
 
@@ -1062,13 +1431,18 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       }
 
       if (mounted) {
-        Navigator.push(context, MaterialPageRoute(builder: (ctx) => SavedStudyProgramsScreen(
-          institutionId: instId, 
-          schoolTypeId: stId, 
-          isTeacher: true, 
-          allowedClassNames: classNames.isEmpty ? null : classNames,
-          allowedStudentIds: studentIds.isEmpty ? null : studentIds,
-        )));
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (ctx) => SavedStudyProgramsScreen(
+              institutionId: instId,
+              schoolTypeId: stId,
+              isTeacher: true,
+              allowedClassNames: classNames.isEmpty ? null : classNames,
+              allowedStudentIds: studentIds.isEmpty ? null : studentIds,
+            ),
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Hata: $e');
@@ -1079,19 +1453,36 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
-      
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
+
       final types = await _getTeacherSchoolTypesWithNames();
 
       if (types.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bağlı olduğunuz bir okul türü bulunamadı.'),
+            ),
+          );
         return;
       }
 
       final stId = types.first['id']!;
       if (mounted) {
-        Navigator.push(context, MaterialPageRoute(builder: (ctx) => GuidanceTestCatalogScreen(institutionId: instId, schoolTypeId: stId)));
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (ctx) => GuidanceTestCatalogScreen(
+              institutionId: instId,
+              schoolTypeId: stId,
+            ),
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Hata: $e');
@@ -1102,12 +1493,25 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
       final teacherId = userData?['id'] ?? user.uid;
 
       if (mounted) {
-        Navigator.push(context, MaterialPageRoute(builder: (ctx) => DevelopmentReportManagementScreen(institutionId: instId, isTeacher: true, teacherId: teacherId)));
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (ctx) => DevelopmentReportManagementScreen(
+              institutionId: instId,
+              isTeacher: true,
+              teacherId: teacherId,
+            ),
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Hata: $e');
@@ -1115,26 +1519,43 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
   }
 
   void _navigateToGuidanceLibrary() {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rehberlik Kütüphanesi yakında eklenecek')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Rehberlik Kütüphanesi yakında eklenecek')),
+    );
   }
 
   Future<void> _navigateToTodoList() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
 
       final types = await _getTeacherSchoolTypesWithNames();
 
       if (types.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bağlı olduğunuz bir okul türü bulunamadı.'),
+            ),
+          );
         return;
       }
 
       final stId = types.first['id']!;
       if (mounted) {
-        Navigator.push(context, MaterialPageRoute(builder: (ctx) => ToDoListScreen(institutionId: instId, schoolTypeId: stId)));
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (ctx) =>
+                ToDoListScreen(institutionId: instId, schoolTypeId: stId),
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Hata: $e');
@@ -1145,16 +1566,18 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
 
       if (mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (ctx) => TeacherDutyScreen(
-              institutionId: instId,
-            ),
+            builder: (ctx) => TeacherDutyScreen(institutionId: instId),
           ),
         );
       }
@@ -1167,16 +1590,18 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
 
       if (mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (ctx) => TeacherProctoringScreen(
-              institutionId: instId,
-            ),
+            builder: (ctx) => TeacherProctoringScreen(institutionId: instId),
           ),
         );
       }
@@ -1189,8 +1614,12 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
       final teacherId = userData?['id'] ?? user.uid;
 
       if (mounted) {
@@ -1210,17 +1639,84 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     }
   }
 
+  Future<void> _navigateToMaterialRequests() async {
+    try {
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
+      final types = await _getTeacherSchoolTypesWithNames();
+      final options = types
+          .map((e) => (id: e['id'] ?? '', name: e['name'] ?? 'Okul'))
+          .where((e) => e.id.isNotEmpty)
+          .toList();
+
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TeacherMaterialRequestsScreen(
+            institutionId: instId,
+            fixedSchoolTypeId: options.length == 1 ? options.first.id : null,
+            fixedSchoolTypeName: options.length == 1
+                ? options.first.name
+                : null,
+            initialSchoolTypes: options,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error navigating to material requests: $e');
+    }
+  }
+
+  Future<void> _navigateToDailyReport() async {
+    try {
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
+      final types = await _getTeacherSchoolTypesWithNames();
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DailyReportScreen(
+            institutionId: instId,
+            fixedSchoolTypeId: types.length == 1 ? types.first['id'] : null,
+            fixedSchoolTypeName: types.length == 1 ? types.first['name'] : null,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error navigating to daily report: $e');
+    }
+  }
+
   Future<void> _navigateToFieldTrip() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final userData =
+          UserPermissionService.getCachedUserData() ??
+          await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
 
       final types = await _getTeacherSchoolTypesWithNames();
 
       if (types.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bağlı olduğunuz bir okul türü bulunamadı.'),
+            ),
+          );
         return;
       }
 
@@ -1242,17 +1738,94 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     }
   }
 
-  void _navigateToTools(int initialCategoryIndex) {
+  Future<void> _navigateToStore() async {
+    final userData =
+        UserPermissionService.getCachedUserData() ??
+        await UserPermissionService.loadUserData();
+    final instId = (userData?['institutionId'] ?? widget.institutionId)
+        .toString()
+        .toUpperCase();
+    final types = await _getTeacherSchoolTypesWithNames();
+    final firstType = types.isNotEmpty ? types.first : null;
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StoreShopScreen(
+          institutionId: instId,
+          schoolTypeId: firstType?['id'],
+          schoolTypeName: firstType?['name'],
+          buyerRole: 'ogretmen',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _navigateToCanteenWallet() async {
     final user = FirebaseAuth.instance.currentUser;
-    final instId = widget.institutionId.toUpperCase();
+    if (user == null) return;
+    final userData =
+        UserPermissionService.getCachedUserData() ??
+        await UserPermissionService.loadUserData();
+    final instId = (userData?['institutionId'] ?? widget.institutionId)
+        .toString()
+        .toUpperCase();
+    final fullName =
+        (userData?['fullName'] ??
+                userData?['name'] ??
+                user.displayName ??
+                'Öğretmen')
+            .toString()
+            .trim();
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CanteenStudentScreen(
+          institutionId: instId,
+          studentId: user.uid,
+          studentName: fullName,
+          allowSelfCreateWallet: true,
+          roleLabel: 'Öğretmen',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _quickScanCanteenQr() async {
+    final userData =
+        UserPermissionService.getCachedUserData() ??
+        await UserPermissionService.loadUserData();
+    final instId = (userData?['institutionId'] ?? widget.institutionId)
+        .toString()
+        .toUpperCase();
+    if (!mounted) return;
+    await CanteenQrPaySheet.show(
+      context,
+      institutionId: instId,
+      defaultRoleLabel: 'Öğretmen',
+    );
+  }
+
+  Future<void> _navigateToTools(int initialCategoryIndex) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final userData =
+        UserPermissionService.getCachedUserData() ??
+        await UserPermissionService.loadUserData();
+    final instId = (userData?['institutionId'] ?? widget.institutionId)
+        .toString()
+        .toUpperCase();
     final teacherId = user?.uid ?? '';
+    final types = await _getTeacherSchoolTypesWithNames();
+    final firstType = types.isNotEmpty ? types.first : null;
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (ctx) => ToolsHubScreen(
           institutionId: instId,
-          schoolTypeId: '',
-          schoolTypeName: 'Araçlar',
+          schoolTypeId: firstType?['id'] ?? '',
+          schoolTypeName: firstType?['name'] ?? 'Araçlar',
           initialCategoryIndex: initialCategoryIndex,
           isTeacher: true,
           teacherId: teacherId,
@@ -1264,14 +1837,25 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
   Widget _buildCategorySelector() {
     final categories = [
       {'label': 'Tümü', 'icon': Icons.grid_view_rounded, 'id': 'Tümü'},
-      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri'))
+      if (_isTeacherItemAllowed('egitim_islemleri'))
         {'label': 'Eğitim', 'icon': Icons.school, 'id': 'egitim'},
-      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri'))
+      if (_isTeacherItemAllowed('rehberlik_islemleri'))
         {'label': 'Rehberlik', 'icon': Icons.folder_special, 'id': 'rehberlik'},
-      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin'))
+      if (_isTeacherItemAllowed('gorevlendirme_ve_izin'))
         {'label': 'Görev', 'icon': Icons.assignment_ind, 'id': 'gorev'},
-      if (UserPermissionService.hasTeacherModuleAccess('araclar'))
-        {'label': 'Araçlar', 'icon': Icons.build_circle_outlined, 'id': 'araclar'},
+      if (_isTeacherItemAllowed('destek_birimi'))
+        {
+          'label': 'Destek Birimi',
+          'icon': Icons.support_agent_rounded,
+          'id': 'destek_birimi',
+        },
+      {'label': 'Mağaza', 'icon': Icons.storefront_rounded, 'id': 'magaza'},
+      if (_isTeacherItemAllowed('araclar'))
+        {
+          'label': 'Araçlar',
+          'icon': Icons.build_circle_outlined,
+          'id': 'araclar',
+        },
     ];
 
     return Container(
@@ -1319,7 +1903,9 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
                           ),
                         ],
                         border: Border.all(
-                          color: isSelected ? Colors.indigo : Colors.grey.shade200,
+                          color: isSelected
+                              ? Colors.indigo
+                              : Colors.grey.shade200,
                           width: 1,
                         ),
                       ),
@@ -1328,7 +1914,9 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
                         children: [
                           Icon(
                             cat['icon'] as IconData,
-                            color: isSelected ? Colors.white : Colors.indigo.shade400,
+                            color: isSelected
+                                ? Colors.white
+                                : Colors.indigo.shade400,
                             size: 24,
                           ),
                           const SizedBox(height: 6),
@@ -1339,8 +1927,12 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: 9,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                                color: isSelected ? Colors.white : Colors.grey.shade700,
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.w500,
+                                color: isSelected
+                                    ? Colors.white
+                                    : Colors.grey.shade700,
                               ),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
@@ -1377,70 +1969,230 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     }
 
     final List<Map<String, dynamic>> egitimItems = [
-      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'ders_programi'))
-        {'title': 'Ders Programı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherLessonsScreen(institutionId: widget.institutionId)))},
-      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'tanimli_ogrencilerim'))
-        {'title': 'Tanımlı Öğrencilerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherStudentListScreen(institutionId: widget.institutionId)))},
-      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'ders_isleyis_plani'))
+      if (_dailyReportEnabled &&
+          _isTeacherItemAllowed(
+            'egitim_islemleri',
+            subModuleKey: 'gunluk_rapor',
+          ))
+        {
+          'title': 'Günlük Rapor (Günlük Karne)',
+          'onTap': _navigateToDailyReport,
+        },
+      if (_isTeacherItemAllowed(
+        'egitim_islemleri',
+        subModuleKey: 'ders_programi',
+      ))
+        {
+          'title': 'Ders Programı',
+          'onTap': () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) =>
+                  TeacherLessonsScreen(institutionId: widget.institutionId),
+            ),
+          ),
+        },
+      if (_isTeacherItemAllowed(
+        'egitim_islemleri',
+        subModuleKey: 'tanimli_ogrencilerim',
+      ))
+        {
+          'title': 'Tanımlı Öğrencilerim',
+          'onTap': () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) =>
+                  TeacherStudentListScreen(institutionId: widget.institutionId),
+            ),
+          ),
+        },
+      if (_isTeacherItemAllowed(
+        'egitim_islemleri',
+        subModuleKey: 'ders_isleyis_plani',
+      ))
         {'title': 'Ders İşleyiş Planı', 'onTap': _navigateToWorkCalendar},
-      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'yoklama_istatistikleri'))
-        {'title': 'Yoklama İstatistikleri', 'onTap': _navigateToAttendanceStats},
-      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'odev_istatistikleri'))
+      if (_isTeacherItemAllowed(
+        'egitim_islemleri',
+        subModuleKey: 'yoklama_istatistikleri',
+      ))
+        {
+          'title': 'Yoklama İstatistikleri',
+          'onTap': _navigateToAttendanceStats,
+        },
+      if (_isTeacherItemAllowed(
+        'egitim_islemleri',
+        subModuleKey: 'odev_istatistikleri',
+      ))
         {'title': 'Ödev İstatistikleri', 'onTap': _navigateToHomeworkStats},
-      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'etut_islemleri'))
+      if (_isTeacherItemAllowed(
+        'egitim_islemleri',
+        subModuleKey: 'etut_islemleri',
+      ))
         {'title': 'Etüt İşlemleri', 'onTap': _navigateToEtutProcess},
-      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'anket_islemleri'))
+      if (_isTeacherItemAllowed(
+        'egitim_islemleri',
+        subModuleKey: 'anket_islemleri',
+      ))
         {'title': 'Anket İşlemleri', 'onTap': _navigateToSurvey},
-      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_raporlari'))
+      if (_isTeacherItemAllowed(
+        'egitim_islemleri',
+        subModuleKey: 'sinav_raporlari',
+      ))
         {'title': 'Sınav Raporları', 'onTap': _navigateToAssessmentReports},
     ];
 
     final List<Map<String, dynamic>> rehberlikItems = [
-      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'ogrenci_portfolyolari'))
+      if (_isTeacherItemAllowed(
+        'rehberlik_islemleri',
+        subModuleKey: 'ogrenci_portfolyolari',
+      ))
         {'title': 'Öğrenci Portfolyoları', 'onTap': _navigateToPortfolio},
-      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'gorusmeler'))
+      if (_isTeacherItemAllowed(
+        'rehberlik_islemleri',
+        subModuleKey: 'gorusmeler',
+      ))
         {'title': 'Görüşmeler', 'onTap': _navigateToGuidanceInterview},
-      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'gozlem_ve_etkinlik'))
-        {'title': 'Gözlem ve Etkinlik İşlemleri', 'onTap': _navigateToGuidanceActivity},
-      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'ders_calisma_programi'))
-        {'title': 'Ders Çalışma Programı', 'onTap': _navigateToSavedStudyPrograms},
-      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'rehberlik_envanterleri'))
-        {'title': 'Rehberlik Envanterleri', 'onTap': _navigateToGuidanceTestCatalog},
-      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'rehberlik_kutuphanesi'))
+      if (_isTeacherItemAllowed(
+        'rehberlik_islemleri',
+        subModuleKey: 'gozlem_ve_etkinlik',
+      ))
+        {
+          'title': 'Gözlem ve Etkinlik İşlemleri',
+          'onTap': _navigateToGuidanceActivity,
+        },
+      if (_isTeacherItemAllowed(
+        'rehberlik_islemleri',
+        subModuleKey: 'ders_calisma_programi',
+      ))
+        {
+          'title': 'Ders Çalışma Programı',
+          'onTap': _navigateToSavedStudyPrograms,
+        },
+      if (_isTeacherItemAllowed(
+        'rehberlik_islemleri',
+        subModuleKey: 'rehberlik_envanterleri',
+      ))
+        {
+          'title': 'Rehberlik Envanterleri',
+          'onTap': _navigateToGuidanceTestCatalog,
+        },
+      if (_isTeacherItemAllowed(
+        'rehberlik_islemleri',
+        subModuleKey: 'rehberlik_kutuphanesi',
+      ))
         {'title': 'Rehberlik Kütüphanesi', 'onTap': _navigateToGuidanceLibrary},
-      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'gelisim_raporlari'))
-        {'title': '360 Gelişim Raporları', 'onTap': _navigateToDevelopmentReports},
+      if (_isTeacherItemAllowed(
+        'rehberlik_islemleri',
+        subModuleKey: 'gelisim_raporlari',
+      ))
+        {
+          'title': '360 Gelişim Raporları',
+          'onTap': _navigateToDevelopmentReports,
+        },
     ];
 
     final List<Map<String, dynamic>> gorevItems = [
-      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'nobetlerim'))
+      if (_isTeacherItemAllowed(
+        'gorevlendirme_ve_izin',
+        subModuleKey: 'nobetlerim',
+      ))
         {'title': 'Nöbetlerim', 'onTap': _navigateToTeacherDuty},
-      {'title': 'Gözetmenlik Görevlerim', 'onTap': _navigateToTeacherProctoring},
-      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'izin_islemleri'))
+      if (_isTeacherItemAllowed(
+        'gorevlendirme_ve_izin',
+        subModuleKey: 'gozetmenlik_gorevlerim',
+      ))
+        {
+          'title': 'Gözetmenlik Görevlerim',
+          'onTap': _navigateToTeacherProctoring,
+        },
+      if (UserPermissionService.canCreateExamPlan())
+        {
+          'title': 'Sınav ve Gözetmenlik Planlama',
+          'onTap': () => _navigateToTools(1),
+        },
+      if (_isTeacherItemAllowed(
+        'gorevlendirme_ve_izin',
+        subModuleKey: 'izin_islemleri',
+      ))
         {'title': 'İzin İşlemleri', 'onTap': _navigateToLeaveManagement},
-      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'yapilacaklar'))
+      if (_isTeacherItemAllowed(
+        'gorevlendirme_ve_izin',
+        subModuleKey: 'yapilacaklar',
+      ))
         {'title': 'Yapılacaklar (To-Do)', 'onTap': _navigateToTodoList},
-      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'gezi_gorevlendirmeleri'))
+      if (_isTeacherItemAllowed(
+        'gorevlendirme_ve_izin',
+        subModuleKey: 'gezi_gorevlendirmeleri',
+      ))
         {'title': 'Gezi Görevlendirmeleri', 'onTap': _navigateToFieldTrip},
     ];
 
+    final List<Map<String, dynamic>> destekItems = [
+      if (_isTeacherItemAllowed('destek_birimi', subModuleKey: 'malzeme_talep'))
+        {'title': 'Malzeme Talep', 'onTap': _navigateToMaterialRequests},
+    ];
+
     final List<Map<String, dynamic>> araclarItems = [
-      if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'sinif_ici_yonetim'))
-        {'title': 'Sınıf İçi Yönetim ve Etkileşim', 'onTap': () => _navigateToTools(0)},
-      if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'sinav_gozetmenlik'))
+      if (_isTeacherItemAllowed('araclar', subModuleKey: 'sinif_ici_yonetim'))
+        {
+          'title': 'Sınıf İçi Yönetim ve Etkileşim',
+          'onTap': () => _navigateToTools(0),
+        },
+      if (_isTeacherItemAllowed('araclar', subModuleKey: 'sinav_gozetmenlik') ||
+          UserPermissionService.canCreateExamPlan())
         {'title': 'Sınav ve Gözetmenlik', 'onTap': () => _navigateToTools(1)},
-      if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'akademik_olcme'))
-        {'title': 'Akademik Ölçme ve Başarı Takibi', 'onTap': () => _navigateToTools(2)},
-      if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'evrak_sablon'))
-        {'title': 'Evrak, Liste ve Şablon Otomasyonları', 'onTap': () => _navigateToTools(3)},
-      if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'online_hizmetler'))
-        {'title': 'Online Hizmetler', 'onTap': () => _navigateToTools(5)},
-      if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'notlarim'))
-        {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen()))},
+      if (_isTeacherItemAllowed('araclar', subModuleKey: 'akademik_olcme'))
+        {
+          'title': 'Akademik Ölçme ve Başarı Takibi',
+          'onTap': () => _navigateToTools(2),
+        },
+      if (_isTeacherItemAllowed('araclar', subModuleKey: 'evrak_sablon'))
+        {
+          'title': 'Evrak, Liste ve Şablon Otomasyonları',
+          'onTap': () => _navigateToTools(3),
+        },
+      if (_isTeacherItemAllowed(
+        'araclar',
+        subModuleKey: 'ogrenci_hareket_takip',
+      ))
+        {
+          'title': 'Geç - İzin - Revir - Görüşme Merkezi',
+          'onTap': () => _navigateToTools(4),
+        },
+      if (_isTeacherItemAllowed('araclar', subModuleKey: 'online_hizmetler'))
+        {'title': 'Online Hizmetler', 'onTap': () => _navigateToTools(6)},
+      if (SchoolModuleGuard.isSubModuleEnabled(
+            _schoolData,
+            'magaza_satis',
+            'magaza_alisveris',
+          ) &&
+          _isTeacherItemAllowed('araclar', subModuleKey: 'magaza_alisveris'))
+        {'title': 'Okul & Genel Merkez Mağazası', 'onTap': _navigateToStore},
+      {
+        'title': 'Kantin Cüzdanım & Mobil QR Ödeme',
+        'onTap': _navigateToCanteenWallet,
+      },
+      if (_isTeacherItemAllowed('araclar', subModuleKey: 'notlarim'))
+        {
+          'title': 'Notlarım',
+          'onTap': () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PersonalNotesScreen()),
+          ),
+        },
+    ];
+
+    final List<Map<String, dynamic>> magazaItems = [
+      {'title': 'Mağaza Vitrini & Online Alışveriş', 'onTap': _navigateToStore},
+      {'title': 'Siparişlerim & Teslimat Takibi', 'onTap': _navigateToStore},
+      {
+        'title': 'Kantin Cüzdanım & Mobil QR Ödeme',
+        'onTap': _navigateToCanteenWallet,
+      },
     ];
 
     final List<_ModuleCardWidget> allModules = [
-      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri') && egitimItems.isNotEmpty)
+      if (_isTeacherItemAllowed('egitim_islemleri') && egitimItems.isNotEmpty)
         _ModuleCardWidget(
           title: 'EĞİTİM İŞLEMLERİ',
           badge: 'Eğitim',
@@ -1453,7 +2205,8 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           items: egitimItems,
           onTap: () => setState(() => _selectedCategory = 'Eğitim'),
         ),
-      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri') && rehberlikItems.isNotEmpty)
+      if (_isTeacherItemAllowed('rehberlik_islemleri') &&
+          rehberlikItems.isNotEmpty)
         _ModuleCardWidget(
           title: 'REHBERLİK İŞLEMLERİ',
           badge: 'Rehberlik',
@@ -1466,7 +2219,8 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           items: rehberlikItems,
           onTap: () => setState(() => _selectedCategory = 'Rehberlik'),
         ),
-      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin') && gorevItems.isNotEmpty)
+      if (_isTeacherItemAllowed('gorevlendirme_ve_izin') &&
+          gorevItems.isNotEmpty)
         _ModuleCardWidget(
           title: 'GÖREVLENDİRME VE İZİN',
           badge: 'Görev',
@@ -1479,7 +2233,38 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           items: gorevItems,
           onTap: () => setState(() => _selectedCategory = 'Görev'),
         ),
-      if (UserPermissionService.hasTeacherModuleAccess('araclar') && araclarItems.isNotEmpty)
+      if (_isTeacherItemAllowed('destek_birimi') && destekItems.isNotEmpty)
+        _ModuleCardWidget(
+          title: 'DESTEK BİRİMİ',
+          badge: 'Destek',
+          icon: Icons.support_agent_rounded,
+          color: const Color(0xFF0D9488),
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Destek Birimi',
+          showAllItems: isFiltered,
+          items: destekItems,
+          onTap: () => setState(() => _selectedCategory = 'Destek Birimi'),
+        ),
+      if (SchoolModuleGuard.isSubModuleEnabled(
+            _schoolData,
+            'magaza_satis',
+            'magaza_alisveris',
+          ) &&
+          _isTeacherItemAllowed('araclar', subModuleKey: 'magaza_alisveris'))
+        _ModuleCardWidget(
+          title: 'MAĞAZA & ONLİNE SATIŞ',
+          badge: 'Mağaza',
+          icon: Icons.storefront_rounded,
+          color: Colors.deepOrange,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Mağaza',
+          showAllItems: isFiltered,
+          items: magazaItems,
+          onTap: _navigateToStore,
+        ),
+      if (_isTeacherItemAllowed('araclar') && araclarItems.isNotEmpty)
         _ModuleCardWidget(
           title: 'ARAÇLAR',
           badge: 'Araçlar',
@@ -1500,11 +2285,14 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         ),
     ];
 
-    final filteredModules = (_selectedCategory == 'Tümü' 
-        ? allModules 
-        : allModules.where((m) => m.category == _selectedCategory).toList())
-        .where((m) => m.items.isNotEmpty)
-        .toList();
+    final filteredModules =
+        (_selectedCategory == 'Tümü'
+                ? allModules
+                : allModules
+                      .where((m) => m.category == _selectedCategory)
+                      .toList())
+            .where((m) => m.items.isNotEmpty)
+            .toList();
 
     return Wrap(
       key: ValueKey('grid_${_selectedCategory}_$isMobile'),
@@ -1527,7 +2315,10 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Çıkış Yap', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Çıkış Yap',
+              style: TextStyle(color: Colors.white),
+            ),
             onPressed: () => Navigator.pop(context, true),
           ),
         ],
@@ -1541,7 +2332,11 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       TermService().clearCache();
       await FirebaseAuth.instance.signOut();
       if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(context, '/school-login', (route) => false);
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          '/school-login',
+          (route) => false,
+        );
       }
     }
   }
@@ -1550,10 +2345,10 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
 class _MouseDraggableScrollBehavior extends MaterialScrollBehavior {
   @override
   Set<PointerDeviceKind> get dragDevices => {
-        PointerDeviceKind.touch,
-        PointerDeviceKind.mouse,
-        PointerDeviceKind.trackpad,
-      };
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+  };
 }
 
 class _ModuleCardWidget extends StatefulWidget {
@@ -1581,14 +2376,24 @@ class _ModuleCardWidget extends StatefulWidget {
     required this.isMobile,
     required this.category,
     this.showAllItems = false,
-  }) : buttonLabel = null, super(key: key);
-  @override State<_ModuleCardWidget> createState() => _ModuleCardWidgetState();
+  }) : buttonLabel = null,
+       super(key: key);
+  @override
+  State<_ModuleCardWidget> createState() => _ModuleCardWidgetState();
 }
 
 class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
-  bool isCardHovered = false; int? hoveredItemIndex;
-  @override Widget build(BuildContext context) {
-    final displayedItems = widget.showAllItems ? widget.items : widget.items.take(3).toList(); final remainingCount = widget.items.length - displayedItems.length; final String label = remainingCount > 0 ? '+$remainingCount işlem daha görüntüle' : (widget.buttonLabel ?? 'GÖRÜNTÜLE');
+  bool isCardHovered = false;
+  int? hoveredItemIndex;
+  @override
+  Widget build(BuildContext context) {
+    final displayedItems = widget.showAllItems
+        ? widget.items
+        : widget.items.take(3).toList();
+    final remainingCount = widget.items.length - displayedItems.length;
+    final String label = remainingCount > 0
+        ? '+$remainingCount işlem daha görüntüle'
+        : (widget.buttonLabel ?? 'GÖRÜNTÜLE');
     return MouseRegion(
       onEnter: (_) => setState(() => isCardHovered = true),
       onExit: (_) => setState(() => isCardHovered = false),
@@ -1601,13 +2406,17 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: isCardHovered || widget.showAllItems ? 0.08 : 0.03),
+              color: Colors.black.withValues(
+                alpha: isCardHovered || widget.showAllItems ? 0.08 : 0.03,
+              ),
               blurRadius: isCardHovered || widget.showAllItems ? 30 : 20,
               offset: const Offset(0, 10),
             ),
           ],
           border: Border.all(
-            color: isCardHovered || widget.showAllItems ? widget.color.withValues(alpha: 0.3) : Colors.indigo.withValues(alpha: 0.05),
+            color: isCardHovered || widget.showAllItems
+                ? widget.color.withValues(alpha: 0.3)
+                : Colors.indigo.withValues(alpha: 0.05),
             width: 1.5,
           ),
         ),
@@ -1628,7 +2437,10 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
                   child: Icon(widget.icon, color: widget.color, size: 28),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: widget.color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
@@ -1680,7 +2492,9 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
                               width: 6,
                               height: 6,
                               decoration: BoxDecoration(
-                                color: isHovered ? widget.color : Colors.blueGrey.shade200,
+                                color: isHovered
+                                    ? widget.color
+                                    : Colors.blueGrey.shade200,
                                 shape: BoxShape.circle,
                               ),
                             ),
@@ -1689,16 +2503,22 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
                               child: Text(
                                 item['title'] as String,
                                 style: TextStyle(
-                                  color: isHovered ? widget.color : Colors.blueGrey.shade600,
+                                  color: isHovered
+                                      ? widget.color
+                                      : Colors.blueGrey.shade600,
                                   fontSize: 14,
-                                  fontWeight: isHovered ? FontWeight.w900 : FontWeight.w500,
+                                  fontWeight: isHovered
+                                      ? FontWeight.w900
+                                      : FontWeight.w500,
                                 ),
                               ),
                             ),
                             Icon(
                               Icons.chevron_right_rounded,
                               size: 16,
-                              color: isHovered ? widget.color : Colors.blueGrey.shade300,
+                              color: isHovered
+                                  ? widget.color
+                                  : Colors.blueGrey.shade300,
                             ),
                           ],
                         ),
@@ -1715,11 +2535,17 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
               child: ElevatedButton(
                 onPressed: widget.onTap,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isCardHovered ? widget.color : const Color(0xFFF1F5F9),
-                  foregroundColor: isCardHovered ? Colors.white : Colors.blueGrey.shade700,
+                  backgroundColor: isCardHovered
+                      ? widget.color
+                      : const Color(0xFFF1F5F9),
+                  foregroundColor: isCardHovered
+                      ? Colors.white
+                      : Colors.blueGrey.shade700,
                   elevation: 0,
                   padding: const EdgeInsets.symmetric(vertical: 18),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                 ),
                 child: Text(
                   label,

@@ -14,6 +14,8 @@ import '../screens/teacher/teacher_qr_scan_screen.dart';
 import '../screens/portfolio/portfolio_screen.dart';
 import '../screens/school/student_registration_screen.dart';
 import '../screens/school/class_management_screen.dart';
+import 'read_only_permission_wrapper.dart';
+import 'web_qr_login_scanner_sheet.dart';
 
 class PremiumAppBar extends StatefulWidget implements PreferredSizeWidget {
   final String schoolTypeId;
@@ -700,18 +702,58 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
 
   Widget _buildInitialSearchItems() {
     final List<Map<String, dynamic>> shortcuts = [
-      {
-        'title': 'Öğrenci Kaydı',
-        'subtitle': 'Eğitim Modülü',
-        'icon': Icons.person_add_outlined,
-        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => StudentRegistrationScreen(fixedSchoolTypeId: widget.schoolTypeId, fixedSchoolTypeName: widget.schoolTypeName, fixedInstitutionId: widget.institutionId)))
-      },
-      {
-        'title': 'Şube Listesi',
-        'subtitle': 'Yönetim Modülü',
-        'icon': Icons.group_outlined,
-        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ClassManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))
-      }
+      if (UserPermissionService.hasSchoolTypeSubModuleAccess(
+        'kayit',
+        'ogrenci_listesi',
+        userData,
+      ))
+        {
+          'title': 'Öğrenci Kaydı',
+          'subtitle': 'Eğitim Modülü',
+          'icon': Icons.person_add_outlined,
+          'onTap': () => Navigator.push(
+            context,
+            ReadOnlyPermissionWrapper.route(
+              canEdit: UserPermissionService.canEditSchoolTypeSubModule(
+                'kayit',
+                'ogrenci_listesi',
+                userData,
+              ),
+              moduleName: 'Öğrenci Kaydı',
+              page: StudentRegistrationScreen(
+                fixedSchoolTypeId: widget.schoolTypeId,
+                fixedSchoolTypeName: widget.schoolTypeName,
+                fixedInstitutionId: widget.institutionId,
+              ),
+            ),
+          )
+        },
+      if (UserPermissionService.hasSchoolTypeSubModuleAccess(
+        'kayit',
+        'sube_listesi',
+        userData,
+      ))
+        {
+          'title': 'Şube Listesi',
+          'subtitle': 'Yönetim Modülü',
+          'icon': Icons.group_outlined,
+          'onTap': () => Navigator.push(
+            context,
+            ReadOnlyPermissionWrapper.route(
+              canEdit: UserPermissionService.canEditSchoolTypeSubModule(
+                'kayit',
+                'sube_listesi',
+                userData,
+              ),
+              moduleName: 'Şube Listesi',
+              page: ClassManagementScreen(
+                institutionId: widget.institutionId,
+                schoolTypeId: widget.schoolTypeId,
+                schoolTypeName: widget.schoolTypeName,
+              ),
+            ),
+          )
+        }
     ];
     return ListView(
       shrinkWrap: true,
@@ -817,6 +859,8 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
           );
         } else if (value == 'qr') {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherQrScanScreen()));
+        } else if (value == 'web_qr_login') {
+          WebQrLoginScannerSheet.show(context);
         } else if (value == 'term') {
           _showTermSelector();
         } else if (value == 'logout') {
@@ -886,6 +930,17 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
             const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('Giriş / Çıkış (QR)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
               Text('Kamera ile QR tarama', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+            ]),
+          ]),
+        ),
+        PopupMenuItem<String>(
+          value: 'web_qr_login',
+          child: Row(children: [
+            Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.devices_rounded, color: Colors.indigo.shade700, size: 18)),
+            const SizedBox(width: 12),
+            const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Web\'de QR ile Oturum Aç', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              Text('Bilgisayarda QR okutarak giriş yap', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
             ]),
           ]),
         ),

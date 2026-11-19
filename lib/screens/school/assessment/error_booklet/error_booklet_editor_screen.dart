@@ -13,6 +13,8 @@ import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
 import '../../../../widgets/edukn_logo.dart';
+import '../../../../utils/difficulty_scale.dart';
+import 'auto_question_detector.dart';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Browser-native canvas crop – GPU-accelerated, truly non-blocking on web.
@@ -50,19 +52,171 @@ Future<Uint8List> _cropNativeCanvas(
 
   // 4. Draw crop onto an offscreen canvas
   final canvas = html.CanvasElement(width: pw, height: ph);
-  canvas.context2D
-      .drawImageScaledFromSource(imgEl, px, py, pw, ph, 0, 0, pw, ph);
+  final ctx = canvas.context2D;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, pw, ph);
+  ctx.drawImageScaledFromSource(imgEl, px, py, pw, ph, 0, 0, pw, ph);
 
-  // 5. Export as JPEG (50% quality for ultra-small size, perfect for text questions)
-  final dataUrl = canvas.toDataUrl('image/jpeg', 0.50);
+  // 5. Smart Scanner Paper Whitening: remove gray/blue/yellow scan shadows &
+  // backside bleed-through while keeping dark text sharp and preserving colors.
+  _whitenCanvasPixels(ctx, pw, ph);
+
+  // 6. Export as clean JPEG
+  final dataUrl = canvas.toDataUrl('image/jpeg', 0.72);
   final base64Str = dataUrl.split(',').last;
   return base64Decode(base64Str);
+}
+
+/// Whitens scanned paper background (bleed-through, shadows, gray/blue tint)
+/// to pure #FFFFFF and deepens dark ink while preserving intentional colors.
+void _whitenCanvasPixels(html.CanvasRenderingContext2D ctx, int w, int h) {
+  if (w <= 0 || h <= 0) return;
+  final imgData = ctx.getImageData(0, 0, w, h);
+  final d = imgData.data;
+
+  // Estimate the paper background luminance from low-saturation pixels (75th percentile)
+  final hist = List<int>.filled(256, 0);
+  int neutralCount = 0;
+  for (int i = 0; i < d.length; i += 4) {
+    final r = d[i], g = d[i + 1], b = d[i + 2];
+    final maxC = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    final minC = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    if (maxC - minC <= 32) {
+      final lum = (r * 77 + g * 151 + b * 28) >> 8;
+      hist[lum]++;
+      neutralCount++;
+    }
+  }
+  int paperBg = 235;
+  if (neutralCount > 0) {
+    final target = (neutralCount * 0.70).round();
+    int acc = 0;
+    for (int v = 0; v < 256; v++) {
+      acc += hist[v];
+      if (acc >= target) {
+        paperBg = v;
+        break;
+      }
+    }
+  }
+  // White cutoff: anything within ~22 levels of the paper background (or >= 200)
+  // that has low color saturation is scan shadow / backside bleed-through → pure white!
+  final whitePoint = (paperBg - 22).clamp(188, 228);
+  const blackPoint = 55;
+  final range = (whitePoint - blackPoint).clamp(1, 255);
+
+  for (int i = 0; i < d.length; i += 4) {
+    final r = d[i], g = d[i + 1], b = d[i + 2];
+    final maxC = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    final minC = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    final sat = maxC - minC;
+    final lum = (r * 77 + g * 151 + b * 28) >> 8;
+
+    if (sat <= 32 || (lum >= whitePoint && sat <= 42)) {
+      if (lum >= whitePoint) {
+        d[i] = 255;
+        d[i + 1] = 255;
+        d[i + 2] = 255;
+      } else if (lum <= blackPoint) {
+        final v = (lum * 0.55).round().clamp(0, 255);
+        d[i] = v;
+        d[i + 1] = v;
+        d[i + 2] = v;
+      } else {
+        final v = (((lum - blackPoint) * 255) ~/ range).clamp(0, 255);
+        d[i] = v;
+        d[i + 1] = v;
+        d[i + 2] = v;
+      }
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
+/// Whitens an already-cropped JPEG/PNG byte array in the browser.
+Future<Uint8List> _whitenExistingImageBytes(Uint8List srcBytes) async {
+  try {
+    final blob = html.Blob([srcBytes], 'image/jpeg');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final imgEl = html.ImageElement();
+    final loadedC = Completer<void>();
+    imgEl.onLoad.listen((_) => loadedC.complete());
+    imgEl.onError.listen((_) => loadedC.completeError('img load error'));
+    imgEl.src = url;
+    await loadedC.future;
+    html.Url.revokeObjectUrl(url);
+    final w = imgEl.naturalWidth;
+    final h = imgEl.naturalHeight;
+    if (w <= 0 || h <= 0) return srcBytes;
+    final canvas = html.CanvasElement(width: w, height: h);
+    final ctx = canvas.context2D;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(imgEl, 0, 0);
+    _whitenCanvasPixels(ctx, w, h);
+    final dataUrl = canvas.toDataUrl('image/jpeg', 0.72);
+    return base64Decode(dataUrl.split(',').last);
+  } catch (_) {
+    return srcBytes;
+  }
 }
 // ───────────────────────────────────────────────────────────────────────────
 
 class ErrorBookletEditorScreen extends StatefulWidget {
   final TrialExam exam;
-  const ErrorBookletEditorScreen({super.key, required this.exam});
+  final bool isPoolMode;
+  const ErrorBookletEditorScreen({
+    super.key,
+    required this.exam,
+    this.isPoolMode = false,
+  });
+
+  factory ErrorBookletEditorScreen.forQuestionPool({
+    Key? key,
+    required String institutionId,
+    String classLevel = '7. Sınıf',
+  }) {
+    const defaultSubjects = [
+      'Türkçe',
+      'Matematik',
+      'Fen Bilimleri',
+      'Sosyal Bilgiler',
+      'İngilizce',
+      'Din Kültürü ve Ahlak Bilgisi',
+      'T.C. İnkılap Tarihi',
+      'Fizik',
+      'Kimya',
+      'Biyoloji',
+      'Tarih',
+      'Coğrafya',
+      'Felsefe',
+      'Türk Dili ve Edebiyatı',
+    ];
+    final virtualExam = TrialExam(
+      id: 'pool_$institutionId',
+      institutionId: institutionId,
+      name: 'Soru Havuzu Stüdyosu',
+      classLevel: classLevel,
+      examTypeId: '',
+      examTypeName: 'Soru Havuzu',
+      applicationType: TrialExamApplicationType.optical,
+      bookletCount: 1,
+      sessionCount: 1,
+      sessions: [
+        TrialExamSession(
+          sessionNumber: 1,
+          selectedSubjects: defaultSubjects,
+        ),
+      ],
+      date: DateTime.now(),
+      isActive: false,
+    );
+    return ErrorBookletEditorScreen(
+      key: key,
+      exam: virtualExam,
+      isPoolMode: true,
+    );
+  }
 
   @override
   State<ErrorBookletEditorScreen> createState() =>
@@ -111,6 +265,24 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
 
   String _selectedBooklet = 'A'; // Which booklet does this PDF represent?
 
+  // ─── Manual metadata defaults (for Soru Havuzu mode & custom edits) ───────
+  String _manualAnswer = 'A';
+  double _manualDifficulty = 50.0; // 75 = Kolay, 50 = Orta, 25 = Zor
+  final TextEditingController _manualOutcomeCtrl = TextEditingController();
+  final FocusNode _manualOutcomeFocus = FocusNode();
+  String _poolClassLevel = '7. Sınıf';
+  List<Map<String, dynamic>> _rawOutcomeListDocs = [];
+  List<String> _outcomeSuggestions = [];
+
+  // ─── Auto detection (session -> page(1-based) -> boxes in 800px space) ────
+  final Map<int, Map<int, List<Rect>>> _autoBoxes = {};
+  bool _isAutoDetecting = false;
+  double _gapFactor = 1.0;
+  List<Rect> get _curBoxes =>
+      _autoBoxes[_sessionIdx]?[_currentPage[_sessionIdx]] ?? const [];
+  int get _sessionBoxCount => (_autoBoxes[_sessionIdx]?.values ?? [])
+      .fold<int>(0, (a, b) => a + b.length);
+
   // ═══════════════════════════════════════════════════════════════════════════
   @override
   void initState() {
@@ -133,12 +305,392 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
       final bookletKeys = widget.exam.answerKeys['A']?.keys ?? widget.exam.answerKeys.values.first.keys;
       _subjects = bookletKeys.toList();
     }
+    if (_subjects.isEmpty && widget.isPoolMode) {
+      _subjects = List<String>.from(_localSessions.first.selectedSubjects);
+    }
     if (_subjects.isNotEmpty) {
       _sortSubjects();
       _selectedSubject = _subjects.first;
     }
+    _poolClassLevel = widget.exam.classLevel.isNotEmpty ? widget.exam.classLevel : '7. Sınıf';
+    _loadOutcomeSuggestions();
     
     _loadPublishedCrops();
+  }
+
+  Future<void> _loadOutcomeSuggestions() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('outcome_lists')
+          .where('institutionId', isEqualTo: widget.exam.institutionId)
+          .where('isActive', isEqualTo: true)
+          .get();
+      final List<Map<String, dynamic>> rawDocs = [];
+      final Set<String> items = {};
+      for (final d in snap.docs) {
+        final data = d.data();
+        rawDocs.add(data);
+        final outcomes = data['outcomes'] as List<dynamic>?;
+        if (outcomes != null) {
+          for (final o in outcomes) {
+            if (o is Map) {
+              final desc = (o['description'] ?? '').toString().trim();
+              if (desc.isNotEmpty) items.add(desc);
+            } else {
+              final s = o.toString().trim();
+              if (s.isNotEmpty) items.add(s);
+            }
+          }
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _rawOutcomeListDocs = rawDocs;
+          _outcomeSuggestions = items.toList();
+        });
+      }
+    } catch (_) {}
+  }
+
+  static String _normTr(String input) {
+    return input
+        .trim()
+        .replaceAll('İ', 'i')
+        .replaceAll('I', 'i')
+        .replaceAll('ı', 'i')
+        .replaceAll('Ş', 's')
+        .replaceAll('ş', 's')
+        .replaceAll('Ğ', 'g')
+        .replaceAll('ğ', 'g')
+        .replaceAll('Ü', 'u')
+        .replaceAll('ü', 'u')
+        .replaceAll('Ö', 'o')
+        .replaceAll('ö', 'o')
+        .replaceAll('Ç', 'c')
+        .replaceAll('ç', 'c')
+        .toLowerCase();
+  }
+
+  static String _canonicalBranch(String raw) {
+    final n = _normTr(raw);
+    if (n.contains('turkce')) return 'turkce';
+    if (n.contains('matematik')) return 'matematik';
+    if (n.contains('fen')) return 'fen';
+    if (n.contains('inkilap')) return 'inkilap';
+    if (n.contains('sosyal')) return 'sosyal';
+    if (n.contains('din')) return 'din';
+    if (n.contains('ingilizce') || n.contains('yabanci dil')) return 'ingilizce';
+    if (n.contains('fizik')) return 'fizik';
+    if (n.contains('kimya')) return 'kimya';
+    if (n.contains('biyoloji')) return 'biyoloji';
+    if (n.contains('tarih')) return 'tarih';
+    if (n.contains('cografya')) return 'cografya';
+    if (n.contains('edebiyat')) return 'edebiyat';
+    if (n.contains('felsefe')) return 'felsefe';
+    return n;
+  }
+
+  static bool _classMatches(String docClass, String selectedClass) {
+    final dc = _normTr(docClass);
+    final sc = _normTr(selectedClass);
+    if (dc.isEmpty || sc.isEmpty) return false;
+    if (dc == sc) return true;
+    final dm = RegExp(r'^(\d+)').firstMatch(dc);
+    final sm = RegExp(r'^(\d+)').firstMatch(sc);
+    if (dm != null && sm != null) {
+      return dm.group(1) == sm.group(1);
+    }
+    return dc.contains(sc) || sc.contains(dc);
+  }
+
+  /// Seçili Sınıf Seviyesi ve Seçili Branş (Ders) için tanımlı Konu (`depth == 1`)
+  /// ve Alt Kazanım (`depth == 2`) öğelerini sırasıyla döndürür.
+  List<Map<String, dynamic>> _getStructuredOutcomesFor(String classLevel, String? subject) {
+    if (subject == null || subject.trim().isEmpty) return const [];
+    final targetBranch = _canonicalBranch(subject);
+    final List<Map<String, dynamic>> result = [];
+    final Set<String> seenKeys = {};
+
+    for (final data in _rawOutcomeListDocs) {
+      final docCls = (data['classLevel'] ?? data['name'] ?? '').toString();
+      final docBranch = (data['branchName'] ?? '').toString();
+      if (!_classMatches(docCls, classLevel)) continue;
+      if (_canonicalBranch(docBranch) != targetBranch) continue;
+
+      final outcomes = data['outcomes'] as List<dynamic>?;
+      if (outcomes == null) continue;
+
+      String currentTopic = '';
+      for (final o in outcomes) {
+        if (o is Map) {
+          final desc = (o['description'] ?? '').toString().trim();
+          final code = (o['code'] ?? '').toString().trim();
+          final int depth = (o['depth'] is int) ? (o['depth'] as int) : 2;
+          if (desc.isEmpty) continue;
+          if (depth == 1) {
+            currentTopic = desc;
+          }
+          final key = '${depth}_${_normTr(code)}_${_normTr(desc)}';
+          if (seenKeys.add(key)) {
+            result.add({
+              'code': code,
+              'description': desc,
+              'depth': depth,
+              'topicTitle': currentTopic,
+            });
+          }
+        } else {
+          final s = o.toString().trim();
+          if (s.isNotEmpty && seenKeys.add('2__${_normTr(s)}')) {
+            result.add({
+              'code': '',
+              'description': s,
+              'depth': 2,
+              'topicTitle': currentTopic,
+            });
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  List<String> _getOutcomesForSubject(String? subject) {
+    return _getStructuredOutcomesFor(_poolClassLevel, subject)
+        .map((e) => e['description'] as String)
+        .toList();
+  }
+
+  /// Hem yazarken canlı öneri (autocomplete) sunan hem de sağdaki ok butonundan
+  /// seçili Sınıf + Branş kazanımlarını açan akıllı Kazanım / Konu kutusu.
+  Widget _buildOutcomeAutocompleteBox({
+    required TextEditingController controller,
+    required FocusNode focusNode,
+    required String classLevel,
+    required String? subject,
+    double maxWidth = 380,
+    bool compact = true,
+    VoidCallback? onChanged,
+  }) {
+    final allItems = _getStructuredOutcomesFor(classLevel, subject);
+
+    return RawAutocomplete<Map<String, dynamic>>(
+      textEditingController: controller,
+      focusNode: focusNode,
+      displayStringForOption: (opt) => (opt['description'] ?? '').toString(),
+      optionsBuilder: (TextEditingValue tv) {
+        if (allItems.isEmpty) return const Iterable<Map<String, dynamic>>.empty();
+        final q = _normTr(tv.text);
+        if (q.isEmpty) {
+          return allItems;
+        }
+        return allItems.where((item) {
+          final desc = _normTr((item['description'] ?? '').toString());
+          final code = _normTr((item['code'] ?? '').toString());
+          final topic = _normTr((item['topicTitle'] ?? '').toString());
+          return desc.contains(q) || code.contains(q) || topic.contains(q);
+        });
+      },
+      onSelected: (Map<String, dynamic> sel) {
+        final desc = (sel['description'] ?? '').toString();
+        controller.text = desc;
+        controller.selection = TextSelection.fromPosition(
+          TextPosition(offset: desc.length),
+        );
+        onChanged?.call();
+        if (mounted) setState(() {});
+      },
+      fieldViewBuilder: (ctx, textCtrl, fNode, onFieldSubmitted) {
+        return ConstrainedBox(
+          constraints: BoxConstraints(minWidth: 240, maxWidth: maxWidth),
+          child: SizedBox(
+            height: compact ? 34 : null,
+            child: TextField(
+              controller: textCtrl,
+              focusNode: fNode,
+              maxLines: compact ? 1 : 2,
+              minLines: 1,
+              onChanged: (_) {
+                onChanged?.call();
+                if (mounted) setState(() {});
+              },
+              style: TextStyle(fontSize: compact ? 12 : 13),
+              decoration: InputDecoration(
+                hintText: allItems.isNotEmpty
+                    ? '$classLevel ${subject ?? ''} kazanımı yazın veya seçin... (${allItems.length})'
+                    : '$classLevel ${subject ?? ''} için kazanım yazın...',
+                hintStyle: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                filled: true,
+                fillColor: Colors.white,
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: compact ? 7 : 10,
+                ),
+                prefixIcon: const Icon(Icons.psychology_outlined, size: 16, color: Colors.indigo),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (textCtrl.text.isNotEmpty)
+                      IconButton(
+                        tooltip: 'Temizle',
+                        icon: const Icon(Icons.clear, size: 14),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                        onPressed: () {
+                          textCtrl.clear();
+                          onChanged?.call();
+                          if (mounted) setState(() {});
+                        },
+                      ),
+                    if (allItems.isNotEmpty)
+                      PopupMenuButton<String>(
+                        tooltip: '$classLevel • ${subject ?? ''} Kazanım Listesinden Seç',
+                        icon: const Icon(Icons.arrow_drop_down, size: 20, color: Colors.indigo),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 420),
+                        onSelected: (val) {
+                          textCtrl.text = val;
+                          textCtrl.selection = TextSelection.fromPosition(
+                            TextPosition(offset: val.length),
+                          );
+                          onChanged?.call();
+                          if (mounted) setState(() {});
+                        },
+                        itemBuilder: (ctx) => [
+                          PopupMenuItem<String>(
+                            enabled: false,
+                            height: 30,
+                            child: Text(
+                              '$classLevel • ${subject ?? ''} Kazanımları (${allItems.length})',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.indigo,
+                              ),
+                            ),
+                          ),
+                          const PopupMenuDivider(height: 4),
+                          for (final item in allItems)
+                            PopupMenuItem<String>(
+                              value: (item['description'] ?? '').toString(),
+                              child: Text(
+                                (item['depth'] == 1)
+                                    ? '📁 ${(item['code'] as String).isNotEmpty ? '${item['code']} ' : ''}${item['description']}'
+                                    : '   • ${(item['code'] as String).isNotEmpty ? '${item['code']} - ' : ''}${item['description']}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: item['depth'] == 1 ? FontWeight.bold : FontWeight.normal,
+                                  color: item['depth'] == 1
+                                      ? Colors.indigo.shade900
+                                      : const Color(0xFF1E293B),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                  ],
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.indigo.shade200),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.indigo.shade200),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      optionsViewBuilder: (ctx, onSelected, options) {
+        final optList = options.toList();
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 8,
+            borderRadius: BorderRadius.circular(10),
+            color: Colors.white,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480, maxHeight: 300),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                    ),
+                    child: Text(
+                      '$classLevel • ${subject ?? ''} Önerilen Kazanımlar (${optList.length})',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.indigo.shade900,
+                      ),
+                    ),
+                  ),
+                  Flexible(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      shrinkWrap: true,
+                      itemCount: optList.length,
+                      separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade100),
+                      itemBuilder: (ctx, idx) {
+                        final item = optList[idx];
+                        final isTopic = item['depth'] == 1;
+                        final code = (item['code'] ?? '').toString();
+                        final desc = (item['description'] ?? '').toString();
+                        final topicTitle = (item['topicTitle'] ?? '').toString();
+
+                        return InkWell(
+                          onTap: () => onSelected(item),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (!isTopic && topicTitle.isNotEmpty)
+                                  Text(
+                                    '📁 $topicTitle',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.indigo.shade400,
+                                    ),
+                                  ),
+                                Text(
+                                  isTopic
+                                      ? '📁 ${code.isNotEmpty ? '$code ' : ''}$desc (Konu Başlığı)'
+                                      : '• ${code.isNotEmpty ? '$code - ' : ''}$desc',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: isTopic ? FontWeight.bold : FontWeight.w500,
+                                    color: isTopic
+                                        ? Colors.indigo.shade900
+                                        : const Color(0xFF1E293B),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _sortSubjects() {
@@ -396,33 +948,37 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
         bool needsUpdate = false;
         final updateMap = <String, dynamic>{};
 
-        if (latestDifficulty != null && difficulty != latestDifficulty) {
-          difficulty = latestDifficulty;
-          updateMap['difficulty'] = difficulty;
-          needsUpdate = true;
-        }
-        if (latestOutcome != null && outcome != latestOutcome) {
-          outcome = latestOutcome;
-          updateMap['outcome'] = outcome;
-          needsUpdate = true;
-        }
-        if (latestCorrectAnswer != null && correctAnswer != latestCorrectAnswer) {
-          correctAnswer = latestCorrectAnswer;
-          updateMap['correctAnswer'] = correctAnswer;
-          needsUpdate = true;
-        }
+        if (!widget.isPoolMode) {
+          if (latestDifficulty != null && difficulty != latestDifficulty) {
+            difficulty = latestDifficulty;
+            updateMap['difficulty'] = difficulty;
+            needsUpdate = true;
+          }
+          if (latestOutcome != null && outcome != latestOutcome) {
+            outcome = latestOutcome;
+            updateMap['outcome'] = outcome;
+            needsUpdate = true;
+          }
+          if (latestCorrectAnswer != null &&
+              latestCorrectAnswer != '?' &&
+              correctAnswer != latestCorrectAnswer) {
+            correctAnswer = latestCorrectAnswer;
+            updateMap['correctAnswer'] = correctAnswer;
+            needsUpdate = true;
+          }
 
-        // As a fallback for older questions/outcomes if latest outcome is still null but we need to check K12 text mappings
-        if (outcome == null && latestOutcome != null) {
-          outcome = latestOutcome;
-          updateMap['outcome'] = outcome;
-          needsUpdate = true;
-        }
-        // Fallback for correctAnswer
-        if (correctAnswer == null && latestCorrectAnswer != null) {
-          correctAnswer = latestCorrectAnswer;
-          updateMap['correctAnswer'] = correctAnswer;
-          needsUpdate = true;
+          if (outcome == null && latestOutcome != null) {
+            outcome = latestOutcome;
+            updateMap['outcome'] = outcome;
+            needsUpdate = true;
+          }
+          if (correctAnswer == null &&
+              latestCorrectAnswer != null &&
+              latestCorrectAnswer != '?') {
+            correctAnswer = latestCorrectAnswer;
+            updateMap['correctAnswer'] = correctAnswer;
+            needsUpdate = true;
+          }
         }
 
         // Fire-and-forget update to persist backfilled metadata to the DB
@@ -444,6 +1000,11 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
           'loading': false,
           'sessionIdx': data['sessionIdx'] ?? 0,
           'docId': doc.id,
+          'passageId': data['passageId'],
+          'passageBase64': data['passageBase64'],
+          'passageBytes': data['passageBase64'] != null
+              ? base64Decode(data['passageBase64'] as String)
+              : null,
         });
       }
       
@@ -741,28 +1302,608 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
     return mappings.isEmpty ? '' : ' (${mappings.join(', ')})';
   }
 
-  String _getDifficultyLabel(double success) {
-    if (success <= 20) return 'Çok Zor';
-    if (success <= 40) return 'Zor';
-    if (success <= 60) return 'Orta';
-    if (success <= 80) return 'Kolay';
-    return 'Çok Kolay';
+  String _getDifficultyLabel(double success) => DifficultyScale.labelOf(success);
+
+  Color _getDifficultyColor(double success) => DifficultyScale.colorOf(success);
+
+  // ─── Auto question detection (free, rule based) ───────────────────────────
+  bool _autoTrim = true;
+  Uint8List? _grayFor;
+  Uint8List? _grayData;
+  int _grayW = 0, _grayH = 0;
+
+  // ─── Shared Passage (Ortak Metin) state ──────────────────────────────────
+  String? _activePassageId;
+  Uint8List? _activePassageBytes;
+  int? _activePassageSession;
+  int? _activePassagePage;
+  Rect? _activePassageRect;
+
+  void _clearActivePassage() {
+    setState(() {
+      _activePassageId = null;
+      _activePassageBytes = null;
+      _activePassageSession = null;
+      _activePassagePage = null;
+      _activePassageRect = null;
+    });
   }
 
-  Color _getDifficultyColor(double success) {
-    if (success <= 20) return Colors.red.shade700;
-    if (success <= 40) return Colors.orange.shade700;
-    if (success <= 60) return Colors.amber.shade700;
-    if (success <= 80) return Colors.lightGreen.shade700;
-    return Colors.green.shade700;
+  Future<void> _pinBoxAsPassage(int i) async {
+    final session = _sessionIdx;
+    final page = _currentPage[session];
+    final list = _autoBoxes[session]?[page];
+    if (list == null || i < 0 || i >= list.length) return;
+    if (page - 1 >= _pages[session].length) return;
+    final r = list[i];
+
+    // Toggle off if already pinned to this exact box
+    if (_activePassageId != null &&
+        _activePassageSession == session &&
+        _activePassagePage == page &&
+        _activePassageRect == r) {
+      _clearActivePassage();
+      return;
+    }
+
+    final img = _pages[session][page - 1];
+    try {
+      var trimmed = r;
+      if (_autoTrim) {
+        trimmed = await _trimPassageRect(img, r);
+        list[i] = trimmed;
+      }
+      final bytes = await _cropNativeCanvas(
+        img,
+        trimmed.left,
+        trimmed.top,
+        trimmed.width,
+        trimmed.height,
+        800.0,
+      );
+      if (!mounted) return;
+      setState(() {
+        _activePassageId = 'p_${DateTime.now().millisecondsSinceEpoch}';
+        _activePassageBytes = bytes;
+        _activePassageSession = session;
+        _activePassagePage = page;
+        _activePassageRect = trimmed;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        backgroundColor: Colors.orange,
+        content: Text(
+          '📌 Ortak metin sabitlendi! Hata kitapçığında üstüne öğrencinin soru sırasına göre otomatik açıklama yazılacaktır.',
+        ),
+      ));
+    } catch (e) {
+      debugPrint('pinBoxAsPassage error: $e');
+    }
   }
 
-  // ─── Crop – main thread: coords only | isolate: pixel work ─────────────────
-  Future<void> _saveCrop() async {
+  /// Decodes a page image to 1200px wide grayscale (cached for the last page).
+  Future<void> _ensureGray(Uint8List bytes) async {
+    if (identical(_grayFor, bytes) && _grayData != null) return;
+    const aw = 1200;
+    final blob = html.Blob([bytes], 'image/jpeg');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final img = html.ImageElement();
+    final loaded = Completer<void>();
+    img.onLoad.listen((_) => loaded.complete());
+    img.onError.listen((_) => loaded.completeError('img load error'));
+    img.src = url;
+    await loaded.future;
+    html.Url.revokeObjectUrl(url);
+    final nw = img.naturalWidth, nh = img.naturalHeight;
+    final ah = (nh * aw / nw).round();
+    final canvas = html.CanvasElement(width: aw, height: ah);
+    final ctx = canvas.context2D;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, aw, ah);
+    ctx.drawImageScaled(img, 0, 0, aw, ah);
+    final data = ctx.getImageData(0, 0, aw, ah).data;
+    final gray = Uint8List(aw * ah);
+    for (int i = 0, j = 0; i < gray.length; i++, j += 4) {
+      gray[i] = (data[j] * 77 + data[j + 1] * 151 + data[j + 2] * 28) >> 8;
+    }
+    _grayFor = bytes;
+    _grayData = gray;
+    _grayW = aw;
+    _grayH = ah;
+  }
+
+  /// Removes white margins from a rect given in 800px display coordinates.
+  Future<Rect> _trimRect(Uint8List bytes, Rect r) async {
+    await _ensureGray(bytes);
+    const s = 1200 / 800;
+    final t = AutoQuestionDetector.tighten(
+        _grayData!, _grayW, _grayH, r.left * s, r.top * s, r.right * s, r.bottom * s,
+        pad: 4);
+    if (t == null) return r;
+    return Rect.fromLTRB(t.left / s, t.top / s, t.right / s, t.bottom / s);
+  }
+
+  /// Removes white margins AND any standalone 1-line leading instruction
+  /// (e.g. "4, 5 ve 6. soruları aşağıdaki metne göre cevaplayınız.") from a
+  /// shared passage rect so the student's Error Booklet can print its own
+  /// dynamic question numbers cleanly at the top.
+  Future<Rect> _trimPassageRect(Uint8List bytes, Rect r) async {
+    await _ensureGray(bytes);
+    const s = 1200 / 800;
+    final t = AutoQuestionDetector.stripLeadingInstructionLine(
+        _grayData!, _grayW, _grayH, r.left * s, r.top * s, r.right * s, r.bottom * s,
+        pad: 4);
+    if (t == null) return r;
+    return Rect.fromLTRB(t.left / s, t.top / s, t.right / s, t.bottom / s);
+  }
+  Future<List<Rect>> _detectPage(Uint8List bytes) async {
+    const aw = 1200;
+    final blob = html.Blob([bytes], 'image/jpeg');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final img = html.ImageElement();
+    final loaded = Completer<void>();
+    img.onLoad.listen((_) => loaded.complete());
+    img.onError.listen((_) => loaded.completeError('img load error'));
+    img.src = url;
+    await loaded.future;
+    html.Url.revokeObjectUrl(url);
+
+    final nw = img.naturalWidth;
+    final nh = img.naturalHeight;
+    if (nw == 0 || nh == 0) return [];
+    final ah = (nh * aw / nw).round();
+    final canvas = html.CanvasElement(width: aw, height: ah);
+    final ctx = canvas.context2D;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, aw, ah);
+    ctx.drawImageScaled(img, 0, 0, aw, ah);
+    final data = ctx.getImageData(0, 0, aw, ah).data;
+    final gray = Uint8List(aw * ah);
+    for (int i = 0, j = 0; i < gray.length; i++, j += 4) {
+      gray[i] = (data[j] * 77 + data[j + 1] * 151 + data[j + 2] * 28) >> 8;
+    }
+    final textGray = AutoQuestionDetector.textGrayFromRgba(data, aw * ah);
+    final boxes = AutoQuestionDetector.detect(gray, aw, ah, gapFactor: _gapFactor, textGray: textGray);
+    const s = 800.0 / aw;
+    return boxes
+        .map((b) => Rect.fromLTRB(b.left * s, b.top * s, b.right * s, b.bottom * s))
+        .toList();
+  }
+
+  Future<void> _autoDetect({required bool allPages}) async {
+    if (_isAutoDetecting) return;
+    final session = _sessionIdx;
+    final pages = allPages
+        ? List<int>.generate(_curPages.length, (i) => i + 1)
+        : [_currentPage[session]];
+    if (_curPages.isEmpty) return;
+    setState(() {
+      _isAutoDetecting = true;
+      _isSelectionMode = false;
+      _startPt = null;
+      _endPt = null;
+    });
+    int found = 0;
+    try {
+      for (final p in pages) {
+        if (p - 1 >= _pages[session].length) continue;
+        final boxes = await _detectPage(_pages[session][p - 1]);
+        found += boxes.length;
+        _autoBoxes.putIfAbsent(session, () => {})[p] = boxes;
+        if (mounted) setState(() {});
+      }
+    } catch (e) {
+      debugPrint('autoDetect error: $e');
+    }
+    if (!mounted) return;
+    setState(() => _isAutoDetecting = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(found == 0
+          ? 'Soru bulunamadı. Elle seçim yapabilirsiniz.'
+          : '$found soru algılandı. Yanlışları ✕ ile silin, sonra "HEPSİNİ KES" deyin.'),
+    ));
+  }
+
+  void _deleteAutoBox(Rect r) {
+    setState(() => _autoBoxes[_sessionIdx]?[_currentPage[_sessionIdx]]?.remove(r));
+  }
+
+  Future<void> _cutAllAutoBoxes() async {
+    final session = _sessionIdx;
+    if (_selectedSubject == null) return;
+    final pageMap = _autoBoxes[session];
+    if (pageMap == null) return;
+    final pageNos = pageMap.keys.toList()..sort();
+    for (final p in pageNos) {
+      if (p - 1 >= _pages[session].length) continue;
+      final img = _pages[session][p - 1];
+      for (final r in List<Rect>.from(pageMap[p] ?? const [])) {
+        // Skip cutting the pinned passage box itself as a standalone question
+        if (_activePassageId != null &&
+            _activePassageSession == session &&
+            _activePassagePage == p &&
+            _activePassageRect == r) {
+          continue;
+        }
+        await _cropFromRect(img, r.left, r.top, r.right, r.bottom, applyAutoTrim: false);
+      }
+    }
+    if (mounted) setState(() => _autoBoxes.remove(session));
+  }
+
+  bool _draggingBox = false;
+
+  void _updateAutoBox(int i, Rect Function(Rect) f) {
+    final list = _autoBoxes[_sessionIdx]?[_currentPage[_sessionIdx]];
+    if (list == null || i < 0 || i >= list.length) return;
+    final oldR = list[i];
+    var r = f(oldR);
+    // keep sane size and stay inside the 800px wide page
+    if (r.width < 30 || r.height < 20) return;
+    if (r.left < 0 || r.top < 0 || r.right > 800) return;
+    setState(() {
+      list[i] = r;
+      if (_activePassageId != null &&
+          _activePassageSession == _sessionIdx &&
+          _activePassagePage == _currentPage[_sessionIdx] &&
+          _activePassageRect == oldR) {
+        _activePassageRect = r;
+      }
+    });
+  }
+
+  /// Cuts a single detected box right away (✓ button).
+  Future<void> _cutOneAutoBox(int i) async {
+    final session = _sessionIdx;
+    final page = _currentPage[session];
+    final list = _autoBoxes[session]?[page];
+    if (list == null || i >= list.length || _selectedSubject == null) return;
+    if (page - 1 >= _pages[session].length) return;
+    final r = list[i];
+    final img = _pages[session][page - 1];
+    setState(() => list.removeAt(i));
+    await _cropFromRect(img, r.left, r.top, r.right, r.bottom, applyAutoTrim: false);
+  }
+
+  /// Drag handle. [onDrag] receives the delta in page coordinates.
+  Widget _dragHandle(double left, double top, IconData? icon, MouseCursor cursor,
+      void Function(Offset d) onDrag) {
+    const size = 18.0;
+    return Positioned(
+      left: left - size / 2,
+      top: top - size / 2,
+      child: MouseRegion(
+        cursor: cursor,
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (_) => setState(() => _draggingBox = true),
+          onPointerMove: (e) => onDrag(e.delta / (_zoom == 0 ? 1 : _zoom)),
+          onPointerUp: (_) => setState(() => _draggingBox = false),
+          onPointerCancel: (_) => setState(() => _draggingBox = false),
+          child: Container(
+            width: size, height: size,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: Colors.indigo, width: 2),
+              borderRadius: BorderRadius.circular(icon == null ? 2 : 9),
+            ),
+            child: icon == null ? null : Icon(icon, size: 12, color: Colors.indigo),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _autoBoxOverlays() {
+    final boxes = List<Rect>.from(_curBoxes);
+    return [
+      for (int i = 0; i < boxes.length; i++) ...[
+        Positioned.fromRect(
+          rect: boxes[i],
+          child: IgnorePointer(
+            child: Container(
+              decoration: BoxDecoration(
+                color: (_activePassageId != null &&
+                            _activePassageSession == _sessionIdx &&
+                            _activePassagePage == _currentPage[_sessionIdx] &&
+                            _activePassageRect == boxes[i]
+                        ? Colors.orange
+                        : Colors.indigo)
+                    .withValues(alpha: 0.10),
+                border: Border.all(
+                  color: _activePassageId != null &&
+                          _activePassageSession == _sessionIdx &&
+                          _activePassagePage == _currentPage[_sessionIdx] &&
+                          _activePassageRect == boxes[i]
+                      ? Colors.orange.shade700
+                      : Colors.indigo,
+                  width: 2,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: boxes[i].left,
+          top: boxes[i].top - 14 < 0 ? 0 : boxes[i].top - 14,
+          child: IgnorePointer(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              color: _activePassageId != null &&
+                      _activePassageSession == _sessionIdx &&
+                      _activePassagePage == _currentPage[_sessionIdx] &&
+                      _activePassageRect == boxes[i]
+                  ? Colors.orange.shade700
+                  : Colors.indigo,
+              child: Text(
+                  _activePassageId != null &&
+                          _activePassageSession == _sessionIdx &&
+                          _activePassagePage == _currentPage[_sessionIdx] &&
+                          _activePassageRect == boxes[i]
+                      ? '📌 ORTAK METİN (AKTİF)'
+                      : '${i + 1}',
+                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ),
+        // ✕ delete
+        Positioned(
+          left: boxes[i].right - 30,
+          top: boxes[i].top,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _deleteAutoBox(boxes[i]),
+            child: Container(
+              width: 30, height: 30,
+              color: Colors.red.shade600,
+              child: const Icon(Icons.close, size: 20, color: Colors.white),
+            ),
+          ),
+        ),
+        // ✓ cut this one
+        Positioned(
+          left: boxes[i].right - 62,
+          top: boxes[i].top,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _cutOneAutoBox(i),
+            child: Container(
+              width: 30, height: 30,
+              color: Colors.green.shade600,
+              child: const Icon(Icons.check, size: 20, color: Colors.white),
+            ),
+          ),
+        ),
+        // 📌 pin as shared passage (Ortak Metin)
+        Positioned(
+          left: boxes[i].right - 94,
+          top: boxes[i].top,
+          child: Tooltip(
+            message: _activePassageId != null &&
+                    _activePassageSession == _sessionIdx &&
+                    _activePassagePage == _currentPage[_sessionIdx] &&
+                    _activePassageRect == boxes[i]
+                ? 'Ortak Metni Kaldır'
+                : 'Ortak Metin Yap (Bağlı Sorular İçin)',
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _pinBoxAsPassage(i),
+              child: Container(
+                width: 30,
+                height: 30,
+                color: _activePassageId != null &&
+                        _activePassageSession == _sessionIdx &&
+                        _activePassagePage == _currentPage[_sessionIdx] &&
+                        _activePassageRect == boxes[i]
+                    ? Colors.orange.shade800
+                    : Colors.amber.shade700,
+                child: const Icon(Icons.push_pin, size: 18, color: Colors.white),
+              ),
+            ),
+          ),
+        ),
+        // corner handles (resize)
+        _dragHandle(boxes[i].left, boxes[i].top, null, SystemMouseCursors.resizeUpLeftDownRight,
+            (d) => _updateAutoBox(i, (r) => Rect.fromLTRB(r.left + d.dx, r.top + d.dy, r.right, r.bottom))),
+        _dragHandle(boxes[i].right, boxes[i].top, null, SystemMouseCursors.resizeUpRightDownLeft,
+            (d) => _updateAutoBox(i, (r) => Rect.fromLTRB(r.left, r.top + d.dy, r.right + d.dx, r.bottom))),
+        _dragHandle(boxes[i].left, boxes[i].bottom, null, SystemMouseCursors.resizeUpRightDownLeft,
+            (d) => _updateAutoBox(i, (r) => Rect.fromLTRB(r.left + d.dx, r.top, r.right, r.bottom + d.dy))),
+        _dragHandle(boxes[i].right, boxes[i].bottom, null, SystemMouseCursors.resizeUpLeftDownRight,
+            (d) => _updateAutoBox(i, (r) => Rect.fromLTRB(r.left, r.top, r.right + d.dx, r.bottom + d.dy))),
+        // edge handles (top / bottom / left / right) for quick vertical & horizontal fixing
+        _dragHandle(boxes[i].center.dx, boxes[i].top, null, SystemMouseCursors.resizeUpDown,
+            (d) => _updateAutoBox(i, (r) => Rect.fromLTRB(r.left, r.top + d.dy, r.right, r.bottom))),
+        _dragHandle(boxes[i].center.dx, boxes[i].bottom, null, SystemMouseCursors.resizeUpDown,
+            (d) => _updateAutoBox(i, (r) => Rect.fromLTRB(r.left, r.top, r.right, r.bottom + d.dy))),
+        _dragHandle(boxes[i].left, boxes[i].center.dy, null, SystemMouseCursors.resizeLeftRight,
+            (d) => _updateAutoBox(i, (r) => Rect.fromLTRB(r.left + d.dx, r.top, r.right, r.bottom))),
+        _dragHandle(boxes[i].right, boxes[i].center.dy, null, SystemMouseCursors.resizeLeftRight,
+            (d) => _updateAutoBox(i, (r) => Rect.fromLTRB(r.left, r.top, r.right + d.dx, r.bottom))),
+        // move whole box
+        _dragHandle(boxes[i].center.dx, boxes[i].center.dy, Icons.open_with, SystemMouseCursors.move,
+            (d) => _updateAutoBox(i, (r) => r.shift(d))),
+        // Floating Answer & Difficulty bar below the active/latest box
+        if (i == boxes.length - 1)
+          Positioned(
+            left: boxes[i].left.clamp(0.0, 900.0),
+            top: boxes[i].bottom + 8,
+            child: Material(
+              elevation: 6,
+              borderRadius: BorderRadius.circular(10),
+              color: const Color(0xFF1E293B),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Cevap:', style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold)),
+                    const SizedBox(width: 4),
+                    for (final ans in ['A', 'B', 'C', 'D', 'E'])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 3),
+                        child: InkWell(
+                          onTap: () => setState(() => _manualAnswer = ans),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            width: 22,
+                            height: 22,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: _manualAnswer == ans ? Colors.indigoAccent : Colors.white12,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: _manualAnswer == ans ? Colors.white : Colors.white24,
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              ans,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: _manualAnswer == ans ? FontWeight.bold : FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    Container(width: 1, height: 18, color: Colors.white24, margin: const EdgeInsets.symmetric(horizontal: 6)),
+                    for (final diffEntry in [
+                      ('Kolay', 80.0, Colors.green),
+                      ('Orta', 55.0, Colors.orange),
+                      ('Zor', 25.0, Colors.redAccent),
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: InkWell(
+                          onTap: () => setState(() => _manualDifficulty = diffEntry.$2),
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: _getDifficultyLabel(_manualDifficulty) == diffEntry.$1
+                                  ? diffEntry.$3
+                                  : Colors.white12,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              diffEntry.$1,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(width: 4),
+                    InkWell(
+                      onTap: () => _cutOneAutoBox(i),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade600,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check, size: 13, color: Colors.white),
+                            SizedBox(width: 3),
+                            Text('Kes', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    ];
+  }
+
+  /// When the user finishes dragging a rough manual selection (`onPanEnd`),
+  /// automatically analyses the pixels inside the rectangle, strips white
+  /// margins, column dividers, and any hanging question number ("1.", "10."),
+  /// smoothly animates the box onto the tight content bounds, and locks it in
+  /// as a persistent box on the page (so clicking an empty spot or selecting
+  /// another box never erases it — it only closes when ✕ or ✓ is clicked).
+  Future<void> _snapManualSelectionOnPanEnd() async {
     final imgBytes = _pageImage;
-    if (imgBytes == null || _startPt == null || _endPt == null ||
-        _selectedSubject == null) return;
+    if (imgBytes == null || _startPt == null || _endPt == null) return;
+    final fromRect = Rect.fromPoints(_startPt!, _endPt!);
+    if (fromRect.width < 20 || fromRect.height < 16) {
+      // Just an empty click — clear temporary drag points without touching existing boxes!
+      setState(() {
+        _startPt = null;
+        _endPt = null;
+      });
+      return;
+    }
 
+    try {
+      final trimmedPage = await _trimRect(imgBytes, fromRect);
+      if (!mounted) return;
+
+      // Smooth ~110ms ease-out snap animation (6 frames)
+      const steps = 6;
+      for (int step = 1; step <= steps; step++) {
+        await Future<void>.delayed(const Duration(milliseconds: 16));
+        if (!mounted || _startPt == null || _endPt == null) return;
+        final t = 1.0 - ((1.0 - step / steps) * (1.0 - step / steps) * (1.0 - step / steps));
+        final cur = Rect.lerp(fromRect, trimmedPage, t)!;
+        setState(() {
+          _startPt = cur.topLeft;
+          _endPt = cur.bottomRight;
+        });
+      }
+
+      if (!mounted) return;
+      final session = _sessionIdx;
+      final page = _currentPage[session];
+      setState(() {
+        final pageList = _autoBoxes.putIfAbsent(session, () => {}).putIfAbsent(page, () => []);
+        pageList.add(trimmedPage);
+        _startPt = null;
+        _endPt = null;
+      });
+    } catch (e) {
+      debugPrint('snapManualSelection error: $e');
+      if (mounted) {
+        final session = _sessionIdx;
+        final page = _currentPage[session];
+        setState(() {
+          final pageList = _autoBoxes.putIfAbsent(session, () => {}).putIfAbsent(page, () => []);
+          pageList.add(fromRect);
+          _startPt = null;
+          _endPt = null;
+        });
+      }
+    }
+  }
+
+  /// Crops a page image (rendered at 800px display width) with a rect given in
+  /// display coordinates and adds it to the pool using the current subject /
+  /// question number (which then auto-advance).
+  Future<void> _cropFromRect(Uint8List imgBytes, double left, double top,
+      double right, double bottom, {bool applyAutoTrim = true}) async {
+    if (_selectedSubject == null) return;
+
+    if (_autoTrim && applyAutoTrim) {
+      try {
+        final t = await _trimRect(imgBytes, Rect.fromLTRB(left, top, right, bottom));
+        left = t.left;
+        top = t.top;
+        right = t.right;
+        bottom = t.bottom;
+      } catch (e) {
+        debugPrint('trim error: $e');
+      }
+    }
     // ── Capture all state NOW (before any await) ──
     try {
       final subject    = _selectedSubject!;
@@ -770,26 +1911,40 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
       final masterQNo  = _getMasterQuestionNo(_selectedBooklet, subject, qNoInBooklet);
       
       final stat       = _questionStats[subject]?[masterQNo];
-      final correctAns = stat?['correctAnswer'] ?? _correctAnswer(subject, qNoInBooklet);
-      final difficulty = stat?['success'];
-      final outcome    = stat?['outcome'] ?? _getOutcomeForQuestion(subject, masterQNo);
+      final rawAns = stat?['correctAnswer'] ?? _correctAnswer(subject, qNoInBooklet);
+      final correctAns = (widget.isPoolMode || rawAns == '?' || rawAns.isEmpty)
+          ? _manualAnswer
+          : rawAns;
+      final difficulty = widget.isPoolMode
+          ? _manualDifficulty
+          : (stat?['success'] ?? _manualDifficulty);
+      final rawOutcome = stat?['outcome'] ?? _getOutcomeForQuestion(subject, masterQNo);
+      final manualOutText = _manualOutcomeCtrl.text.trim();
+      final outcome = (widget.isPoolMode || rawOutcome == null || rawOutcome.isEmpty)
+          ? (manualOutText.isNotEmpty ? manualOutText : rawOutcome)
+          : rawOutcome;
+      final passageId  = _activePassageId;
+      Uint8List? passageBytes = _activePassageBytes;
+      if (passageId != null &&
+          _activePassageSession != null &&
+          _activePassagePage != null &&
+          _activePassageRect != null &&
+          _activePassagePage! - 1 < _pages[_activePassageSession!].length) {
+        try {
+          final pr = _activePassageRect!;
+          passageBytes = await _cropNativeCanvas(
+            _pages[_activePassageSession!][_activePassagePage! - 1],
+            pr.left,
+            pr.top,
+            pr.width,
+            pr.height,
+            800.0,
+          );
+          _activePassageBytes = passageBytes;
+        } catch (_) {}
+      }
 
-      final txSnapshot = Matrix4.copy(_tx.value);
-      final startPt    = _startPt!;
-      final endPt      = _endPt!;
-
-      // ── Compute pixel coordinates on main thread (fast, no allocation) ──
-      final inverse  = Matrix4.inverted(txSnapshot);
-      final ls = MatrixUtils.transformPoint(inverse, startPt);
-      final le = MatrixUtils.transformPoint(inverse, endPt);
-
-      // We need image dimensions to map coords; grab them synchronously from a
-      // 1-pixel decode is too slow – use the known display size instead.
       const displayW = 800.0;
-      final left   = (ls.dx < le.dx ? ls.dx : le.dx);
-      final top    = (ls.dy < le.dy ? ls.dy : le.dy);
-      final right  = (ls.dx > le.dx ? ls.dx : le.dx);
-      final bottom = (ls.dy > le.dy ? ls.dy : le.dy);
 
       // ── Auto-advance: if questionNo exceeds this subject's answer count,
       //    move to the next subject in the list and restart at question 1.
@@ -827,13 +1982,14 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
         'loading': true,
         'originalQNo': qNoInBooklet, // Keep track of source
         'sourceBooklet': _selectedBooklet,
+        'passageId': passageId,
+        'passageBytes': passageBytes,
       };
       setState(() {
         _localCrops.add(placeholder);
         _questionNo++;
         _startPt = null;
         _endPt   = null;
-        _isSelectionMode = false;   // back to navigate immediately
         _autoAdvanceSubject();      // check if we should jump to next subject
       });
 
@@ -862,6 +2018,8 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                 'loading': false,
                 'originalQNo': qNoInBooklet,
                 'sourceBooklet': _selectedBooklet,
+                'passageId': passageId,
+                'passageBytes': passageBytes,
               };
             }
           });
@@ -888,11 +2046,160 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
       body: isMobile
           ? (_showMobileSidebar 
               ? _sidebar(isMobile: true) 
-              : Column(children: [_toolbar(), Expanded(child: _canvas())]))
+              : Column(children: [
+                  _toolbar(),
+                  _poolMetadataBar(),
+                  Expanded(child: _canvas()),
+                ]))
           : Row(children: [
               _sidebar(isMobile: false),
-              Expanded(child: Column(children: [_toolbar(), Expanded(child: _canvas())])),
+              Expanded(
+                child: Column(children: [
+                  _toolbar(),
+                  _poolMetadataBar(),
+                  Expanded(child: _canvas()),
+                ]),
+              ),
             ]),
+    );
+  }
+
+  /// Metadata bar allowing the user to set Default Answer (A-E), Difficulty (Kolay/Orta/Zor),
+  /// Class Level, and Outcome/Topic (Kazanım) before/while cropping questions.
+  Widget _poolMetadataBar() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.indigo.shade50.withValues(alpha: 0.7),
+        border: Border(bottom: BorderSide(color: Colors.indigo.shade100)),
+      ),
+      child: Wrap(
+        spacing: 14,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          if (widget.isPoolMode)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.indigo.shade200),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _poolClassLevel,
+                  isDense: true,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.indigo),
+                  items: const [
+                    '5. Sınıf',
+                    '6. Sınıf',
+                    '7. Sınıf',
+                    '8. Sınıf',
+                    '9. Sınıf',
+                    '10. Sınıf',
+                    '11. Sınıf',
+                    '12. Sınıf',
+                    'LGS',
+                    'TYT',
+                    'AYT',
+                  ].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                  onChanged: (v) {
+                    if (v != null) setState(() => _poolClassLevel = v);
+                  },
+                ),
+              ),
+            ),
+          // Doğru Cevap seçici
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Doğru Cevap:',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.indigo.shade900)),
+              const SizedBox(width: 6),
+              for (final ans in ['A', 'B', 'C', 'D', 'E'])
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: InkWell(
+                    onTap: () => setState(() => _manualAnswer = ans),
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: _manualAnswer == ans ? Colors.indigo : Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _manualAnswer == ans ? Colors.indigo : Colors.indigo.shade200,
+                        ),
+                      ),
+                      child: Text(
+                        ans,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: _manualAnswer == ans ? Colors.white : Colors.indigo.shade900,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          // Zorluk Derecesi seçici
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Zorluk:',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.indigo.shade900)),
+              const SizedBox(width: 6),
+              for (final diff in [
+                ('Kolay', 80.0, Colors.green),
+                ('Orta', 55.0, Colors.orange),
+                ('Zor', 25.0, Colors.red),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: InkWell(
+                    onTap: () => setState(() => _manualDifficulty = diff.$2),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _getDifficultyLabel(_manualDifficulty) == diff.$1
+                            ? diff.$3
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: diff.$3.withValues(alpha: 0.5)),
+                      ),
+                      child: Text(
+                        diff.$1,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: _getDifficultyLabel(_manualDifficulty) == diff.$1
+                              ? Colors.white
+                              : diff.$3.shade700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          // Kazanım / Konu girişi (Canlı Autocomplete + Seçili Sınıf ve Branşa Göre Liste)
+          _buildOutcomeAutocompleteBox(
+            controller: _manualOutcomeCtrl,
+            focusNode: _manualOutcomeFocus,
+            classLevel: _poolClassLevel,
+            subject: _selectedSubject,
+            maxWidth: 420,
+            compact: true,
+          ),
+        ],
+      ),
     );
   }
 
@@ -903,9 +2210,9 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
         foregroundColor: const Color(0xFF1E293B),
         elevation: 0,
         title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Hata Kitapçığı Stüdyosu',
+          Text(widget.isPoolMode ? 'Soru Havuzu Kırpma Stüdyosu' : 'Hata Kitapçığı Stüdyosu',
               style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 17)),
-          Text(widget.exam.name,
+          Text(widget.isPoolMode ? '$_poolClassLevel • ${widget.exam.name}' : widget.exam.name,
               style: GoogleFonts.inter(fontSize: 11, color: Colors.indigo)),
         ]),
         actions: [
@@ -1087,113 +2394,147 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                 setState(() { _isSelectionMode = true; _startPt = null; _endPt = null; });
               }
             }),
-            const SizedBox(width: 16),
-            // ─ -5% button
-            IconButton(
-              tooltip: '-5%',
-              icon: const Icon(Icons.zoom_out, size: 18),
-              onPressed: () => _applyZoom(_zoom - 0.05),
+            const SizedBox(width: 8),
+            const VerticalDivider(indent: 12, endIndent: 12, width: 12),
+            // ─ Ders & Soru Numarası (her zaman önde ve görünür)
+            DropdownButton<String>(
+              value: _selectedSubject,
+              isDense: true,
+              underline: const SizedBox.shrink(),
+              items: _subjects
+                  .map((s) => DropdownMenuItem(
+                      value: s, child: Text(s, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))))
+                  .toList(),
+              onChanged: (v) => setState(() => _selectedSubject = v),
             ),
-            // ─ Slider (more compact)
-            SizedBox(
-              width: 120,
-              child: Slider(
-                value: _zoom.clamp(0.3, 8.0),
-                min: 0.3, max: 8.0, divisions: 77,
-                label: '${(_zoom * 100).round()}%',
-                onChanged: _applyZoom,
+            const SizedBox(width: 4),
+            IconButton(
+                icon: const Icon(Icons.remove_circle_outline, size: 17),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () =>
+                    setState(() => _questionNo = (_questionNo - 1).clamp(1, 999))),
+            const SizedBox(width: 6),
+            GestureDetector(
+              onTap: _showManualQuestionNo,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('$_selectedBooklet-$_questionNo. Soru',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.indigo, decoration: TextDecoration.underline)),
+                    if (_selectedBooklet != 'A')
+                      Text(
+                        '➔ A-${_getMasterQuestionNo(_selectedBooklet, _selectedSubject ?? '', _questionNo)}',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
+                      ),
+                  ],
+                ),
               ),
             ),
-            // ─ +5% button
+            const SizedBox(width: 6),
             IconButton(
-              tooltip: '+5%',
-              icon: const Icon(Icons.zoom_in, size: 18),
-              onPressed: () => _applyZoom(_zoom + 0.05),
+                icon: const Icon(Icons.add_circle_outline, size: 17),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () => setState(() => _questionNo++)),
+            if (_activePassageId != null) ...[
+              const SizedBox(width: 8),
+              InputChip(
+                visualDensity: VisualDensity.compact,
+                avatar: const Icon(Icons.push_pin, size: 14, color: Colors.white),
+                label: Text(
+                  'Ortak Metin (${_localCrops.where((c) => c['passageId'] == _activePassageId).length})',
+                  style: const TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                backgroundColor: Colors.orange.shade700,
+                deleteIconColor: Colors.white,
+                onDeleted: _clearActivePassage,
+                onPressed: _clearActivePassage,
+              ),
+            ],
+            const SizedBox(width: 8),
+            const VerticalDivider(indent: 12, endIndent: 12, width: 12),
+            // ─ Auto detect
+            FilledButton.tonalIcon(
+              onPressed: _isAutoDetecting ? null : () => _autoDetect(allPages: false),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                minimumSize: const Size(0, 34),
+              ),
+              icon: _isAutoDetecting
+                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.auto_awesome, size: 15),
+              label: const Text('Otomatik Algıla', style: TextStyle(fontSize: 12)),
             ),
-            // ─ Clickable % label → manual entry
+            const SizedBox(width: 4),
+            FilledButton.tonalIcon(
+              onPressed: _isAutoDetecting ? null : () => _autoDetect(allPages: true),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                minimumSize: const Size(0, 34),
+              ),
+              icon: const Icon(Icons.auto_awesome_motion, size: 15),
+              label: const Text('Tüm Sayfalar', style: TextStyle(fontSize: 12)),
+            ),
+            if (_sessionBoxCount > 0) ...[
+              const SizedBox(width: 4),
+              FilledButton.icon(
+                onPressed: _cutAllAutoBoxes,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.green.shade600,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                  minimumSize: const Size(0, 34),
+                ),
+                icon: const Icon(Icons.content_cut, size: 14),
+                label: Text('Hepsini Kes ($_sessionBoxCount)', style: const TextStyle(fontSize: 12)),
+              ),
+              const SizedBox(width: 2),
+              IconButton(
+                tooltip: 'Algılanan Kutuları Temizle',
+                icon: const Icon(Icons.delete_sweep_outlined, size: 18, color: Colors.redAccent),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                onPressed: () => setState(() => _autoBoxes.remove(_sessionIdx)),
+              ),
+            ],
+            const SizedBox(width: 6),
+            const VerticalDivider(indent: 12, endIndent: 12, width: 12),
+            // ─ Compact Zoom Controls
+            IconButton(
+              tooltip: 'Uzaklaştır (-5%)',
+              icon: const Icon(Icons.remove, size: 16),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              onPressed: () => _applyZoom(_zoom - 0.05),
+            ),
             GestureDetector(
               onTap: _showManualZoomDialog,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(6),
                   border: Border.all(color: Colors.grey.shade300),
                 ),
                 child: Text(
                   '${(_zoom * 100).round()}%',
                   style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 11,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF1E293B)),
                 ),
               ),
             ),
-            if (_isSelectionMode) ...[
-              const SizedBox(width: 12),
-              const VerticalDivider(indent: 10, endIndent: 10),
-              const SizedBox(width: 8),
-              DropdownButton<String>(
-                value: _selectedSubject,
-                isDense: true,
-                underline: const SizedBox.shrink(),
-                items: _subjects
-                    .map((s) => DropdownMenuItem(
-                        value: s, child: Text(s, style: const TextStyle(fontSize: 12))))
-                    .toList(),
-                onChanged: (v) => setState(() => _selectedSubject = v),
-              ),
-              const SizedBox(width: 4),
-              IconButton(
-                  icon: const Icon(Icons.remove_circle_outline, size: 16),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () =>
-                      setState(() => _questionNo = (_questionNo - 1).clamp(1, 999))),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: _showManualQuestionNo,
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('$_selectedBooklet-$_questionNo. Soru',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.indigo, decoration: TextDecoration.underline)),
-                      if (_selectedBooklet != 'A')
-                        Text(
-                          '➔ A-${_getMasterQuestionNo(_selectedBooklet, _selectedSubject ?? '', _questionNo)}',
-                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                  icon: const Icon(Icons.add_circle_outline, size: 16),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () => setState(() => _questionNo++)),
-            ],
-            if (_isSelectionMode && _startPt != null) ...[
-              const SizedBox(width: 16),
-              FilledButton.icon(
-                onPressed: _isRenderingPage ? null : _saveCrop,
-                icon: _isRenderingPage
-                    ? const SizedBox(
-                        width: 14, height: 14,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.content_cut, size: 16),
-                label: const Text('KES & HAVUZA AT'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.indigo,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ],
+            IconButton(
+              tooltip: 'Yakınlaştır (+5%)',
+              icon: const Icon(Icons.add, size: 16),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              onPressed: () => _applyZoom(_zoom + 0.05),
+            ),
           ]),
         ),
       );
@@ -1204,14 +2545,14 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: active ? Colors.indigo : Colors.grey.shade100,
             borderRadius: BorderRadius.circular(10),
           ),
           child: Row(children: [
-            Icon(icon, size: 15, color: active ? Colors.white : Colors.grey),
-            const SizedBox(width: 6),
+            Icon(icon, size: 14, color: active ? Colors.white : Colors.grey),
+            const SizedBox(width: 5),
             Text(label,
                 style: TextStyle(
                     fontSize: 12,
@@ -1265,7 +2606,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
           Positioned.fill(
             child: InteractiveViewer(
               transformationController: _tx,
-              panEnabled: !_isSelectionMode,
+              panEnabled: !_isSelectionMode && !_draggingBox,
               scaleEnabled: false,
               // No boundary = drag freely in every direction
               boundaryMargin: const EdgeInsets.all(double.infinity),
@@ -1288,22 +2629,39 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                   width: 800,
                   fit: BoxFit.fitWidth,
                   filterQuality: FilterQuality.high,
+                  frameBuilder: (ctx, child, frame, sync) => Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      child,
+                      // ── Selection overlay (below persistent boxes so existing boxes stay interactive)
+                      if (_isSelectionMode)
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onPanStart: (d) {
+                              if (_draggingBox) return;
+                              setState(() {
+                                _startPt = d.localPosition;
+                                _endPt = d.localPosition;
+                              });
+                            },
+                            onPanUpdate: (d) {
+                              if (_draggingBox) return;
+                              setState(() => _endPt = d.localPosition);
+                            },
+                            onPanEnd: (_) => _snapManualSelectionOnPanEnd(),
+                            child: CustomPaint(
+                              painter: _SelectionPainter(_startPt, _endPt),
+                            ),
+                          ),
+                        ),
+                      ..._autoBoxOverlays(),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-
-          // ── Selection overlay ───────────────────────────────────────────────
-          if (_isSelectionMode)
-            Positioned.fill(
-              child: GestureDetector(
-                onPanStart: (d) =>
-                    setState(() { _startPt = d.localPosition; _endPt = d.localPosition; }),
-                onPanUpdate: (d) => setState(() => _endPt = d.localPosition),
-                child: CustomPaint(
-                    painter: _SelectionPainter(_startPt, _endPt)),
-              ),
-            ),
 
           // ── Page nav ────────────────────────────────────────────────────────
           Positioned(
@@ -1475,12 +2833,22 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
             else if (!isMobile)
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, size: 20),
-                tooltip: 'PDF İşlemleri',
+                tooltip: 'PDF ve Görsel İşlemleri',
                 onSelected: (val) {
+                  if (val == 'whiten') _whitenAllExistingCrops();
                   if (val == 'change') _pickPDF();
                   if (val == 'remove') _removePDF();
                 },
                 itemBuilder: (ctx) => [
+                  const PopupMenuItem(
+                    value: 'whiten',
+                    child: Row(children: [
+                      Icon(Icons.auto_fix_high_rounded, size: 18, color: Colors.indigo),
+                      SizedBox(width: 8),
+                      Text('Tüm Soruların Arka Planını Beyazlat'),
+                    ]),
+                  ),
+                  const PopupMenuDivider(),
                   const PopupMenuItem(
                     value: 'change',
                     child: Row(children: [
@@ -1597,40 +2965,144 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Row 1: A-1. Soru (B-7)
-                        Text(
-                          'A-$qNo. Soru$otherMappings',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: hasRemote ? Colors.green.shade700 : Colors.indigo.shade900,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        
-                        // Row 2: Difficulty + Star + Expand + Delete Icons in one Row
+                        // Row 1: A-1. Soru (B-7) + Edit button + Ortak Metin badge
                         Row(
                           children: [
-                            if (c['difficulty'] != null) ...[
+                            Expanded(
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(4),
+                                onTap: () => _showEditCropDialog(c),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        'A-$qNo. Soru$otherMappings',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: hasRemote ? Colors.green.shade700 : Colors.indigo.shade900,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Tooltip(
+                                      message: 'Ders veya Soru Numarasını Değiştir',
+                                      child: Icon(
+                                        Icons.edit_outlined,
+                                        size: 14,
+                                        color: Colors.indigo.shade400,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            if (c['passageId'] != null)
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: _getDifficultyColor((c['difficulty'] as num).toDouble()).withValues(alpha: 0.1),
+                                  color: Colors.orange.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: Colors.orange.shade300),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.push_pin, size: 10, color: Colors.orange.shade800),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      'Ortak Metin',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.orange.shade800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        
+                        // Row 2: Difficulty + Star + Passage Pin + Expand + Delete Icons in one Row
+                        Row(
+                          children: [
+                            InkWell(
+                              borderRadius: BorderRadius.circular(4),
+                              onTap: () => _showEditCropDialog(c),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: c['difficulty'] != null
+                                      ? _getDifficultyColor((c['difficulty'] as num).toDouble()).withValues(alpha: 0.1)
+                                      : Colors.grey.shade100,
                                   borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(color: _getDifficultyColor((c['difficulty'] as num).toDouble()).withValues(alpha: 0.3)),
+                                  border: Border.all(
+                                    color: c['difficulty'] != null
+                                        ? _getDifficultyColor((c['difficulty'] as num).toDouble()).withValues(alpha: 0.3)
+                                        : Colors.grey.shade300,
+                                  ),
                                 ),
                                 child: Text(
-                                  _getDifficultyLabel((c['difficulty'] as num).toDouble()),
+                                  c['difficulty'] != null
+                                      ? _getDifficultyLabel((c['difficulty'] as num).toDouble())
+                                      : 'Zorluk Seç',
                                   style: TextStyle(
                                     fontSize: 9,
                                     fontWeight: FontWeight.bold,
-                                    color: _getDifficultyColor((c['difficulty'] as num).toDouble()),
+                                    color: c['difficulty'] != null
+                                        ? _getDifficultyColor((c['difficulty'] as num).toDouble())
+                                        : Colors.grey.shade700,
                                   ),
                                 ),
                               ),
-                            ],
+                            ),
                             const Spacer(),
                             // Actions Row
+                            if (c['passageId'] != null || _activePassageId != null) ...[
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                tooltip: c['passageId'] != null
+                                    ? 'Ortak Metin Bağlantısını Kaldır'
+                                    : 'Aktif Ortak Metne Bağla',
+                                icon: Icon(
+                                  c['passageId'] != null ? Icons.push_pin : Icons.push_pin_outlined,
+                                  size: 17,
+                                  color: c['passageId'] != null ? Colors.orange.shade700 : Colors.grey,
+                                ),
+                                onPressed: () async {
+                                  final detach = c['passageId'] != null;
+                                  setState(() {
+                                    if (detach) {
+                                      c['passageId'] = null;
+                                      c['passageBytes'] = null;
+                                      c['passageBase64'] = null;
+                                    } else {
+                                      c['passageId'] = _activePassageId;
+                                      c['passageBytes'] = _activePassageBytes;
+                                    }
+                                  });
+                                  if (c['docId'] != null) {
+                                    await FirebaseFirestore.instance
+                                        .collection('trial_exams')
+                                        .doc(widget.exam.id)
+                                        .collection('questions_pool')
+                                        .doc(c['docId'] as String)
+                                        .update({
+                                      'passageId': c['passageId'],
+                                      'passageBase64': c['passageBytes'] != null
+                                          ? base64Encode(c['passageBytes'] as Uint8List)
+                                          : null,
+                                    });
+                                  }
+                                },
+                              ),
+                              const SizedBox(width: 12),
+                            ],
                             IconButton(
                               visualDensity: VisualDensity.compact,
                               padding: EdgeInsets.zero,
@@ -1679,28 +3151,45 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                         ),
                         const SizedBox(height: 6),
 
-                        // Row 3: Kazanım (outcome) - Don't truncate too aggressively, allow multiple lines
-                        if (c['outcome'] != null) ...[
-                          Text(
-                            c['outcome'] as String,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 10,
-                              height: 1.3,
-                              color: Colors.indigo.shade500,
-                              fontWeight: FontWeight.w500,
+                        // Row 3: Kazanım (outcome) - Clickable to add/edit
+                        InkWell(
+                          borderRadius: BorderRadius.circular(4),
+                          onTap: () => _showEditCropDialog(c),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Text(
+                              (c['outcome'] != null && (c['outcome'] as String).trim().isNotEmpty)
+                                  ? (c['outcome'] as String)
+                                  : '+ Kazanım / Konu eklemek için tıklayın',
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 10,
+                                height: 1.3,
+                                color: (c['outcome'] != null && (c['outcome'] as String).trim().isNotEmpty)
+                                    ? Colors.indigo.shade500
+                                    : Colors.indigo.shade300,
+                                fontStyle: (c['outcome'] != null && (c['outcome'] as String).trim().isNotEmpty)
+                                    ? FontStyle.normal
+                                    : FontStyle.italic,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 6),
-                        ],
+                        ),
+                        const SizedBox(height: 4),
 
                         // Row 4: Correct answer | wide status | remote publication status
-                        Text(
-                          '${c['correctAnswer'] ?? '?'} | ${c['isWide'] ? '2 sütun' : '1 sütun'}${hasRemote ? ' (Yayında)' : ''}',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.blueGrey.shade600,
+                        InkWell(
+                          borderRadius: BorderRadius.circular(4),
+                          onTap: () => _showEditCropDialog(c),
+                          child: Text(
+                            'Cevap: ${c['correctAnswer'] ?? '?'} | ${c['isWide'] ? '2 sütun' : '1 sütun'}${hasRemote ? ' (Yayında)' : ''}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.blueGrey.shade700,
+                            ),
                           ),
                         ),
                       ],
@@ -1772,6 +3261,507 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
     setState(() => _localCrops.remove(crop));
   }
 
+  /// Updates a question's subject and/or A-booklet question number (and
+  /// optionally shifts all subsequent questions in the same subject by the
+  /// same offset), recalculates its answer/difficulty/outcome, and syncs to
+  /// Firestore immediately if the question was already published.
+  Future<void> _updateCropSubjectAndQuestionNo(
+    Map<String, dynamic> crop,
+    String newSubject,
+    int newMasterQNo, {
+    bool shiftSubsequent = false,
+  }) async {
+    final oldSubject = crop['subject'] as String? ?? newSubject;
+    final oldQNo = crop['questionNo'] as int? ?? newMasterQNo;
+    if (oldSubject == newSubject && oldQNo == newMasterQNo && !shiftSubsequent) {
+      return;
+    }
+
+    final delta = newMasterQNo - oldQNo;
+    final itemsToUpdate = <MapEntry<Map<String, dynamic>, int>>[];
+
+    if (shiftSubsequent && oldSubject == newSubject && delta != 0) {
+      final affected = _localCrops
+          .where((c) =>
+              c['loading'] != true &&
+              c['subject'] == oldSubject &&
+              ((c['questionNo'] as int? ?? 0) >= oldQNo))
+          .toList();
+      // Sort to avoid Firestore docId collisions during sequential updates:
+      // if shifting down (delta < 0), update lowest questionNo first;
+      // if shifting up (delta > 0), update highest questionNo first.
+      affected.sort((a, b) => delta < 0
+          ? (a['questionNo'] as int).compareTo(b['questionNo'] as int)
+          : (b['questionNo'] as int).compareTo(a['questionNo'] as int));
+      for (final item in affected) {
+        final targetQ = ((item['questionNo'] as int) + delta).clamp(1, 999);
+        itemsToUpdate.add(MapEntry(item, targetQ));
+      }
+    } else {
+      itemsToUpdate.add(MapEntry(crop, newMasterQNo.clamp(1, 999)));
+    }
+
+    setState(() {
+      for (final entry in itemsToUpdate) {
+        final item = entry.key;
+        final qNo = entry.value;
+        final stat = _questionStats[newSubject]?[qNo];
+        final correctAns = stat?['correctAnswer'] ?? _correctAnswer(newSubject, qNo);
+        final difficulty = stat?['success'];
+        final outcome = stat?['outcome'] ?? _getOutcomeForQuestion(newSubject, qNo);
+        item['subject'] = newSubject;
+        item['questionNo'] = qNo;
+        item['originalQNo'] = qNo;
+        item['correctAnswer'] = correctAns;
+        item['difficulty'] = difficulty;
+        item['outcome'] = outcome;
+      }
+    });
+
+    // Sync any already-published questions to Firestore
+    for (final entry in itemsToUpdate) {
+      final item = entry.key;
+      final qNo = entry.value;
+      final hasRemote = item['docId'] != null ||
+          item['base64Image'] != null ||
+          item['imageUrl'] != null;
+      if (!hasRemote) continue;
+
+      final oldDocId = item['docId'] as String?;
+      final sIdx = item['sessionIdx'] as int? ?? _sessionIdx;
+      final newDocId = 's${sIdx + 1}_${newSubject}_q$qNo'
+          .replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+      final base64Img = (item['base64Image'] as String?) ??
+          (item['bytes'] != null ? base64Encode(item['bytes'] as Uint8List) : null);
+
+      try {
+        await FirebaseFirestore.instance
+            .collection('trial_exams')
+            .doc(widget.exam.id)
+            .collection('questions_pool')
+            .doc(newDocId)
+            .set({
+          'sessionIdx': sIdx,
+          'subject': newSubject,
+          'questionNo': qNo,
+          if (base64Img != null) 'base64Image': base64Img,
+          if (item['imageUrl'] != null) 'imageUrl': item['imageUrl'],
+          'isWide': item['isWide'] ?? false,
+          'isCritical': item['isCritical'] ?? false,
+          'correctAnswer': item['correctAnswer'],
+          'difficulty': item['difficulty'],
+          'outcome': item['outcome'],
+          'passageId': item['passageId'],
+          'passageBase64': item['passageBase64'] ??
+              (item['passageBytes'] != null
+                  ? base64Encode(item['passageBytes'] as Uint8List)
+                  : null),
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        if (oldDocId != null && oldDocId != newDocId) {
+          await FirebaseFirestore.instance
+              .collection('trial_exams')
+              .doc(widget.exam.id)
+              .collection('questions_pool')
+              .doc(oldDocId)
+              .delete();
+        }
+        if (mounted) {
+          setState(() => item['docId'] = newDocId);
+        }
+      } catch (e) {
+        debugPrint('Error updating crop in Firestore: $e');
+      }
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.indigo,
+          content: Text(
+            itemsToUpdate.length > 1
+                ? '${itemsToUpdate.length} sorunun numarası otomatik güncellendi.'
+                : 'Soru "$newSubject – A-$newMasterQNo. Soru" olarak güncellendi.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _showEditCropDialog(Map<String, dynamic> crop,
+      {VoidCallback? onUpdated}) async {
+    String selectedSub = (crop['subject'] as String?) ??
+        (_subjects.isNotEmpty ? _subjects.first : '');
+    if (!_subjects.contains(selectedSub) && _subjects.isNotEmpty) {
+      selectedSub = _subjects.first;
+    }
+    int selectedQNo = (crop['questionNo'] as int?) ?? 1;
+    String selectedAnswer = (crop['correctAnswer'] as String?) ?? _manualAnswer;
+    if (!['A', 'B', 'C', 'D', 'E'].contains(selectedAnswer)) {
+      selectedAnswer = 'A';
+    }
+    double selectedDiff = (crop['difficulty'] as num?)?.toDouble() ?? _manualDifficulty;
+    final outcomeCtrl = TextEditingController(text: (crop['outcome'] as String?) ?? '');
+    final outcomeFocus = FocusNode();
+    bool shiftSubsequent = false;
+    final ctrl = TextEditingController(text: '$selectedQNo');
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) {
+          final origSub = crop['subject'] as String? ?? '';
+          final origQNo = crop['questionNo'] as int? ?? 1;
+          final canShift = selectedSub == origSub && selectedQNo != origQNo;
+          final delta = selectedQNo - origQNo;
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                const Icon(Icons.edit_note_rounded, color: Colors.indigo),
+                const SizedBox(width: 8),
+                Text('Soruyu Düzenle',
+                    style: GoogleFonts.outfit(
+                        fontWeight: FontWeight.bold, fontSize: 18)),
+              ],
+            ),
+            content: SizedBox(
+              width: 400,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Ders',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.indigo)),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      value: selectedSub.isNotEmpty ? selectedSub : null,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                      items: _subjects
+                          .map((s) => DropdownMenuItem(
+                              value: s,
+                              child: Text(s, style: const TextStyle(fontSize: 13))))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) {
+                          setModal(() => selectedSub = v);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Soru Numarası',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.indigo)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        IconButton.outlined(
+                          icon: const Icon(Icons.remove, size: 18),
+                          onPressed: () {
+                            final next = (selectedQNo - 1).clamp(1, 999);
+                            setModal(() {
+                              selectedQNo = next;
+                              ctrl.text = '$next';
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: ctrl,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 16),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              suffixText: '. Soru',
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
+                              border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                            ),
+                            onChanged: (v) {
+                              final parsed = int.tryParse(v.trim());
+                              if (parsed != null && parsed > 0) {
+                                setModal(() => selectedQNo = parsed.clamp(1, 999));
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.outlined(
+                          icon: const Icon(Icons.add, size: 18),
+                          onPressed: () {
+                            final next = (selectedQNo + 1).clamp(1, 999);
+                            setModal(() {
+                              selectedQNo = next;
+                              ctrl.text = '$next';
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    if (canShift) ...[
+                      const SizedBox(height: 10),
+                      CheckboxListTile(
+                        value: shiftSubsequent,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: Text(
+                          'Bu dersteki sonraki soruları da otomatik kaydır (${delta > 0 ? '+$delta' : '$delta'})',
+                          style: const TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: const Text(
+                          'Örn. arada soru atladıysanız tümünü silmeden sırayı düzeltir.',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        onChanged: (v) =>
+                            setModal(() => shiftSubsequent = v ?? false),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    const Text('Doğru Cevap',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.indigo)),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        for (final ans in ['A', 'B', 'C', 'D', 'E'])
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 3),
+                              child: InkWell(
+                                onTap: () => setModal(() => selectedAnswer = ans),
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: selectedAnswer == ans
+                                        ? Colors.indigo
+                                        : Colors.indigo.shade50,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: selectedAnswer == ans
+                                          ? Colors.indigo
+                                          : Colors.indigo.shade200,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    ans,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: selectedAnswer == ans
+                                          ? Colors.white
+                                          : Colors.indigo.shade900,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Zorluk Derecesi',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.indigo)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        for (final diff in [
+                          ('Kolay', 80.0, Colors.green),
+                          ('Orta', 55.0, Colors.orange),
+                          ('Zor', 25.0, Colors.red),
+                        ])
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              child: InkWell(
+                                onTap: () => setModal(() => selectedDiff = diff.$2),
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 9),
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: _getDifficultyLabel(selectedDiff) == diff.$1
+                                        ? diff.$3
+                                        : diff.$3.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: _getDifficultyLabel(selectedDiff) == diff.$1
+                                          ? diff.$3
+                                          : diff.$3.withValues(alpha: 0.35),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    diff.$1,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: _getDifficultyLabel(selectedDiff) == diff.$1
+                                          ? Colors.white
+                                          : diff.$3.shade800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Text('Kazanım / Konu ($_poolClassLevel • $selectedSub)',
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.indigo)),
+                    const SizedBox(height: 6),
+                    _buildOutcomeAutocompleteBox(
+                      controller: outcomeCtrl,
+                      focusNode: outcomeFocus,
+                      classLevel: _poolClassLevel,
+                      subject: selectedSub,
+                      maxWidth: 400,
+                      compact: false,
+                      onChanged: () => setModal(() {}),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Vazgeç'),
+              ),
+              FilledButton.icon(
+                icon: const Icon(Icons.check, size: 16),
+                label: const Text('Kaydet'),
+                style: FilledButton.styleFrom(backgroundColor: Colors.indigo),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  final newOutcome = outcomeCtrl.text.trim();
+                  setState(() {
+                    crop['correctAnswer'] = selectedAnswer;
+                    crop['difficulty'] = selectedDiff;
+                    crop['outcome'] = newOutcome.isEmpty ? null : newOutcome;
+                    _manualAnswer = selectedAnswer;
+                    _manualDifficulty = selectedDiff;
+                    if (newOutcome.isNotEmpty) {
+                      _manualOutcomeCtrl.text = newOutcome;
+                    }
+                  });
+                  await _updateCropSubjectAndQuestionNo(
+                    crop,
+                    selectedSub,
+                    selectedQNo,
+                    shiftSubsequent: shiftSubsequent,
+                  );
+                  if (crop['docId'] != null) {
+                    try {
+                      await FirebaseFirestore.instance
+                          .collection('trial_exams')
+                          .doc(widget.exam.id)
+                          .collection('questions_pool')
+                          .doc(crop['docId'] as String)
+                          .update({
+                        'correctAnswer': selectedAnswer,
+                        'difficulty': selectedDiff,
+                        'outcome': newOutcome.isEmpty ? null : newOutcome,
+                      });
+                    } catch (e) {
+                      debugPrint('Metadata update error: $e');
+                    }
+                  }
+                  onUpdated?.call();
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _whitenOneCrop(Map<String, dynamic> crop) async {
+    Uint8List? raw = crop['bytes'] as Uint8List?;
+    if (raw == null && crop['base64Image'] != null) {
+      try {
+        raw = base64Decode(crop['base64Image'] as String);
+      } catch (_) {}
+    }
+    if (raw == null) return;
+
+    final whitened = await _whitenExistingImageBytes(raw);
+    final b64 = base64Encode(whitened);
+    if (!mounted) return;
+    setState(() {
+      crop['bytes'] = whitened;
+      if (crop['base64Image'] != null) {
+        crop['base64Image'] = b64;
+      }
+    });
+
+    if (crop['docId'] != null) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('trial_exams')
+            .doc(widget.exam.id)
+            .collection('questions_pool')
+            .doc(crop['docId'] as String)
+            .update({'base64Image': b64});
+      } catch (e) {
+        debugPrint('whiten update error: $e');
+      }
+    }
+  }
+
+  Future<void> _whitenAllExistingCrops() async {
+    if (_localCrops.isEmpty) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.indigo,
+        content: Text('✨ Tüm soruların arka planları beyazlatılıyor...'),
+      ),
+    );
+    int count = 0;
+    for (final c in List<Map<String, dynamic>>.from(_localCrops)) {
+      if (c['loading'] == true) continue;
+      await _whitenOneCrop(c);
+      count++;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.green.shade700,
+        content: Text('✓ $count sorunun arka planı bembeyaz yapıldı ve güncellendi!'),
+      ),
+    );
+  }
+
   void _showPreview(Map<String, dynamic> initialCrop) {
     // Include both local drafts AND already published/embedded ones
     final viewable = _localCrops
@@ -1790,12 +3780,133 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                // ─ Header
+                // ─ Header (Interactive Ders & Soru No editor)
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                   Expanded(
-                    child: Text('${crop['subject']} – ${crop['questionNo']}. Soru',
-                        style: GoogleFonts.outfit(
-                            fontWeight: FontWeight.bold, fontSize: 16)),
+                    child: Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.indigo.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.indigo.shade100),
+                          ),
+                          child: DropdownButton<String>(
+                            value: _subjects.contains(crop['subject'])
+                                ? crop['subject'] as String
+                                : (_subjects.isNotEmpty ? _subjects.first : null),
+                            isDense: true,
+                            underline: const SizedBox.shrink(),
+                            style: GoogleFonts.outfit(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: Colors.indigo.shade900,
+                            ),
+                            items: _subjects
+                                .map((s) => DropdownMenuItem(
+                                      value: s,
+                                      child: Text(s),
+                                    ))
+                                .toList(),
+                            onChanged: (newSub) async {
+                              if (newSub == null) return;
+                              await _updateCropSubjectAndQuestionNo(
+                                crop,
+                                newSub,
+                                crop['questionNo'] as int,
+                              );
+                              setDlg(() {});
+                            },
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.indigo.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.indigo.shade100),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                                tooltip: 'Önceki Soru No',
+                                icon: const Icon(Icons.remove, size: 15, color: Colors.indigo),
+                                onPressed: () async {
+                                  final nextQ = ((crop['questionNo'] as int) - 1).clamp(1, 999);
+                                  await _updateCropSubjectAndQuestionNo(
+                                    crop,
+                                    crop['subject'] as String,
+                                    nextQ,
+                                  );
+                                  setDlg(() {});
+                                },
+                              ),
+                              InkWell(
+                                borderRadius: BorderRadius.circular(6),
+                                onTap: () => _showEditCropDialog(
+                                  crop,
+                                  onUpdated: () => setDlg(() {}),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'A-${crop['questionNo']}. Soru',
+                                        style: GoogleFonts.outfit(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: Colors.indigo.shade900,
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      const Icon(Icons.edit, size: 13, color: Colors.indigo),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                                tooltip: 'Sonraki Soru No',
+                                icon: const Icon(Icons.add, size: 15, color: Colors.indigo),
+                                onPressed: () async {
+                                  final nextQ = ((crop['questionNo'] as int) + 1).clamp(1, 999);
+                                  await _updateCropSubjectAndQuestionNo(
+                                    crop,
+                                    crop['subject'] as String,
+                                    nextQ,
+                                  );
+                                  setDlg(() {});
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Whiten background button
+                  Tooltip(
+                    message: 'Arka Planı Beyazlat (Tarama Gölgelerini Temizle)',
+                    child: IconButton(
+                      icon: const Icon(Icons.auto_fix_high_rounded, color: Colors.teal),
+                      onPressed: () async {
+                        await _whitenOneCrop(crop);
+                        setDlg(() {});
+                      },
+                    ),
                   ),
                   // Star button for critical toggle
                   Tooltip(
@@ -1863,11 +3974,65 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
                           maxHeight: MediaQuery.of(context).size.height * 0.55),
-                      child: crop['bytes'] != null 
-                        ? Image.memory(crop['bytes'] as Uint8List, fit: BoxFit.contain)
-                        : (crop['base64Image'] != null 
-                           ? Image.memory(base64Decode(crop['base64Image']), fit: BoxFit.contain)
-                           : Image.network(crop['imageUrl'] as String, fit: BoxFit.contain)),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (crop['passageBytes'] != null || crop['passageBase64'] != null) ...[
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(10),
+                                margin: const EdgeInsets.only(bottom: 10),
+                                decoration: BoxDecoration(
+                                  color: Colors.indigo.shade50.withValues(alpha: 0.45),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.indigo.shade200),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.indigo.shade900,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Row(
+                                        children: [
+                                          Icon(Icons.menu_book_rounded, size: 14, color: Colors.white),
+                                          SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              'Hata Kitapçığında öğrencinin soru sırasına göre: "... soruları aşağıdaki metne göre cevaplayınız." yazar',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Image.memory(
+                                      (crop['passageBytes'] as Uint8List?) ??
+                                          base64Decode(crop['passageBase64'] as String),
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            crop['bytes'] != null
+                                ? Image.memory(crop['bytes'] as Uint8List, fit: BoxFit.contain)
+                                : (crop['base64Image'] != null
+                                    ? Image.memory(base64Decode(crop['base64Image']), fit: BoxFit.contain)
+                                    : Image.network(crop['imageUrl'] as String, fit: BoxFit.contain)),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                   IconButton(
@@ -1881,42 +4046,102 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                   ),
                 ]),
                 const SizedBox(height: 8),
-                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  const Text('Doğru Cevap: ',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  CircleAvatar(
-                      radius: 14,
-                      backgroundColor: Colors.indigo,
-                      child: Text(crop['correctAnswer'] ?? '?',
-                           style: const TextStyle(
-                               color: Colors.white, fontWeight: FontWeight.bold))),
-                  if (crop['difficulty'] != null) ...[
-                    const SizedBox(width: 16),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: _getDifficultyColor((crop['difficulty'] as num).toDouble()).withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: _getDifficultyColor((crop['difficulty'] as num).toDouble()).withValues(alpha: 0.3)),
-                      ),
-                      child: Text(
-                        'Zorluk: ${_getDifficultyLabel((crop['difficulty'] as num).toDouble())}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: _getDifficultyColor((crop['difficulty'] as num).toDouble()),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    const Text('Doğru Cevap: ',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    for (final ans in ['A', 'B', 'C', 'D', 'E'])
+                      InkWell(
+                        onTap: () async {
+                          setDlg(() => crop['correctAnswer'] = ans);
+                          setState(() => _manualAnswer = ans);
+                          if (crop['docId'] != null) {
+                            await FirebaseFirestore.instance
+                                .collection('trial_exams')
+                                .doc(widget.exam.id)
+                                .collection('questions_pool')
+                                .doc(crop['docId'] as String)
+                                .update({'correctAnswer': ans});
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(14),
+                        child: CircleAvatar(
+                          radius: 13,
+                          backgroundColor: crop['correctAnswer'] == ans
+                              ? Colors.indigo
+                              : Colors.indigo.shade50,
+                          child: Text(
+                            ans,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: crop['correctAnswer'] == ans
+                                  ? Colors.white
+                                  : Colors.indigo.shade900,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                    const SizedBox(width: 8),
+                    for (final diff in [
+                      ('Kolay', 80.0, Colors.green),
+                      ('Orta', 55.0, Colors.orange),
+                      ('Zor', 25.0, Colors.red),
+                    ])
+                      InkWell(
+                        onTap: () async {
+                          setDlg(() => crop['difficulty'] = diff.$2);
+                          setState(() => _manualDifficulty = diff.$2);
+                          if (crop['docId'] != null) {
+                            await FirebaseFirestore.instance
+                                .collection('trial_exams')
+                                .doc(widget.exam.id)
+                                .collection('questions_pool')
+                                .doc(crop['docId'] as String)
+                                .update({'difficulty': diff.$2});
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: crop['difficulty'] != null &&
+                                    _getDifficultyLabel((crop['difficulty'] as num).toDouble()) == diff.$1
+                                ? diff.$3
+                                : diff.$3.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: diff.$3.withValues(alpha: 0.3)),
+                          ),
+                          child: Text(
+                            diff.$1,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: crop['difficulty'] != null &&
+                                      _getDifficultyLabel((crop['difficulty'] as num).toDouble()) == diff.$1
+                                  ? Colors.white
+                                  : diff.$3,
+                            ),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(width: 8),
+                    Text('${idx + 1} / ${viewable.length}',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   ],
-                  const SizedBox(width: 16),
-                  Text('${idx + 1} / ${viewable.length}',
-                      style: const TextStyle(
-                          fontSize: 12, color: Colors.grey)),
-                ]),
-                if (crop['outcome'] != null) ...[
-                  const SizedBox(height: 12),
-                  Container(
+                ),
+                const SizedBox(height: 10),
+                InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () => _showEditCropDialog(
+                    crop,
+                    onUpdated: () => setDlg(() {}),
+                  ),
+                  child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: Colors.grey.shade50,
@@ -1929,18 +4154,23 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            crop['outcome'] as String,
+                            (crop['outcome'] != null && (crop['outcome'] as String).trim().isNotEmpty)
+                                ? (crop['outcome'] as String)
+                                : 'Kazanım / Konu girmek için tıklayın...',
                             style: GoogleFonts.inter(
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
-                              color: Colors.indigo.shade900,
+                              color: (crop['outcome'] != null && (crop['outcome'] as String).trim().isNotEmpty)
+                                  ? Colors.indigo.shade900
+                                  : Colors.grey.shade600,
                             ),
                           ),
                         ),
+                        const Icon(Icons.edit_outlined, size: 15, color: Colors.indigo),
                       ],
                     ),
                   ),
-                ],
+                ),
               ]),
             ),
           );
@@ -2010,7 +4240,13 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
       await FirebaseFirestore.instance
           .collection('trial_exams')
           .doc(widget.exam.id)
-          .update({'sessions': updated.map((s) => s.toMap()).toList()});
+          .set({
+        'sessions': updated.map((s) => s.toMap()).toList(),
+        'institutionId': widget.exam.institutionId,
+        'name': widget.exam.name,
+        if (widget.isPoolMode) 'isPoolContainer': true,
+        if (widget.isPoolMode) 'isActive': false,
+      }, SetOptions(merge: true));
       if (mounted) setState(() => _localSessions = updated);
     } catch (e) {
       debugPrint('upload error: $e');
@@ -2087,10 +4323,15 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
           'correctAnswer': crop['correctAnswer'],
           'difficulty': crop['difficulty'],
           'outcome': crop['outcome'],
+          'passageId': crop['passageId'],
+          'passageBase64': crop['passageBytes'] != null
+              ? base64Encode(crop['passageBytes'] as Uint8List)
+              : crop['passageBase64'],
           'updatedAt': FieldValue.serverTimestamp(),
           'institutionId': widget.exam.institutionId,
           'examId': widget.exam.id,
           'examName': widget.exam.name,
+          'classLevel': _poolClassLevel,
         });
         
         if (mounted) setState(() => _publishCount++);
@@ -2150,7 +4391,13 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
       await FirebaseFirestore.instance
           .collection('trial_exams')
           .doc(widget.exam.id)
-          .update({'sessions': updated.map((s) => s.toMap()).toList()});
+          .set({
+        'sessions': updated.map((s) => s.toMap()).toList(),
+        'institutionId': widget.exam.institutionId,
+        'name': widget.exam.name,
+        if (widget.isPoolMode) 'isPoolContainer': true,
+        if (widget.isPoolMode) 'isActive': false,
+      }, SetOptions(merge: true));
       
       // Close doc and clear pages
       _docs[_sessionIdx]?.close();
@@ -2184,15 +4431,21 @@ class _SelectionPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (start == null || end == null) return;
     final rect = Rect.fromPoints(start!, end!);
+    if (rect.width > 4 && rect.height > 4) {
+      final fullPath = Path()..addRect(Offset.zero & size);
+      final selPath = Path()..addRect(rect);
+      final outsidePath = Path.combine(PathOperation.difference, fullPath, selPath);
+      canvas.drawPath(
+        outsidePath,
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.22)
+          ..style = PaintingStyle.fill,
+      );
+    }
     canvas.drawRect(
-        rect, Paint()..color = Colors.indigo.withValues(alpha: 0.18)..style = PaintingStyle.fill);
+        rect, Paint()..color = Colors.indigo.withValues(alpha: 0.08)..style = PaintingStyle.fill);
     canvas.drawRect(
         rect, Paint()..color = Colors.indigo..style = PaintingStyle.stroke..strokeWidth = 2);
-    const r = 5.0;
-    final p = Paint()..color = Colors.indigo;
-    for (final c in [rect.topLeft, rect.topRight, rect.bottomLeft, rect.bottomRight]) {
-      canvas.drawCircle(c, r, p);
-    }
   }
 
   @override

@@ -197,6 +197,7 @@ class _PerformanceSummaryScreenState extends State<PerformanceSummaryScreen> {
           subjects: subjects,
           examName: examName,
           schoolTypeName: widget.schoolTypeName,
+          examData: data,
           title: 'Performans Özeti • Şubeler',
           heading: 'Şube Performans Raporları',
           brand: 'Performans Özeti',

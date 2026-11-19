@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -71,11 +71,13 @@ class _StudentAttendanceStatsScreenState
             ? lessonHour
             : int.tryParse((lessonHour ?? '').toString()) ?? 0;
 
-        records.add(_AttRecord(
-          date: date,
-          lessonHour: hour,
-          status: _parseStatus(rawStatus.toString()),
-        ));
+        records.add(
+          _AttRecord(
+            date: date,
+            lessonHour: hour,
+            status: _parseStatus(rawStatus.toString()),
+          ),
+        );
       }
 
       // Sort newest first
@@ -141,7 +143,9 @@ class _StudentAttendanceStatsScreenState
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: EduknAppBar(
+        institutionId: widget.institutionId,
         title: 'Yoklama İstatistiklerim',
+        subtitle: widget.studentName,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Colors.indigo),
@@ -202,7 +206,7 @@ class _StudentAttendanceStatsScreenState
                           color: Colors.teal.withValues(alpha: 0.3),
                           blurRadius: 8,
                           offset: const Offset(0, 4),
-                        )
+                        ),
                       ]
                     : [],
               ),
@@ -230,23 +234,68 @@ class _StudentAttendanceStatsScreenState
     final late = records.where((r) => r.status == _AttStatus.late).length;
     final excused = records.where((r) => r.status == _AttStatus.excused).length;
     final onDuty = records.where((r) => r.status == _AttStatus.onDuty).length;
-    final reported = records.where((r) => r.status == _AttStatus.reported).length;
+    final reported = records
+        .where((r) => r.status == _AttStatus.reported)
+        .length;
 
-    final attendanceRate =
-        total > 0 ? ((present + late + onDuty) / total * 100) : 0.0;
+    final attendanceRate = total > 0
+        ? ((present + late + onDuty) / total * 100)
+        : 0.0;
 
     if (total == 0) {
       return _emptyCard('Bu dönem için yoklama kaydı bulunamadı.');
     }
 
     final cards = [
-      _StatData('Toplam Kayıt', total, Icons.list_alt_rounded, Colors.indigo, const Color(0xFFEEF2FF)),
-      _StatData('Devam', present, Icons.check_circle_rounded, const Color(0xFF10B981), const Color(0xFFECFDF5)),
-      _StatData('Devamsız', absent, Icons.cancel_rounded, const Color(0xFFEF4444), const Color(0xFFFEF2F2)),
-      _StatData('Geç', late, Icons.timer_outlined, const Color(0xFFF59E0B), const Color(0xFFFFFBEB)),
-      _StatData('Mazeretli', excused, Icons.assignment_ind_rounded, const Color(0xFF3B82F6), const Color(0xFFEFF6FF)),
-      _StatData('Nöbetçi', onDuty, Icons.star_rounded, const Color(0xFF8B5CF6), const Color(0xFFF5F3FF)),
-      _StatData('Raporlu', reported, Icons.local_hospital_rounded, const Color(0xFF6B7280), const Color(0xFFF9FAFB)),
+      _StatData(
+        'Toplam Kayıt',
+        total,
+        Icons.list_alt_rounded,
+        Colors.indigo,
+        const Color(0xFFEEF2FF),
+      ),
+      _StatData(
+        'Devam',
+        present,
+        Icons.check_circle_rounded,
+        const Color(0xFF10B981),
+        const Color(0xFFECFDF5),
+      ),
+      _StatData(
+        'Devamsız',
+        absent,
+        Icons.cancel_rounded,
+        const Color(0xFFEF4444),
+        const Color(0xFFFEF2F2),
+      ),
+      _StatData(
+        'Geç',
+        late,
+        Icons.timer_outlined,
+        const Color(0xFFF59E0B),
+        const Color(0xFFFFFBEB),
+      ),
+      _StatData(
+        'Mazeretli',
+        excused,
+        Icons.assignment_ind_rounded,
+        const Color(0xFF3B82F6),
+        const Color(0xFFEFF6FF),
+      ),
+      _StatData(
+        'Nöbetçi',
+        onDuty,
+        Icons.star_rounded,
+        const Color(0xFF8B5CF6),
+        const Color(0xFFF5F3FF),
+      ),
+      _StatData(
+        'Raporlu',
+        reported,
+        Icons.local_hospital_rounded,
+        const Color(0xFF6B7280),
+        const Color(0xFFF9FAFB),
+      ),
     ];
 
     return Column(
@@ -317,7 +366,9 @@ class _StudentAttendanceStatsScreenState
                       value: attendanceRate / 100,
                       strokeWidth: 10,
                       backgroundColor: Colors.white.withValues(alpha: 0.2),
-                      valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        Colors.white,
+                      ),
                     ),
                     Text(
                       '${attendanceRate.toStringAsFixed(0)}%',
@@ -429,37 +480,50 @@ class _StudentAttendanceStatsScreenState
     if (sortedKeys.isEmpty) return const SizedBox.shrink();
 
     const monthNames = [
-      '', 'Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz',
-      'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'
+      '',
+      'Oca',
+      'Şub',
+      'Mar',
+      'Nis',
+      'May',
+      'Haz',
+      'Tem',
+      'Ağu',
+      'Eyl',
+      'Eki',
+      'Kas',
+      'Ara',
     ];
 
     final barGroups = <BarChartGroupData>[];
     for (int i = 0; i < sortedKeys.length; i++) {
       final md = monthly[sortedKeys[i]]!;
-      barGroups.add(BarChartGroupData(
-        x: i,
-        barRods: [
-          BarChartRodData(
-            toY: md.present.toDouble(),
-            color: const Color(0xFF10B981),
-            width: 10,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          BarChartRodData(
-            toY: md.absent.toDouble(),
-            color: const Color(0xFFEF4444),
-            width: 10,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          BarChartRodData(
-            toY: md.late.toDouble(),
-            color: const Color(0xFFF59E0B),
-            width: 10,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ],
-        showingTooltipIndicators: [],
-      ));
+      barGroups.add(
+        BarChartGroupData(
+          x: i,
+          barRods: [
+            BarChartRodData(
+              toY: md.present.toDouble(),
+              color: const Color(0xFF10B981),
+              width: 10,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            BarChartRodData(
+              toY: md.absent.toDouble(),
+              color: const Color(0xFFEF4444),
+              width: 10,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            BarChartRodData(
+              toY: md.late.toDouble(),
+              color: const Color(0xFFF59E0B),
+              width: 10,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ],
+          showingTooltipIndicators: [],
+        ),
+      );
     }
 
     return Container(
@@ -508,10 +572,8 @@ class _StudentAttendanceStatsScreenState
                 gridData: FlGridData(
                   show: true,
                   drawVerticalLine: false,
-                  getDrawingHorizontalLine: (v) => FlLine(
-                    color: Colors.grey.shade100,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (v) =>
+                      FlLine(color: Colors.grey.shade100, strokeWidth: 1),
                 ),
                 borderData: FlBorderData(show: false),
                 titlesData: FlTitlesData(
@@ -587,7 +649,10 @@ class _StudentAttendanceStatsScreenState
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 4),
-        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+        Text(
+          label,
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+        ),
       ],
     );
   }
@@ -595,7 +660,9 @@ class _StudentAttendanceStatsScreenState
   // ─────────────────── RECORD LIST ─────────────────────────────────────────────
 
   Widget _buildRecordList(List<_AttRecord> records, bool isMobile) {
-    final nonPresent = records.where((r) => r.status != _AttStatus.present).toList();
+    final nonPresent = records
+        .where((r) => r.status != _AttStatus.present)
+        .toList();
     if (nonPresent.isEmpty) {
       return Container(
         width: double.infinity,
@@ -603,11 +670,17 @@ class _StudentAttendanceStatsScreenState
         decoration: BoxDecoration(
           color: const Color(0xFFECFDF5),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+          border: Border.all(
+            color: const Color(0xFF10B981).withValues(alpha: 0.3),
+          ),
         ),
         child: Column(
           children: [
-            const Icon(Icons.celebration_rounded, size: 48, color: Color(0xFF10B981)),
+            const Icon(
+              Icons.celebration_rounded,
+              size: 48,
+              color: Color(0xFF10B981),
+            ),
             const SizedBox(height: 12),
             const Text(
               'Tebrikler! Bu dönemde tüm derslere devam ettiniz.',
@@ -671,9 +744,7 @@ class _StudentAttendanceStatsScreenState
                   offset: const Offset(0, 4),
                 ),
               ],
-              border: Border(
-                left: BorderSide(color: cfg.color, width: 4),
-              ),
+              border: Border(left: BorderSide(color: cfg.color, width: 4)),
             ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -704,7 +775,11 @@ class _StudentAttendanceStatsScreenState
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            Icon(Icons.school_outlined, size: 12, color: Colors.grey.shade500),
+                            Icon(
+                              Icons.school_outlined,
+                              size: 12,
+                              color: Colors.grey.shade500,
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               '${r.lessonHour}. Ders',
@@ -720,7 +795,10 @@ class _StudentAttendanceStatsScreenState
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
                       color: cfg.color.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(20),
@@ -762,9 +840,16 @@ class _StudentAttendanceStatsScreenState
       ),
       child: Column(
         children: [
-          Icon(Icons.event_busy_outlined, size: 56, color: Colors.grey.shade300),
+          Icon(
+            Icons.event_busy_outlined,
+            size: 56,
+            color: Colors.grey.shade300,
+          ),
           const SizedBox(height: 12),
-          Text(msg, style: TextStyle(color: Colors.grey.shade500, fontSize: 15)),
+          Text(
+            msg,
+            style: TextStyle(color: Colors.grey.shade500, fontSize: 15),
+          ),
         ],
       ),
     );
@@ -773,17 +858,41 @@ class _StudentAttendanceStatsScreenState
   _StatusConfig _statusConfig(_AttStatus s) {
     switch (s) {
       case _AttStatus.present:
-        return _StatusConfig('Devam', Icons.check_circle_rounded, const Color(0xFF10B981));
+        return _StatusConfig(
+          'Devam',
+          Icons.check_circle_rounded,
+          const Color(0xFF10B981),
+        );
       case _AttStatus.absent:
-        return _StatusConfig('Devamsız', Icons.cancel_rounded, const Color(0xFFEF4444));
+        return _StatusConfig(
+          'Devamsız',
+          Icons.cancel_rounded,
+          const Color(0xFFEF4444),
+        );
       case _AttStatus.late:
-        return _StatusConfig('Geç', Icons.timer_outlined, const Color(0xFFF59E0B));
+        return _StatusConfig(
+          'Geç',
+          Icons.timer_outlined,
+          const Color(0xFFF59E0B),
+        );
       case _AttStatus.excused:
-        return _StatusConfig('Mazeretli', Icons.assignment_ind_rounded, const Color(0xFF3B82F6));
+        return _StatusConfig(
+          'Mazeretli',
+          Icons.assignment_ind_rounded,
+          const Color(0xFF3B82F6),
+        );
       case _AttStatus.onDuty:
-        return _StatusConfig('Nöbetçi', Icons.star_rounded, const Color(0xFF8B5CF6));
+        return _StatusConfig(
+          'Nöbetçi',
+          Icons.star_rounded,
+          const Color(0xFF8B5CF6),
+        );
       case _AttStatus.reported:
-        return _StatusConfig('Raporlu', Icons.local_hospital_rounded, const Color(0xFF6B7280));
+        return _StatusConfig(
+          'Raporlu',
+          Icons.local_hospital_rounded,
+          const Color(0xFF6B7280),
+        );
     }
   }
 }

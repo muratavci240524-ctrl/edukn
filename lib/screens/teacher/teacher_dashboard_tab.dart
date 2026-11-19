@@ -17,15 +17,20 @@ import '../school/school_types/school_type_detail_screen.dart';
 import '../school/school_types/school_type_announcements_screen.dart';
 import 'teacher_messages_screen.dart';
 import '../../widgets/edukn_app_bar.dart';
+import '../../widgets/web_qr_login_scanner_sheet.dart';
 import '../school/profile_settings_screen.dart';
 import 'teacher_qr_scan_screen.dart';
 
 class TeacherDashboardTab extends StatefulWidget {
   final String institutionId;
+  final bool showAppBar;
+  final String? customSubtitle;
 
   const TeacherDashboardTab({
     Key? key,
     required this.institutionId,
+    this.showAppBar = true,
+    this.customSubtitle,
   }) : super(key: key);
 
   @override
@@ -42,9 +47,7 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
     _notificationSection = _NotificationSection(
       institutionId: widget.institutionId,
     );
-    _calendarSection = _CalendarSection(
-      institutionId: widget.institutionId,
-    );
+    _calendarSection = _CalendarSection(institutionId: widget.institutionId);
   }
 
   Future<void> _logout() async {
@@ -53,7 +56,9 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Çıkış Yap'),
-        content: const Text('Hesabınızdan çıkış yapmak istediğinize emin misiniz?'),
+        content: const Text(
+          'Hesabınızdan çıkış yapmak istediğinize emin misiniz?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -63,7 +68,9 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Çıkış Yap'),
@@ -79,7 +86,11 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
       TermService().clearCache();
       await FirebaseAuth.instance.signOut();
       if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(context, '/school-login', (route) => false);
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          '/school-login',
+          (route) => false,
+        );
       }
     }
   }
@@ -94,17 +105,15 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
         if (value == 'profile') {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (ctx) => const ProfileSettingsScreen(),
-            ),
+            MaterialPageRoute(builder: (ctx) => const ProfileSettingsScreen()),
           );
         } else if (value == 'qr_scan') {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (ctx) => const TeacherQrScanScreen(),
-            ),
+            MaterialPageRoute(builder: (ctx) => const TeacherQrScanScreen()),
           );
+        } else if (value == 'web_qr_login') {
+          WebQrLoginScannerSheet.show(context);
         } else if (value == 'logout') {
           _logout();
         }
@@ -120,14 +129,24 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
                   color: Colors.indigo.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(Icons.person_outline_rounded, color: Colors.indigo.shade700, size: 18),
+                child: Icon(
+                  Icons.person_outline_rounded,
+                  color: Colors.indigo.shade700,
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 12),
               const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Profilim', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  Text('Profili Düzenle', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                  Text(
+                    'Profilim',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    'Profili Düzenle',
+                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                  ),
                 ],
               ),
             ],
@@ -144,14 +163,57 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
                   color: Colors.orange.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(Icons.qr_code_scanner_rounded, color: Colors.orange.shade700, size: 18),
+                child: Icon(
+                  Icons.qr_code_scanner_rounded,
+                  color: Colors.orange.shade700,
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 12),
               const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Giriş / Çıkış (QR)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  Text('Kamera ile QR tarama', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                  Text(
+                    'Giriş / Çıkış (QR)',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    'Kamera ile QR tarama',
+                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'web_qr_login',
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.devices_rounded,
+                  color: Colors.indigo.shade700,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Web\'de QR ile Oturum Aç',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    'Bilgisayarda QR okutarak giriş yap',
+                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                  ),
                 ],
               ),
             ],
@@ -168,10 +230,21 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
                   color: Colors.red.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(Icons.logout_rounded, color: Colors.red.shade600, size: 18),
+                child: Icon(
+                  Icons.logout_rounded,
+                  color: Colors.red.shade600,
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 12),
-              Text('Çıkış Yap', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red.shade700)),
+              Text(
+                'Çıkış Yap',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.red.shade700,
+                ),
+              ),
             ],
           ),
         ),
@@ -196,23 +269,21 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
         if (isWideScreen) {
           return Scaffold(
             backgroundColor: Colors.grey.shade50,
-            appBar: EduknAppBar(
-              institutionId: widget.institutionId,
-              title: 'Bildirimler ve Takvim',
-              subtitle: 'Öğretmen Bilgilendirme ve Akış',
-              showBackButton: false,
-              actions: [_buildProfileButton()],
-            ),
+            appBar: widget.showAppBar
+                ? EduknAppBar(
+                    institutionId: widget.institutionId,
+                    title: 'Bildirimler ve Takvim',
+                    subtitle:
+                        widget.customSubtitle ??
+                        'Öğretmen Bilgilendirme ve Akış',
+                    showBackButton: false,
+                    actions: [_buildProfileButton()],
+                  )
+                : null,
             body: Row(
               children: [
-                Expanded(
-                  flex: 2,
-                  child: _notificationSection,
-                ),
-                Expanded(
-                  flex: 3,
-                  child: _calendarSection,
-                ),
+                Expanded(flex: 2, child: _notificationSection),
+                Expanded(flex: 3, child: _calendarSection),
               ],
             ),
           );
@@ -221,13 +292,17 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
             length: 2,
             child: Scaffold(
               backgroundColor: Colors.white,
-              appBar: EduknAppBar(
-                institutionId: widget.institutionId,
-                title: 'Bildirimler ve Takvim',
-                subtitle: 'Öğretmen Bilgilendirme ve Akış',
-                showBackButton: false,
-                actions: [_buildProfileButton()],
-              ),
+              appBar: widget.showAppBar
+                  ? EduknAppBar(
+                      institutionId: widget.institutionId,
+                      title: 'Bildirimler ve Takvim',
+                      subtitle:
+                          widget.customSubtitle ??
+                          'Öğretmen Bilgilendirme ve Akış',
+                      showBackButton: false,
+                      actions: [_buildProfileButton()],
+                    )
+                  : null,
               body: Column(
                 children: [
                   Container(
@@ -270,10 +345,7 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
                   ),
                   Expanded(
                     child: TabBarView(
-                      children: [
-                        _notificationSection,
-                        _calendarSection,
-                      ],
+                      children: [_notificationSection, _calendarSection],
                     ),
                   ),
                 ],
@@ -288,13 +360,13 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
 
 class _NotificationSection extends StatefulWidget {
   final String institutionId;
- 
+
   const _NotificationSection({required this.institutionId});
- 
+
   @override
   State<_NotificationSection> createState() => _NotificationSectionState();
 }
- 
+
 class _NotificationSectionState extends State<_NotificationSection>
     with AutomaticKeepAliveClientMixin {
   @override
@@ -350,7 +422,10 @@ class _NotificationSectionState extends State<_NotificationSection>
   static final Map<String, String> _globalClassNamesMap = {};
   static String? _globalCachedInstId;
 
-  static bool _notificationsAreEqual(List<Map<String, dynamic>> a, List<Map<String, dynamic>> b) {
+  static bool _notificationsAreEqual(
+    List<Map<String, dynamic>> a,
+    List<Map<String, dynamic>> b,
+  ) {
     if (identical(a, b)) return true;
     if (a.length != b.length) return false;
     for (int i = 0; i < a.length; i++) {
@@ -360,8 +435,12 @@ class _NotificationSectionState extends State<_NotificationSection>
       if (itemA['title'] != itemB['title']) return false;
       if (itemA['body'] != itemB['body']) return false;
       if (itemA['type'] != itemB['type']) return false;
-      final timeA = itemA['time'] is DateTime ? (itemA['time'] as DateTime).millisecondsSinceEpoch : null;
-      final timeB = itemB['time'] is DateTime ? (itemB['time'] as DateTime).millisecondsSinceEpoch : null;
+      final timeA = itemA['time'] is DateTime
+          ? (itemA['time'] as DateTime).millisecondsSinceEpoch
+          : null;
+      final timeB = itemB['time'] is DateTime
+          ? (itemB['time'] as DateTime).millisecondsSinceEpoch
+          : null;
       if (timeA != timeB) return false;
     }
     return true;
@@ -379,7 +458,10 @@ class _NotificationSectionState extends State<_NotificationSection>
   static Map<String, dynamic> _serializeNotif(Map<String, dynamic> notif) {
     final copy = Map<String, dynamic>.from(notif);
     if (copy['time'] is DateTime) {
-      copy['time'] = {'__type': 'DateTime', 'ms': (copy['time'] as DateTime).millisecondsSinceEpoch};
+      copy['time'] = {
+        '__type': 'DateTime',
+        'ms': (copy['time'] as DateTime).millisecondsSinceEpoch,
+      };
     }
     if (copy['data'] is Map) {
       final d = Map<String, dynamic>.from(copy['data'] as Map);
@@ -397,8 +479,12 @@ class _NotificationSectionState extends State<_NotificationSection>
 
   static Map<String, dynamic> _deserializeNotif(Map<String, dynamic> notif) {
     final copy = Map<String, dynamic>.from(notif);
-    if (copy['time'] is Map && copy['time']['__type'] == 'DateTime' && copy['time']['ms'] is num) {
-      copy['time'] = DateTime.fromMillisecondsSinceEpoch(copy['time']['ms'] as int);
+    if (copy['time'] is Map &&
+        copy['time']['__type'] == 'DateTime' &&
+        copy['time']['ms'] is num) {
+      copy['time'] = DateTime.fromMillisecondsSinceEpoch(
+        copy['time']['ms'] as int,
+      );
     } else if (copy['time'] is String) {
       copy['time'] = DateTime.tryParse(copy['time']) ?? DateTime.now();
     } else if (copy['time'] == null) {
@@ -415,7 +501,9 @@ class _NotificationSectionState extends State<_NotificationSection>
       final jsonStr = prefs.getString('edukn_teacher_notifs_${user.uid}');
       if (jsonStr != null && jsonStr.isNotEmpty) {
         final List decoded = json.decode(jsonStr);
-        final list = decoded.map((e) => _deserializeNotif(Map<String, dynamic>.from(e as Map))).toList();
+        final list = decoded
+            .map((e) => _deserializeNotif(Map<String, dynamic>.from(e as Map)))
+            .toList();
         if (mounted && list.isNotEmpty) {
           setState(() {
             _allNotifications = list;
@@ -424,18 +512,27 @@ class _NotificationSectionState extends State<_NotificationSection>
           });
         }
       }
-    } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
+    } catch (silentError) {
+      debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError');
+    }
   }
 
-  Future<void> _saveCachedNotifications(List<Map<String, dynamic>> items) async {
+  Future<void> _saveCachedNotifications(
+    List<Map<String, dynamic>> items,
+  ) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
       _memoryTeacherNotifs = items;
       final prefs = await SharedPreferences.getInstance();
       final serialized = items.take(30).map((e) => _serializeNotif(e)).toList();
-      await prefs.setString('edukn_teacher_notifs_${user.uid}', json.encode(serialized));
-    } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
+      await prefs.setString(
+        'edukn_teacher_notifs_${user.uid}',
+        json.encode(serialized),
+      );
+    } catch (silentError) {
+      debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError');
+    }
   }
 
   @override
@@ -468,12 +565,21 @@ class _NotificationSectionState extends State<_NotificationSection>
     }
   }
 
-  void _triggerDutyBanner(String location, String startTimeStr, String bannerKey) async {
+  void _triggerDutyBanner(
+    String location,
+    String startTimeStr,
+    String bannerKey,
+  ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       _shownDutyBanners.add(bannerKey);
-      await prefs.setStringList('shown_duty_banner_keys', _shownDutyBanners.toList());
-    } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
+      await prefs.setStringList(
+        'shown_duty_banner_keys',
+        _shownDutyBanners.toList(),
+      );
+    } catch (silentError) {
+      debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError');
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -483,7 +589,9 @@ class _NotificationSectionState extends State<_NotificationSection>
           backgroundColor: const Color(0xFF1E293B),
           elevation: 6,
           margin: const EdgeInsets.only(top: 16, left: 16, right: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           duration: const Duration(seconds: 8),
           content: Row(
             children: [
@@ -493,7 +601,11 @@ class _NotificationSectionState extends State<_NotificationSection>
                   color: Colors.amber.shade500.withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.shield_rounded, color: Colors.amber, size: 26),
+                child: const Icon(
+                  Icons.shield_rounded,
+                  color: Colors.amber,
+                  size: 26,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -503,12 +615,19 @@ class _NotificationSectionState extends State<_NotificationSection>
                   children: [
                     const Text(
                       'Bugün Nöbetçisiniz!',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 15),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        fontSize: 15,
+                      ),
                     ),
                     const SizedBox(height: 3),
                     Text(
                       'Yer: $location • Başlama: $startTimeStr',
-                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
                     ),
                   ],
                 ),
@@ -520,20 +639,76 @@ class _NotificationSectionState extends State<_NotificationSection>
     });
   }
 
+  Future<void> _dismissAllNotifications() async {
+    final idsToDismiss = _allNotifications
+        .where(
+          (item) =>
+              item['type'] != 'attendance_warning' &&
+              item['type'] != 'etut_attendance_warning',
+        )
+        .map((item) => (item['id'] ?? '').toString())
+        .where((id) => id.isNotEmpty)
+        .toList();
+    if (idsToDismiss.isEmpty) return;
+
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      for (final notifId in idsToDismiss) {
+        if (uid != null && notifId.startsWith('unotif_')) {
+          final docId = notifId.substring('unotif_'.length);
+          if (docId.isNotEmpty) {
+            FirebaseFirestore.instance
+                .collection('notifications')
+                .doc(uid)
+                .collection('items')
+                .doc(docId)
+                .update({'isRead': true})
+                .catchError((_) {});
+          }
+        }
+      }
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _dismissedIds.addAll(idsToDismiss);
+      });
+      await prefs.setStringList(
+        'dismissed_notification_ids',
+        _dismissedIds.toList(),
+      );
+      _updateNotifications();
+    } catch (e) {
+      debugPrint('Error dismissing all notifications: $e');
+    }
+  }
+
   Future<void> _dismissNotification(String notifId) async {
     try {
+      if (notifId.startsWith('unotif_')) {
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        final docId = notifId.substring('unotif_'.length);
+        if (uid != null && docId.isNotEmpty) {
+          FirebaseFirestore.instance
+              .collection('notifications')
+              .doc(uid)
+              .collection('items')
+              .doc(docId)
+              .update({'isRead': true})
+              .catchError((_) {});
+        }
+      }
       final prefs = await SharedPreferences.getInstance();
       setState(() {
         _dismissedIds.add(notifId);
       });
-      await prefs.setStringList('dismissed_notification_ids', _dismissedIds.toList());
+      await prefs.setStringList(
+        'dismissed_notification_ids',
+        _dismissedIds.toList(),
+      );
       _updateNotifications();
     } catch (e) {
       debugPrint('Error dismissing notification: $e');
     }
   }
- 
-
 
   DateTime? _parseDateTime(dynamic val) {
     if (val == null) return null;
@@ -545,30 +720,43 @@ class _NotificationSectionState extends State<_NotificationSection>
       if (isoParsed != null) return isoParsed;
 
       try {
-        final regex = RegExp(r'(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2}))?');
+        final regex = RegExp(
+          r'(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2}))?',
+        );
         final match = regex.firstMatch(clean);
         if (match != null) {
           final day = int.parse(match.group(1)!);
           final month = int.parse(match.group(2)!);
           final year = int.parse(match.group(3)!);
           final hour = match.group(4) != null ? int.parse(match.group(4)!) : 0;
-          final minute = match.group(5) != null ? int.parse(match.group(5)!) : 0;
+          final minute = match.group(5) != null
+              ? int.parse(match.group(5)!)
+              : 0;
           return DateTime(year, month, day, hour, minute);
         }
-      } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
+      } catch (silentError) {
+        debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError');
+      }
     }
     return null;
   }
- 
+
   Future<void> _loadInitialData() async {
     try {
-      final instIds = [widget.institutionId, widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()].toSet().toList();
+      final instIds = [
+        widget.institutionId,
+        widget.institutionId.toUpperCase(),
+        widget.institutionId.toLowerCase(),
+      ].toSet().toList();
 
-      if (_globalCachedInstId == widget.institutionId && _globalCachedUserData != null && _globalClassNamesMap.isNotEmpty) {
+      if (_globalCachedInstId == widget.institutionId &&
+          _globalCachedUserData != null &&
+          _globalClassNamesMap.isNotEmpty) {
         _userData = _globalCachedUserData;
         _schoolId = _globalCachedSchoolId;
         _activeTermId = _globalCachedActiveTermId;
-        _notifyTeacherMissingAttendance = _globalCachedNotifyMissingAttendance ?? true;
+        _notifyTeacherMissingAttendance =
+            _globalCachedNotifyMissingAttendance ?? true;
         _dutyLocationsMap.addAll(_globalDutyLocationsMap);
         _validPeriodIds = Set.from(_globalValidPeriodIds);
         _classNamesMap = Map.from(_globalClassNamesMap);
@@ -577,10 +765,12 @@ class _NotificationSectionState extends State<_NotificationSection>
           _schoolTypeName = _userData!['schoolTypeName'];
         }
       } else {
-        _userData = UserPermissionService.cachedUserData ?? await UserPermissionService.loadUserData().timeout(
-          const Duration(seconds: 5),
-          onTimeout: () => null,
-        );
+        _userData =
+            UserPermissionService.cachedUserData ??
+            await UserPermissionService.loadUserData().timeout(
+              const Duration(seconds: 5),
+              onTimeout: () => null,
+            );
         if (_userData != null) {
           _schoolTypeId = _userData!['schoolTypeId'];
           _schoolTypeName = _userData!['schoolTypeName'];
@@ -591,7 +781,8 @@ class _NotificationSectionState extends State<_NotificationSection>
             ? Future<String?>.value(_globalCachedActiveTermId)
             : (() async {
                 try {
-                  return await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+                  return await TermService().getSelectedTermId() ??
+                      await TermService().getActiveTermId();
                 } catch (_) {
                   return null;
                 }
@@ -607,49 +798,67 @@ class _NotificationSectionState extends State<_NotificationSection>
                 }
               })();
 
-        final Future<QuerySnapshot<Map<String, dynamic>>?> dutyLocFuture = (_globalDutyLocationsMap.isNotEmpty)
+        final Future<QuerySnapshot<Map<String, dynamic>>?> dutyLocFuture =
+            (_globalDutyLocationsMap.isNotEmpty)
             ? Future<QuerySnapshot<Map<String, dynamic>>?>.value(null)
             : (() async {
                 try {
-                  return await FirebaseFirestore.instance.collection('dutyLocations').where('institutionId', whereIn: instIds).get();
+                  return await FirebaseFirestore.instance
+                      .collection('dutyLocations')
+                      .where('institutionId', whereIn: instIds)
+                      .get();
                 } catch (_) {
                   return null;
                 }
               })();
 
-        final Future<QuerySnapshot<Map<String, dynamic>>?> classesFuture = (_globalClassNamesMap.isNotEmpty)
+        final Future<QuerySnapshot<Map<String, dynamic>>?> classesFuture =
+            (_globalClassNamesMap.isNotEmpty)
             ? Future<QuerySnapshot<Map<String, dynamic>>?>.value(null)
             : (() async {
                 try {
-                  return await FirebaseFirestore.instance.collection('classes').where('institutionId', whereIn: instIds).get();
+                  return await FirebaseFirestore.instance
+                      .collection('classes')
+                      .where('institutionId', whereIn: instIds)
+                      .get();
                 } catch (_) {
                   return null;
                 }
               })();
 
-        final Future<QuerySnapshot<Map<String, dynamic>>?> schoolSnapFuture = (_globalCachedSchoolId != null)
+        final Future<QuerySnapshot<Map<String, dynamic>>?> schoolSnapFuture =
+            (_globalCachedSchoolId != null)
             ? Future<QuerySnapshot<Map<String, dynamic>>?>.value(null)
             : (() async {
                 try {
-                  return await FirebaseFirestore.instance.collection('schools').where('institutionId', whereIn: instIds).limit(1).get();
+                  return await FirebaseFirestore.instance
+                      .collection('schools')
+                      .where('institutionId', whereIn: instIds)
+                      .limit(1)
+                      .get();
                 } catch (_) {
                   return null;
                 }
               })();
 
-        final initResults = await Future.wait<dynamic>([
-          termFuture,
-          schoolIdFuture,
-          dutyLocFuture,
-          classesFuture,
-          schoolSnapFuture,
-        ]).timeout(const Duration(seconds: 6), onTimeout: () => [null, null, null, null, null]);
+        final initResults =
+            await Future.wait<dynamic>([
+              termFuture,
+              schoolIdFuture,
+              dutyLocFuture,
+              classesFuture,
+              schoolSnapFuture,
+            ]).timeout(
+              const Duration(seconds: 6),
+              onTimeout: () => [null, null, null, null, null],
+            );
 
         _activeTermId = initResults[0] as String?;
         _globalCachedActiveTermId = _activeTermId;
 
         _schoolId = initResults[1] as String?;
-        if ((_schoolId == null || _schoolId!.isEmpty) && initResults[4] is QuerySnapshot) {
+        if ((_schoolId == null || _schoolId!.isEmpty) &&
+            initResults[4] is QuerySnapshot) {
           final sSnap = initResults[4] as QuerySnapshot;
           if (sSnap.docs.isNotEmpty) {
             _schoolId = sSnap.docs.first.id;
@@ -672,7 +881,8 @@ class _NotificationSectionState extends State<_NotificationSection>
           final cSnap = initResults[3] as QuerySnapshot;
           for (var doc in cSnap.docs) {
             final data = Map<String, dynamic>.from(doc.data() as Map);
-            final name = (data['className'] ?? data['name'] ?? 'Sınıf').toString();
+            final name = (data['className'] ?? data['name'] ?? 'Sınıf')
+                .toString();
             _classNamesMap[doc.id] = name;
             _globalClassNamesMap[doc.id] = name;
           }
@@ -680,7 +890,9 @@ class _NotificationSectionState extends State<_NotificationSection>
           _classNamesMap.addAll(_globalClassNamesMap);
         }
 
-        if (_activeTermId != null && _activeTermId!.isNotEmpty && _globalValidPeriodIds.isEmpty) {
+        if (_activeTermId != null &&
+            _activeTermId!.isNotEmpty &&
+            _globalValidPeriodIds.isEmpty) {
           try {
             final wpSnap = await FirebaseFirestore.instance
                 .collection('workPeriods')
@@ -689,24 +901,38 @@ class _NotificationSectionState extends State<_NotificationSection>
                 .get();
             _validPeriodIds = wpSnap.docs.map((d) => d.id).toSet();
             _globalValidPeriodIds.addAll(_validPeriodIds);
-          } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
+          } catch (silentError) {
+            debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError');
+          }
         } else {
           _validPeriodIds = Set.from(_globalValidPeriodIds);
         }
 
-        if (_schoolId != null && _schoolId!.isNotEmpty && _globalCachedNotifyMissingAttendance == null) {
+        if (_schoolId != null &&
+            _schoolId!.isNotEmpty &&
+            _globalCachedNotifyMissingAttendance == null) {
           try {
-            final sDoc = await FirebaseFirestore.instance.collection('schools').doc(_schoolId).get();
+            final sDoc = await FirebaseFirestore.instance
+                .collection('schools')
+                .doc(_schoolId)
+                .get();
             if (sDoc.exists) {
-              final appSettings = sDoc.data()?['appSettings'] as Map<String, dynamic>?;
-              if (appSettings != null && appSettings.containsKey('notifyTeacherMissingAttendance')) {
-                _notifyTeacherMissingAttendance = appSettings['notifyTeacherMissingAttendance'] == true;
-                _globalCachedNotifyMissingAttendance = _notifyTeacherMissingAttendance;
+              final appSettings =
+                  sDoc.data()?['appSettings'] as Map<String, dynamic>?;
+              if (appSettings != null &&
+                  appSettings.containsKey('notifyTeacherMissingAttendance')) {
+                _notifyTeacherMissingAttendance =
+                    appSettings['notifyTeacherMissingAttendance'] == true;
+                _globalCachedNotifyMissingAttendance =
+                    _notifyTeacherMissingAttendance;
               }
             }
-          } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
+          } catch (silentError) {
+            debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError');
+          }
         } else if (_globalCachedNotifyMissingAttendance != null) {
-          _notifyTeacherMissingAttendance = _globalCachedNotifyMissingAttendance!;
+          _notifyTeacherMissingAttendance =
+              _globalCachedNotifyMissingAttendance!;
         }
 
         _globalCachedInstId = widget.institutionId;
@@ -736,7 +962,9 @@ class _NotificationSectionState extends State<_NotificationSection>
     final tId = _userData?['teacherId']?.toString();
     final staffId = _userData?['staffId']?.toString();
     final username = _userData?['username']?.toString();
-    final teacherName = (_userData?['fullName'] ?? _userData?['name'] ?? '').toString().trim();
+    final teacherName = (_userData?['fullName'] ?? _userData?['name'] ?? '')
+        .toString()
+        .trim();
 
     final validTeacherIds = <String>{
       authUid,
@@ -753,117 +981,198 @@ class _NotificationSectionState extends State<_NotificationSection>
       widget.institutionId.toLowerCase(),
     ].toSet().toList();
 
-    // 1. Duyurular
+    // 1. Duyurular (collectionGroup index hatasını önlemek için daima schools/{schoolId}/announcements kullan)
     if (_schoolId != null && _schoolId!.isNotEmpty) {
-      _listenTo('announcements', FirebaseFirestore.instance
-          .collection('schools')
-          .doc(_schoolId)
-          .collection('announcements')
-          .where('status', isEqualTo: 'published')
-          .snapshots());
+      _listenTo(
+        'announcements',
+        FirebaseFirestore.instance
+            .collection('schools')
+            .doc(_schoolId)
+            .collection('announcements')
+            .snapshots(),
+      );
     } else {
-      _listenTo('announcements', FirebaseFirestore.instance
-          .collectionGroup('announcements')
-          .where('status', isEqualTo: 'published')
-          .snapshots());
+      FirebaseFirestore.instance
+          .collection('schools')
+          .where('institutionId', whereIn: instIds)
+          .limit(1)
+          .get()
+          .then((snap) {
+            if (!mounted) return;
+            String? resolvedId = snap.docs.isNotEmpty
+                ? snap.docs.first.id
+                : null;
+            if (resolvedId != null && resolvedId.isNotEmpty) {
+              _schoolId = resolvedId;
+              _globalCachedSchoolId = resolvedId;
+              _listenTo(
+                'announcements',
+                FirebaseFirestore.instance
+                    .collection('schools')
+                    .doc(resolvedId)
+                    .collection('announcements')
+                    .snapshots(),
+              );
+            }
+          })
+          .catchError((_) {});
     }
 
     // 2. Sosyal Medya
-    _listenTo('social', FirebaseFirestore.instance
-        .collection('social_media_posts')
-        .where('institutionId', whereIn: instIds)
-        .snapshots());
+    _listenTo(
+      'social',
+      FirebaseFirestore.instance
+          .collection('social_media_posts')
+          .where('institutionId', whereIn: instIds)
+          .snapshots(),
+    );
 
     // 3. Ders Atamaları (Array teacherIds ve single teacherId)
-    _listenToMultiTeacher('assignments', (tId) => FirebaseFirestore.instance
-        .collection('lessonAssignments')
-        .where('institutionId', whereIn: instIds)
-        .where('teacherIds', arrayContains: tId)
-        .where('isActive', isEqualTo: true)
-        .snapshots(), validTeacherIds);
-
-    _listenToMultiTeacher('assignments_single', (tId) => FirebaseFirestore.instance
-        .collection('lessonAssignments')
-        .where('institutionId', whereIn: instIds)
-        .where('teacherId', isEqualTo: tId)
-        .where('isActive', isEqualTo: true)
-        .snapshots(), validTeacherIds);
-
-    if (teacherName.isNotEmpty) {
-      _listenTo('assignments_name', FirebaseFirestore.instance
+    _listenToMultiTeacher(
+      'assignments',
+      (tId) => FirebaseFirestore.instance
           .collection('lessonAssignments')
           .where('institutionId', whereIn: instIds)
-          .where('teacherNames', arrayContains: teacherName)
+          .where('teacherIds', arrayContains: tId)
           .where('isActive', isEqualTo: true)
-          .snapshots());
+          .snapshots(),
+      validTeacherIds,
+    );
+
+    _listenToMultiTeacher(
+      'assignments_single',
+      (tId) => FirebaseFirestore.instance
+          .collection('lessonAssignments')
+          .where('institutionId', whereIn: instIds)
+          .where('teacherId', isEqualTo: tId)
+          .where('isActive', isEqualTo: true)
+          .snapshots(),
+      validTeacherIds,
+    );
+
+    if (teacherName.isNotEmpty) {
+      _listenTo(
+        'assignments_name',
+        FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', whereIn: instIds)
+            .where('teacherNames', arrayContains: teacherName)
+            .where('isActive', isEqualTo: true)
+            .snapshots(),
+      );
     }
 
     // 4. Nöbetler (DocID, Auth UID, StaffId ve İsim desteği)
-    _listenToMultiTeacher('duty', (tId) => FirebaseFirestore.instance
-        .collection('dutyScheduleItems')
-        .where('institutionId', whereIn: instIds)
-        .where('teacherId', isEqualTo: tId)
-        .snapshots(), validTeacherIds);
-
-    if (teacherName.isNotEmpty) {
-      _listenTo('duty_name', FirebaseFirestore.instance
+    _listenToMultiTeacher(
+      'duty',
+      (tId) => FirebaseFirestore.instance
           .collection('dutyScheduleItems')
           .where('institutionId', whereIn: instIds)
-          .where('teacherName', isEqualTo: teacherName)
-          .snapshots());
+          .where('teacherId', isEqualTo: tId)
+          .snapshots(),
+      validTeacherIds,
+    );
+
+    if (teacherName.isNotEmpty) {
+      _listenTo(
+        'duty_name',
+        FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .where('institutionId', whereIn: instIds)
+            .where('teacherName', isEqualTo: teacherName)
+            .snapshots(),
+      );
     }
 
     // 5. Ders Programı (Array teacherIds ve single teacherId)
-    _listenToMultiTeacher('schedules', (tId) => FirebaseFirestore.instance
-        .collection('classSchedules')
-        .where('institutionId', whereIn: instIds)
-        .where('teacherIds', arrayContains: tId)
-        .where('isActive', isEqualTo: true)
-        .snapshots(), validTeacherIds);
-
-    _listenToMultiTeacher('schedules_single', (tId) => FirebaseFirestore.instance
-        .collection('classSchedules')
-        .where('institutionId', whereIn: instIds)
-        .where('teacherId', isEqualTo: tId)
-        .where('isActive', isEqualTo: true)
-        .snapshots(), validTeacherIds);
-
-    if (teacherName.isNotEmpty) {
-      _listenTo('schedules_name', FirebaseFirestore.instance
+    _listenToMultiTeacher(
+      'schedules',
+      (tId) => FirebaseFirestore.instance
           .collection('classSchedules')
           .where('institutionId', whereIn: instIds)
-          .where('teacherName', isEqualTo: teacherName)
+          .where('teacherIds', arrayContains: tId)
           .where('isActive', isEqualTo: true)
-          .snapshots());
+          .snapshots(),
+      validTeacherIds,
+    );
+
+    _listenToMultiTeacher(
+      'schedules_single',
+      (tId) => FirebaseFirestore.instance
+          .collection('classSchedules')
+          .where('institutionId', whereIn: instIds)
+          .where('teacherId', isEqualTo: tId)
+          .where('isActive', isEqualTo: true)
+          .snapshots(),
+      validTeacherIds,
+    );
+
+    if (teacherName.isNotEmpty) {
+      _listenTo(
+        'schedules_name',
+        FirebaseFirestore.instance
+            .collection('classSchedules')
+            .where('institutionId', whereIn: instIds)
+            .where('teacherName', isEqualTo: teacherName)
+            .where('isActive', isEqualTo: true)
+            .snapshots(),
+      );
     }
 
     // 6. Yoklama
     final todayDateStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    _listenTo('attendance', FirebaseFirestore.instance
-        .collection('lessonAttendance')
-        .where('institutionId', whereIn: instIds)
-        .where('date', isEqualTo: todayDateStr)
-        .snapshots());
+    _listenTo(
+      'attendance',
+      FirebaseFirestore.instance
+          .collection('lessonAttendance')
+          .where('institutionId', whereIn: instIds)
+          .where('date', isEqualTo: todayDateStr)
+          .snapshots(),
+    );
 
     // 7. Ödevler (Çift Kimlik - DocID & Auth UID)
-    _listenToMultiTeacher('homeworks', (tId) => FirebaseFirestore.instance
-        .collection('homeworks')
-        .where('institutionId', whereIn: instIds)
-        .where('teacherId', isEqualTo: tId)
-        .snapshots(), validTeacherIds);
+    _listenToMultiTeacher(
+      'homeworks',
+      (tId) => FirebaseFirestore.instance
+          .collection('homeworks')
+          .where('institutionId', whereIn: instIds)
+          .where('teacherId', isEqualTo: tId)
+          .snapshots(),
+      validTeacherIds,
+    );
 
     // 8. Etütler (Çift Kimlik - DocID & Auth UID)
-    _listenToMultiTeacher('etuts', (tId) => FirebaseFirestore.instance
-        .collection('etut_requests')
-        .where('institutionId', whereIn: instIds)
-        .where('teacherId', isEqualTo: tId)
-        .snapshots(), validTeacherIds);
+    _listenToMultiTeacher(
+      'etuts',
+      (tId) => FirebaseFirestore.instance
+          .collection('etut_requests')
+          .where('institutionId', whereIn: instIds)
+          .where('teacherId', isEqualTo: tId)
+          .snapshots(),
+      validTeacherIds,
+    );
 
     // 9. Sohbetler (Çift Kimlik - DocID & Auth UID)
-    _listenToMultiTeacher('chats', (tId) => FirebaseFirestore.instance
-        .collection('conversations')
-        .where('participantIds', arrayContains: tId)
-        .snapshots(), validTeacherIds);
+    _listenToMultiTeacher(
+      'chats',
+      (tId) => FirebaseFirestore.instance
+          .collection('conversations')
+          .where('participantIds', arrayContains: tId)
+          .snapshots(),
+      validTeacherIds,
+    );
+
+    // 10. Kişisel Anlık Bildirimler (Geç Kağıdı, İzin & Güvenlik, Revir, Görüşme vb.)
+    _listenTo(
+      'user_notifications',
+      FirebaseFirestore.instance
+          .collection('notifications')
+          .doc(authUid)
+          .collection('items')
+          .orderBy('createdAt', descending: true)
+          .limit(30)
+          .snapshots(),
+    );
   }
 
   void _listenToMultiTeacher(
@@ -874,21 +1183,24 @@ class _NotificationSectionState extends State<_NotificationSection>
     for (final tId in teacherIds) {
       final subKey = '${type}_$tId';
       try {
-        final sub = streamBuilder(tId).listen((snap) {
-          if (!mounted) return;
-          _subStreamSnaps.putIfAbsent(type, () => {})[tId] = snap;
+        final sub = streamBuilder(tId).listen(
+          (snap) {
+            if (!mounted) return;
+            _subStreamSnaps.putIfAbsent(type, () => {})[tId] = snap;
 
-          final combinedDocs = <String, QueryDocumentSnapshot>{};
-          for (final s in _subStreamSnaps[type]!.values) {
-            for (final d in s.docs) {
-              combinedDocs[d.id] = d;
+            final combinedDocs = <String, QueryDocumentSnapshot>{};
+            for (final s in _subStreamSnaps[type]!.values) {
+              for (final d in s.docs) {
+                combinedDocs[d.id] = d;
+              }
             }
-          }
-          _typeDocs[type] = combinedDocs.values.toList();
-          _scheduleUpdateNotifications();
-        }, onError: (e) {
-          debugPrint('--- Stream error ($subKey) ---: $e');
-        });
+            _typeDocs[type] = combinedDocs.values.toList();
+            _scheduleUpdateNotifications();
+          },
+          onError: (e) {
+            debugPrint('--- Stream error ($subKey) ---: $e');
+          },
+        );
         _streams[subKey] = sub;
       } catch (e) {
         debugPrint('Error setting up listener for $subKey: $e');
@@ -898,18 +1210,23 @@ class _NotificationSectionState extends State<_NotificationSection>
 
   void _listenTo(String type, Stream<QuerySnapshot> stream) {
     try {
-      final sub = stream.listen((snap) {
-        if (mounted) {
-          _snaps[type] = snap;
-          _scheduleUpdateNotifications();
-        }
-      }, onError: (e) {
-        debugPrint('--- Stream error ($type) ---');
-        debugPrint(e.toString());
-        if (e.toString().contains('index')) {
-          debugPrint('💡 İpucu: $type için Firestore indeksi eksik olabilir.');
-        }
-      });
+      final sub = stream.listen(
+        (snap) {
+          if (mounted) {
+            _snaps[type] = snap;
+            _scheduleUpdateNotifications();
+          }
+        },
+        onError: (e) {
+          debugPrint('--- Stream error ($type) ---');
+          debugPrint(e.toString());
+          if (e.toString().contains('index')) {
+            debugPrint(
+              '💡 İpucu: $type için Firestore indeksi eksik olabilir.',
+            );
+          }
+        },
+      );
       _streams[type] = sub;
     } catch (e) {
       debugPrint('Error setting up listener for $type: $e');
@@ -928,6 +1245,7 @@ class _NotificationSectionState extends State<_NotificationSection>
     final hwDocs = _getDocs('homeworks');
     final etutDocs = _getDocs('etuts');
     final chatDocs = _getDocs('chats');
+    final userNotifDocs = _getDocs('user_notifications');
 
     final List<Map<String, dynamic>> result = [];
     final user = FirebaseAuth.instance.currentUser;
@@ -967,6 +1285,8 @@ class _NotificationSectionState extends State<_NotificationSection>
     if (annDocs.isNotEmpty) {
       for (var doc in annDocs) {
         final data = doc.data() as Map<String, dynamic>;
+        final status = (data['status'] ?? 'published').toString().toLowerCase();
+        if (status != 'published') continue;
         final readBy = List<dynamic>.from(data['readBy'] ?? []);
         if ((currentUserEmail != null && readBy.contains(currentUserEmail)) ||
             (currentUserId != null && readBy.contains(currentUserId)) ||
@@ -980,7 +1300,8 @@ class _NotificationSectionState extends State<_NotificationSection>
 
         if (publishDate != null && publishDate.isAfter(now)) continue;
 
-        bool isRecipient = (recipients.contains('ALL') ||
+        bool isRecipient =
+            (recipients.contains('ALL') ||
             recipients.contains('TEACHER') ||
             recipients.contains('unit:ogretmen'));
         if (!isRecipient) {
@@ -994,7 +1315,9 @@ class _NotificationSectionState extends State<_NotificationSection>
               break;
             }
           }
-          if (!isRecipient && currentUserEmail != null && recipients.contains(currentUserEmail)) {
+          if (!isRecipient &&
+              currentUserEmail != null &&
+              recipients.contains(currentUserEmail)) {
             isRecipient = true;
           }
           if (!isRecipient) {
@@ -1009,8 +1332,11 @@ class _NotificationSectionState extends State<_NotificationSection>
           }
         }
 
-        if (isRecipient && schoolTypeId != null && !userSchoolTypeSet.contains(schoolTypeId)) {
-          if (!recipients.contains('ALL') && !recipients.contains('TEACHER')) isRecipient = false;
+        if (isRecipient &&
+            schoolTypeId != null &&
+            !userSchoolTypeSet.contains(schoolTypeId)) {
+          if (!recipients.contains('ALL') && !recipients.contains('TEACHER'))
+            isRecipient = false;
         }
 
         if (isRecipient) {
@@ -1041,7 +1367,8 @@ class _NotificationSectionState extends State<_NotificationSection>
           termMatches = true;
         } else if (itemTermId != null && itemTermId.isNotEmpty) {
           termMatches = (itemTermId == _activeTermId);
-        } else if (itemPeriodId == _activeTermId || _validPeriodIds.contains(itemPeriodId)) {
+        } else if (itemPeriodId == _activeTermId ||
+            _validPeriodIds.contains(itemPeriodId)) {
           termMatches = true;
         }
         if (!termMatches) continue;
@@ -1049,10 +1376,16 @@ class _NotificationSectionState extends State<_NotificationSection>
         final dDayOfWeek = data['dayOfWeek'] as int?;
         final dWeekStart = _parseDateTime(data['weekStart']);
         final createdAt = _parseDateTime(data['createdAt']);
-        final location = data['locationName'] ?? data['dutyLocation'] ?? 'Nöbet Yeri';
+        final location =
+            data['locationName'] ?? data['dutyLocation'] ?? 'Nöbet Yeri';
         final locationId = data['locationId']?.toString();
-        final locData = locationId != null ? _dutyLocationsMap[locationId] : null;
-        final startTimeStr = locData?['startTime']?.toString() ?? data['startTime']?.toString() ?? '08:00';
+        final locData = locationId != null
+            ? _dutyLocationsMap[locationId]
+            : null;
+        final startTimeStr =
+            locData?['startTime']?.toString() ??
+            data['startTime']?.toString() ??
+            '08:00';
 
         int startHour = 8;
         int startMinute = 0;
@@ -1061,16 +1394,26 @@ class _NotificationSectionState extends State<_NotificationSection>
           startHour = int.tryParse(parts[0]) ?? 8;
           startMinute = int.tryParse(parts[1]) ?? 0;
         }
-        final dutyStartTime = DateTime(now.year, now.month, now.day, startHour, startMinute);
+        final dutyStartTime = DateTime(
+          now.year,
+          now.month,
+          now.day,
+          startHour,
+          startMinute,
+        );
 
         // A. Anlık Bildirim (Yönetici 'Bildirim Gönder' demişse ve son 3 günde bildirilmişse)
         final isNotificationSent = data['notificationSent'] == true;
-        final notifTime = _parseDateTime(data['notificationRequestedAt']) ?? createdAt;
-        if (isNotificationSent && notifTime != null && now.difference(notifTime).inDays < 3) {
+        final notifTime =
+            _parseDateTime(data['notificationRequestedAt']) ?? createdAt;
+        if (isNotificationSent &&
+            notifTime != null &&
+            now.difference(notifTime).inDays < 3) {
           result.add({
             'id': 'duty_scheduled_${doc.id}',
             'title': 'Yeni Nöbet Yazıldı!',
-            'subtitle': '${_weekdayNameTr(dDayOfWeek)} günü nöbetiniz bulunmaktadır. Yer: $location',
+            'subtitle':
+                '${_weekdayNameTr(dDayOfWeek)} günü nöbetiniz bulunmaktadır. Yer: $location',
             'time': notifTime,
             'type': 'duty_scheduled',
             'data': data,
@@ -1088,9 +1431,15 @@ class _NotificationSectionState extends State<_NotificationSection>
 
         bool isDutyToday = false;
         if (dutyDate != null) {
-          isDutyToday = (dutyDate.year == now.year && dutyDate.month == now.month && dutyDate.day == now.day);
+          isDutyToday =
+              (dutyDate.year == now.year &&
+              dutyDate.month == now.month &&
+              dutyDate.day == now.day);
         } else if (dDayOfWeek == now.weekday && dWeekStart != null) {
-          isDutyToday = (dWeekStart.year == weekStart.year && dWeekStart.month == weekStart.month && dWeekStart.day == weekStart.day);
+          isDutyToday =
+              (dWeekStart.year == weekStart.year &&
+              dWeekStart.month == weekStart.month &&
+              dWeekStart.day == weekStart.day);
         }
 
         if (isDutyToday && now.isAfter(dutyStartTime)) {
@@ -1098,7 +1447,8 @@ class _NotificationSectionState extends State<_NotificationSection>
           result.add({
             'id': notifId,
             'title': 'Bugün Nöbetçisiniz!',
-            'subtitle': 'Bugün nöbet yeriniz: $location (Başlama: $startTimeStr). Lütfen kontrol edin.',
+            'subtitle':
+                'Bugün nöbet yeriniz: $location (Başlama: $startTimeStr). Lütfen kontrol edin.',
             'time': dutyStartTime,
             'type': 'duty_today',
             'data': data,
@@ -1126,7 +1476,9 @@ class _NotificationSectionState extends State<_NotificationSection>
 
         // A. Anlık Bildirim (Yazıldığı an - son 3 günde oluşturulmuşsa)
         if (createdAt != null && now.difference(createdAt).inDays < 3) {
-          final dateStr = etutDate != null ? DateFormat('dd.MM.yyyy HH:mm').format(etutDate) : '';
+          final dateStr = etutDate != null
+              ? DateFormat('dd.MM.yyyy HH:mm').format(etutDate)
+              : '';
           result.add({
             'id': 'etut_scheduled_${doc.id}',
             'title': 'Yeni Etüt Yazıldı!',
@@ -1138,8 +1490,10 @@ class _NotificationSectionState extends State<_NotificationSection>
         }
 
         // B. Günlük Hatırlatıcı (Etüt Günü - Sabah 08:00'de)
-        if (etutDate != null && 
-            etutDate.year == now.year && etutDate.month == now.month && etutDate.day == now.day &&
+        if (etutDate != null &&
+            etutDate.year == now.year &&
+            etutDate.month == now.month &&
+            etutDate.day == now.day &&
             now.isAfter(todayAt08)) {
           final timeStr = DateFormat('HH:mm').format(etutDate);
           result.add({
@@ -1153,10 +1507,12 @@ class _NotificationSectionState extends State<_NotificationSection>
         }
       }
     }
- 
+
     // 4. YOKLAMA UYARISI (Dersler & Etütler)
     // A. Ders Yoklama Uyarısı (Başlangıçtan 5 dakika geçince)
-    if (_notifyTeacherMissingAttendance && scheduleDocs.isNotEmpty && attDocs.isNotEmpty) {
+    if (_notifyTeacherMissingAttendance &&
+        scheduleDocs.isNotEmpty &&
+        attDocs.isNotEmpty) {
       try {
         final takenKeys = <String>{};
         for (var doc in attDocs) {
@@ -1167,7 +1523,7 @@ class _NotificationSectionState extends State<_NotificationSection>
             takenKeys.add('${cId}_$lH');
           }
         }
- 
+
         for (var doc in scheduleDocs) {
           final data = doc.data() as Map<String, dynamic>;
 
@@ -1179,7 +1535,8 @@ class _NotificationSectionState extends State<_NotificationSection>
             termMatches = true;
           } else if (itemTermId != null && itemTermId.isNotEmpty) {
             termMatches = (itemTermId == _activeTermId);
-          } else if (itemPeriodId == _activeTermId || _validPeriodIds.contains(itemPeriodId)) {
+          } else if (itemPeriodId == _activeTermId ||
+              _validPeriodIds.contains(itemPeriodId)) {
             termMatches = true;
           }
           if (!termMatches) continue;
@@ -1190,26 +1547,34 @@ class _NotificationSectionState extends State<_NotificationSection>
             final hourIdx = data['hourIndex'] as int? ?? 0;
             final lessonHour = hourIdx + 1;
             final subject = data['subjectName'] ?? data['lessonName'] ?? 'Ders';
-            
-            final lessonStart = DateTime(now.year, now.month, now.day, 9, 0).add(Duration(minutes: hourIdx * 45));
-            final warningTriggerTime = lessonStart.add(const Duration(minutes: 5));
+
+            final lessonStart = DateTime(
+              now.year,
+              now.month,
+              now.day,
+              9,
+              0,
+            ).add(Duration(minutes: hourIdx * 45));
+            final warningTriggerTime = lessonStart.add(
+              const Duration(minutes: 5),
+            );
 
             if (now.isAfter(warningTriggerTime)) {
               final key = '${classId}_$lessonHour';
               if (!takenKeys.contains(key)) {
                 final dbClassName = data['className']?.toString() ?? '';
-                final resolvedClassName = _classNamesMap[classId] ?? (dbClassName.length >= 15 ? 'Sınıf' : dbClassName);
+                final resolvedClassName =
+                    _classNamesMap[classId] ??
+                    (dbClassName.length >= 15 ? 'Sınıf' : dbClassName);
 
                 result.add({
                   'id': 'att_${doc.id}',
                   'title': 'Yoklama Eksik: $resolvedClassName',
-                  'subtitle': '$lessonHour. ders ($subject) yoklaması henüz alınmadı (5 dk geçti).',
+                  'subtitle':
+                      '$lessonHour. ders ($subject) yoklaması henüz alınmadı (5 dk geçti).',
                   'time': warningTriggerTime,
                   'type': 'attendance_warning',
-                  'data': {
-                    ...data,
-                    'resolvedClassName': resolvedClassName,
-                  },
+                  'data': {...data, 'resolvedClassName': resolvedClassName},
                 });
               }
             }
@@ -1225,18 +1590,22 @@ class _NotificationSectionState extends State<_NotificationSection>
       for (var doc in etutDocs) {
         final data = doc.data() as Map<String, dynamic>;
         final etutDate = _parseDateTime(data['startTime'] ?? data['date']);
-        if (etutDate != null && 
-            etutDate.year == now.year && etutDate.month == now.month && etutDate.day == now.day) {
+        if (etutDate != null &&
+            etutDate.year == now.year &&
+            etutDate.month == now.month &&
+            etutDate.day == now.day) {
           final warningTriggerTime = etutDate.add(const Duration(minutes: 5));
           if (now.isAfter(warningTriggerTime)) {
             final attendanceTaken = data['attendanceTaken'] ?? false;
             if (!attendanceTaken) {
               final timeStr = DateFormat('HH:mm').format(etutDate);
-              final lessonName = data['subject'] ?? data['lessonName'] ?? 'Etüt';
+              final lessonName =
+                  data['subject'] ?? data['lessonName'] ?? 'Etüt';
               result.add({
                 'id': 'etut_att_${doc.id}',
                 'title': 'Etüt Yoklaması Eksik!',
-                'subtitle': 'Saat $timeStr\'daki $lessonName etüt yoklaması alınmadı (5 dk geçti).',
+                'subtitle':
+                    'Saat $timeStr\'daki $lessonName etüt yoklaması alınmadı (5 dk geçti).',
                 'time': warningTriggerTime,
                 'type': 'etut_attendance_warning',
                 'data': data,
@@ -1246,7 +1615,7 @@ class _NotificationSectionState extends State<_NotificationSection>
         }
       }
     }
- 
+
     // 5. SOSYAL
     if (socDocs.isNotEmpty) {
       final threeDaysAgo = now.subtract(const Duration(days: 3));
@@ -1254,11 +1623,15 @@ class _NotificationSectionState extends State<_NotificationSection>
         final data = doc.data() as Map<String, dynamic>;
         final readBy = List<dynamic>.from(data['readBy'] ?? []);
         final createdAt = _parseDateTime(data['createdAt']);
-        if (currentUserEmail != null && readBy.contains(currentUserEmail)) continue;
+        if (currentUserEmail != null && readBy.contains(currentUserEmail))
+          continue;
         if (createdAt != null && createdAt.isBefore(threeDaysAgo)) continue;
- 
+
         final recipients = List<String>.from(data['recipients'] ?? []);
-        bool isRecipient = (recipients.isEmpty || recipients.contains('ALL') || recipients.contains('TEACHER'));
+        bool isRecipient =
+            (recipients.isEmpty ||
+            recipients.contains('ALL') ||
+            recipients.contains('TEACHER'));
         if (!isRecipient && currentUserId != null) {
           final validRecipIds = <String>{
             currentUserId,
@@ -1272,14 +1645,15 @@ class _NotificationSectionState extends State<_NotificationSection>
           }
           if (!isRecipient) {
             for (var cid in assignedClassIds) {
-              if (recipients.contains('class:$cid') || recipients.contains(cid)) {
+              if (recipients.contains('class:$cid') ||
+                  recipients.contains(cid)) {
                 isRecipient = true;
                 break;
               }
             }
           }
         }
- 
+
         if (isRecipient) {
           result.add({
             'id': doc.id,
@@ -1292,27 +1666,35 @@ class _NotificationSectionState extends State<_NotificationSection>
         }
       }
     }
- 
+
     // 6. ÖDEV KONTROLÜ (Sabah 08:00'de)
     if (hwDocs.isNotEmpty) {
       for (var doc in hwDocs) {
         final data = doc.data() as Map<String, dynamic>;
         final dueDate = _parseDateTime(data['dueDate']);
         if (dueDate != null) {
-          final isToday = dueDate.year == now.year && dueDate.month == now.month && dueDate.day == now.day;
-          
+          final isToday =
+              dueDate.year == now.year &&
+              dueDate.month == now.month &&
+              dueDate.day == now.day;
+
           if (isToday && now.isAfter(todayAt08)) {
-            final statuses = Map<String, dynamic>.from(data['studentStatuses'] ?? {});
+            final statuses = Map<String, dynamic>.from(
+              data['studentStatuses'] ?? {},
+            );
             final targetIds = List<String>.from(data['targetStudentIds'] ?? []);
-            
+
             // Eğer hiç durum girilmemişse veya bekleyen (0) varsa
-            bool needsCheck = targetIds.isNotEmpty && (statuses.isEmpty || statuses.values.any((s) => s == 0));
-            
+            bool needsCheck =
+                targetIds.isNotEmpty &&
+                (statuses.isEmpty || statuses.values.any((s) => s == 0));
+
             if (needsCheck) {
               result.add({
                 'id': 'hw_today_${doc.id}',
                 'title': 'Bugün Ödev Kontrol Günü!',
-                'subtitle': '"${data['title']}" ödevinin son kontrol günü bugün. Kontrol etmeyi unutmayın.',
+                'subtitle':
+                    '"${data['title']}" ödevinin son kontrol günü bugün. Kontrol etmeyi unutmayın.',
                 'time': todayAt08,
                 'type': 'homework_warning',
                 'data': {...data, 'id': doc.id},
@@ -1322,7 +1704,7 @@ class _NotificationSectionState extends State<_NotificationSection>
         }
       }
     }
- 
+
     // 7. CHATS & MISSED CALLS
     if (chatDocs.isNotEmpty) {
       int unreadMessagesCount = 0;
@@ -1331,11 +1713,13 @@ class _NotificationSectionState extends State<_NotificationSection>
 
       for (var doc in chatDocs) {
         final data = doc.data() as Map<String, dynamic>;
-        final unreadCounts = data['unreadCounts'] as Map<String, dynamic>? ?? {};
+        final unreadCounts =
+            data['unreadCounts'] as Map<String, dynamic>? ?? {};
         int count = 0;
         if (currentUserId != null && unreadCounts.containsKey(currentUserId)) {
           count = (unreadCounts[currentUserId] as num?)?.toInt() ?? 0;
-        } else if (docTeacherId != null && unreadCounts.containsKey(docTeacherId)) {
+        } else if (docTeacherId != null &&
+            unreadCounts.containsKey(docTeacherId)) {
           count = (unreadCounts[docTeacherId] as num?)?.toInt() ?? 0;
         }
 
@@ -1345,13 +1729,17 @@ class _NotificationSectionState extends State<_NotificationSection>
             final type = lastMsg['type'] as String?;
             final content = lastMsg['content'] as String? ?? '';
             final senderId = lastMsg['senderId'] as String?;
-            
+
             final msgTime = _parseDateTime(lastMsg['timestamp']);
-            if (msgTime != null && (latestMessageTime == null || msgTime.isAfter(latestMessageTime))) {
+            if (msgTime != null &&
+                (latestMessageTime == null ||
+                    msgTime.isAfter(latestMessageTime))) {
               latestMessageTime = msgTime;
             }
 
-            if (type == 'call' && content.contains('Cevapsız') && senderId != currentUserId) {
+            if (type == 'call' &&
+                content.contains('Cevapsız') &&
+                senderId != currentUserId) {
               missedCallsCount += 1;
               if (count > 1) {
                 unreadMessagesCount += (count - 1);
@@ -1369,7 +1757,8 @@ class _NotificationSectionState extends State<_NotificationSection>
         result.add({
           'id': 'unread_messages',
           'title': 'Okunmamış Mesaj',
-          'subtitle': '$unreadMessagesCount adet okunmamış mesajınız bulunmaktadır.',
+          'subtitle':
+              '$unreadMessagesCount adet okunmamış mesajınız bulunmaktadır.',
           'time': latestMessageTime ?? now,
           'type': 'chat_message',
           'data': {},
@@ -1388,14 +1777,63 @@ class _NotificationSectionState extends State<_NotificationSection>
       }
     }
 
+    // 8. ANLIK ÖĞRENCİ HAREKET & ZİYARETÇİ BİLDİRİMLERİ (Geç - İzin - Çıkış - Ziyaretçi - Revir - Görüşme)
+    if (userNotifDocs.isNotEmpty) {
+      final twoDaysAgo = now.subtract(const Duration(days: 2));
+      final userRole = (_userData?['role'] ?? '')
+          .toString()
+          .toLowerCase()
+          .trim();
+      final isParentUser = userRole == 'veli' || userRole == 'parent';
+      final userAssignedStIds = <String>{
+        if (_schoolTypeId != null && _schoolTypeId!.trim().isNotEmpty)
+          _schoolTypeId!.trim(),
+        if (_userData?['schoolTypes'] is Iterable)
+          ...(_userData!['schoolTypes'] as Iterable)
+              .map((e) => e.toString().trim())
+              .where((e) => e.isNotEmpty),
+      };
+
+      for (final doc in userNotifDocs) {
+        final data = doc.data() as Map<String, dynamic>;
+        if (data['isRead'] == true) continue;
+        final createdAt = _parseDateTime(data['createdAt']) ?? now;
+        if (createdAt.isBefore(twoDaysAgo)) continue;
+
+        final notifStId = (data['schoolTypeId'] ?? '').toString().trim();
+        if (!isParentUser &&
+            notifStId.isNotEmpty &&
+            userAssignedStIds.isNotEmpty &&
+            !userAssignedStIds.contains(notifStId)) {
+          continue;
+        }
+
+        final rawType = (data['type'] ?? 'user_notification').toString();
+        result.add({
+          'id': 'unotif_${doc.id}',
+          'title': (data['title'] ?? 'Okul Bildirimi').toString(),
+          'subtitle': (data['body'] ?? data['message'] ?? '').toString(),
+          'time': createdAt,
+          'type': rawType,
+          'data': {...data, 'notifDocId': doc.id},
+        });
+      }
+    }
+
     final filteredResult = result.where((item) {
-      if (item['type'] == 'attendance_warning' || item['type'] == 'etut_attendance_warning') {
+      if (item['type'] == 'attendance_warning' ||
+          item['type'] == 'etut_attendance_warning') {
         return true; // Yoklama kaydedilene kadar bildirim ekranında kalır
       }
       return !_dismissedIds.contains(item['id']);
     }).toList();
-    filteredResult.sort((a, b) => (b['time'] as DateTime).compareTo(a['time'] as DateTime));
-    final hasChanged = !_notificationsAreEqual(_allNotifications, filteredResult);
+    filteredResult.sort(
+      (a, b) => (b['time'] as DateTime).compareTo(a['time'] as DateTime),
+    );
+    final hasChanged = !_notificationsAreEqual(
+      _allNotifications,
+      filteredResult,
+    );
     if (!hasChanged && _allNotifications.isNotEmpty) {
       if (_isLoading && mounted) {
         setState(() => _isLoading = false);
@@ -1414,43 +1852,111 @@ class _NotificationSectionState extends State<_NotificationSection>
 
   String _weekdayNameTr(int? day) {
     switch (day) {
-      case 1: return 'Pazartesi'; case 2: return 'Salı'; case 3: return 'Çarşamba';
-      case 4: return 'Perşembe'; case 5: return 'Cuma'; case 6: return 'Cumartesi';
-      case 7: return 'Pazar'; default: return '';
+      case 1:
+        return 'Pazartesi';
+      case 2:
+        return 'Salı';
+      case 3:
+        return 'Çarşamba';
+      case 4:
+        return 'Perşembe';
+      case 5:
+        return 'Cuma';
+      case 6:
+        return 'Cumartesi';
+      case 7:
+        return 'Pazar';
+      default:
+        return '';
     }
   }
 
   String _dayNameTr(DateTime date) {
     switch (date.weekday) {
-      case 1: return 'Pazartesi'; case 2: return 'Salı'; case 3: return 'Çarşamba';
-      case 4: return 'Perşembe'; case 5: return 'Cuma'; case 6: return 'Cumartesi';
-      case 7: return 'Pazar'; default: return '';
+      case 1:
+        return 'Pazartesi';
+      case 2:
+        return 'Salı';
+      case 3:
+        return 'Çarşamba';
+      case 4:
+        return 'Perşembe';
+      case 5:
+        return 'Cuma';
+      case 6:
+        return 'Cumartesi';
+      case 7:
+        return 'Pazar';
+      default:
+        return '';
     }
   }
- 
+
   bool _isSameDay(String dbDay, String selectedDay) {
-    final d1 = dbDay.toLowerCase().replaceAll('ı', 'i').replaceAll('İ', 'i').trim();
-    final d2 = selectedDay.toLowerCase().replaceAll('ı', 'i').replaceAll('İ', 'i').trim();
+    final d1 = dbDay
+        .toLowerCase()
+        .replaceAll('ı', 'i')
+        .replaceAll('İ', 'i')
+        .trim();
+    final d2 = selectedDay
+        .toLowerCase()
+        .replaceAll('ı', 'i')
+        .replaceAll('İ', 'i')
+        .trim();
     return d1 == d2;
   }
- 
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
     if (_isLoading && _allNotifications.isEmpty) {
       return const SizedBox.shrink();
     }
- 
+
     return Container(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-            child: Text(
-              'BİLDİRİMLER',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey.shade600, letterSpacing: 1.2),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'BİLDİRİMLER',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade600,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                if (_allNotifications.any(
+                  (n) =>
+                      n['type'] != 'attendance_warning' &&
+                      n['type'] != 'etut_attendance_warning',
+                ))
+                  TextButton.icon(
+                    onPressed: _dismissAllNotifications,
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      foregroundColor: Colors.grey.shade600,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                    ),
+                    icon: const Icon(Icons.clear_all_rounded, size: 16),
+                    label: const Text(
+                      'Tümünü Kapat',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           Expanded(
@@ -1459,9 +1965,16 @@ class _NotificationSectionState extends State<_NotificationSection>
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.notifications_off_outlined, size: 48, color: Colors.grey.shade300),
+                        Icon(
+                          Icons.notifications_off_outlined,
+                          size: 48,
+                          color: Colors.grey.shade300,
+                        ),
                         const SizedBox(height: 16),
-                        Text('Yeni bildirim bulunmuyor', style: TextStyle(color: Colors.grey.shade400)),
+                        Text(
+                          'Yeni bildirim bulunmuyor',
+                          style: TextStyle(color: Colors.grey.shade400),
+                        ),
                       ],
                     ),
                   )
@@ -1484,30 +1997,83 @@ class _NotificationSectionState extends State<_NotificationSection>
       ),
     );
   }
- 
+
   Widget _buildNotificationCard({
-    required String id, required String title, required String subtitle,
-    required DateTime time, required String type, required Map<String, dynamic> originalData,
+    required String id,
+    required String title,
+    required String subtitle,
+    required DateTime time,
+    required String type,
+    required Map<String, dynamic> originalData,
   }) {
-    IconData icon; Color color;
-    if (type == 'announcement') { icon = Icons.campaign_rounded; color = Colors.blue.shade600; }
-    else if (type == 'social') { icon = Icons.share_rounded; color = Colors.purple.shade600; }
-    else if (type == 'duty_scheduled' || type == 'duty_today') { icon = Icons.security_rounded; color = Colors.orange.shade700; }
-    else if (type == 'etut_scheduled' || type == 'etut_today') { icon = Icons.school_rounded; color = Colors.teal.shade600; }
-    else if (type == 'attendance_warning' || type == 'etut_attendance_warning') { icon = Icons.event_busy_rounded; color = Colors.red.shade600; }
-    else if (type == 'homework_warning') { icon = Icons.assignment_turned_in_rounded; color = Colors.indigo.shade600; }
-    else if (type == 'chat_message') { icon = Icons.chat_bubble_outline_rounded; color = Colors.blue.shade500; }
-    else if (type == 'chat_call') { icon = Icons.phone_missed_rounded; color = Colors.red.shade500; }
-    else { icon = Icons.notifications_none_rounded; color = Colors.grey.shade600; }
- 
+    IconData icon;
+    Color color;
+    if (type == 'announcement') {
+      icon = Icons.campaign_rounded;
+      color = Colors.blue.shade600;
+    } else if (type == 'social') {
+      icon = Icons.share_rounded;
+      color = Colors.purple.shade600;
+    } else if (type == 'duty_scheduled' || type == 'duty_today') {
+      icon = Icons.security_rounded;
+      color = Colors.orange.shade700;
+    } else if (type == 'etut_scheduled' || type == 'etut_today') {
+      icon = Icons.school_rounded;
+      color = Colors.teal.shade600;
+    } else if (type == 'attendance_warning' ||
+        type == 'etut_attendance_warning') {
+      icon = Icons.event_busy_rounded;
+      color = Colors.red.shade600;
+    } else if (type == 'homework_warning') {
+      icon = Icons.assignment_turned_in_rounded;
+      color = Colors.indigo.shade600;
+    } else if (type == 'chat_message') {
+      icon = Icons.chat_bubble_outline_rounded;
+      color = Colors.blue.shade500;
+    } else if (type == 'chat_call') {
+      icon = Icons.phone_missed_rounded;
+      color = Colors.red.shade500;
+    } else if (type.contains('visitor')) {
+      icon = type.contains('out')
+          ? Icons.logout_rounded
+          : Icons.how_to_reg_rounded;
+      color = const Color(0xFF0D9488);
+    } else if (type.contains('early_pickup')) {
+      icon = Icons.directions_car_filled_rounded;
+      color = const Color(0xFFD97706);
+    } else if (type.contains('late')) {
+      icon = Icons.schedule_rounded;
+      color = Colors.orange.shade800;
+    } else if (type.contains('exit')) {
+      icon = Icons.exit_to_app_rounded;
+      color = const Color(0xFF0284C7);
+    } else if (type.contains('infirmary')) {
+      icon = Icons.local_hospital_rounded;
+      color = Colors.red.shade700;
+    } else if (type.contains('interview')) {
+      icon = Icons.record_voice_over_rounded;
+      color = const Color(0xFF7C3AED);
+    } else {
+      icon = Icons.notifications_none_rounded;
+      color = Colors.grey.shade600;
+    }
+
     final userEmail = FirebaseAuth.instance.currentUser?.email;
     final timeStr = DateFormat('HH:mm').format(time);
- 
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white, borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.grey.withValues(alpha: 0.05), spreadRadius: 2, blurRadius: 10, offset: const Offset(0, 4))],
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.05),
+            spreadRadius: 2,
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
@@ -1518,13 +2084,23 @@ class _NotificationSectionState extends State<_NotificationSection>
             onTap: () async {
               if (userEmail != null) {
                 if (type == 'announcement') {
-                  final sId = _schoolId ?? await AnnouncementService().getSchoolId();
+                  final sId =
+                      _schoolId ?? await AnnouncementService().getSchoolId();
                   if (sId != null && sId.isNotEmpty) {
                     try {
-                      await FirebaseFirestore.instance.collection('schools').doc(sId).collection('announcements').doc(id).update({
-                        'readBy': FieldValue.arrayUnion([userEmail])
-                      });
-                    } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
+                      await FirebaseFirestore.instance
+                          .collection('schools')
+                          .doc(sId)
+                          .collection('announcements')
+                          .doc(id)
+                          .update({
+                            'readBy': FieldValue.arrayUnion([userEmail]),
+                          });
+                    } catch (silentError) {
+                      debugPrint(
+                        '[teacher_dashboard_tab] hata yutuldu: $silentError',
+                      );
+                    }
                     if (mounted) {
                       Navigator.push(
                         context,
@@ -1532,39 +2108,60 @@ class _NotificationSectionState extends State<_NotificationSection>
                           builder: (_) => SchoolTypeAnnouncementsScreen(
                             institutionId: widget.institutionId,
                             schoolTypeId: _schoolTypeId ?? '',
-                            schoolTypeName: _schoolTypeName ?? 'Tüm Okul Türleri',
+                            schoolTypeName:
+                                _schoolTypeName ?? 'Tüm Okul Türleri',
                           ),
                         ),
                       );
                     }
                   }
                 } else if (type == 'social') {
-                  await FirebaseFirestore.instance.collection('social_media_posts').doc(id).update({
-                    'readBy': FieldValue.arrayUnion([userEmail])
-                  });
+                  await FirebaseFirestore.instance
+                      .collection('social_media_posts')
+                      .doc(id)
+                      .update({
+                        'readBy': FieldValue.arrayUnion([userEmail]),
+                      });
                   if (mounted) {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => TeacherSocialMediaScreen(institutionId: widget.institutionId)));
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => TeacherSocialMediaScreen(
+                          institutionId: widget.institutionId,
+                        ),
+                      ),
+                    );
                   }
                 } else if (type == 'homework_warning') {
                   if (mounted) {
                     Navigator.push(
-                      context, 
+                      context,
                       MaterialPageRoute(
                         builder: (_) => HomeworkDetailScreen(
                           homework: Homework.fromMap(originalData),
-                        )
-                      )
+                        ),
+                      ),
                     );
                   }
                 } else if (type == 'attendance_warning') {
                   if (mounted) {
                     final classId = originalData['classId']?.toString() ?? '';
-                    final className = originalData['resolvedClassName']?.toString() ?? originalData['className']?.toString() ?? 'Sınıf';
-                    final subject = originalData['subjectName'] ?? originalData['lessonName'] ?? 'Ders';
-                    final lessonId = originalData['lessonId']?.toString() ?? subject;
+                    final className =
+                        originalData['resolvedClassName']?.toString() ??
+                        originalData['className']?.toString() ??
+                        'Sınıf';
+                    final subject =
+                        originalData['subjectName'] ??
+                        originalData['lessonName'] ??
+                        'Ders';
+                    final lessonId =
+                        originalData['lessonId']?.toString() ?? subject;
                     final hourIdx = originalData['hourIndex'] as int? ?? 0;
                     final lessonHour = hourIdx + 1;
-                    final sTypeId = originalData['schoolTypeId']?.toString() ?? _schoolTypeId ?? '';
+                    final sTypeId =
+                        originalData['schoolTypeId']?.toString() ??
+                        _schoolTypeId ??
+                        '';
 
                     if (classId.isNotEmpty) {
                       Navigator.push(
@@ -1595,7 +2192,9 @@ class _NotificationSectionState extends State<_NotificationSection>
                       );
                     }
                   }
-                } else if (type == 'etut_scheduled' || type == 'etut_today' || type == 'etut_attendance_warning') {
+                } else if (type == 'etut_scheduled' ||
+                    type == 'etut_today' ||
+                    type == 'etut_attendance_warning') {
                   if (mounted) {
                     // Extract real etut ID by removing prefixed string
                     String realEtutId = id;
@@ -1607,14 +2206,18 @@ class _NotificationSectionState extends State<_NotificationSection>
                       realEtutId = id.replaceFirst('etut_att_', '');
                     }
 
-                    final mappedEtutData = Map<String, dynamic>.from(originalData);
+                    final mappedEtutData = Map<String, dynamic>.from(
+                      originalData,
+                    );
                     mappedEtutData['id'] = realEtutId;
                     _showEtutAttendanceSheet(mappedEtutData);
                   }
                 } else if (type == 'duty_scheduled' || type == 'duty_today') {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Nöbet bilgilerinizi takvim sekmesinden de takip edebilirsiniz.'),
+                      content: Text(
+                        'Nöbet bilgilerinizi takvim sekmesinden de takip edebilirsiniz.',
+                      ),
                       duration: Duration(seconds: 3),
                     ),
                   );
@@ -1623,7 +2226,52 @@ class _NotificationSectionState extends State<_NotificationSection>
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => TeacherMessagesScreen(institutionId: widget.institutionId),
+                        builder: (_) => TeacherMessagesScreen(
+                          institutionId: widget.institutionId,
+                        ),
+                      ),
+                    );
+                  }
+                } else if (id.startsWith('unotif_')) {
+                  if (mounted) {
+                    await showDialog<void>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        title: Row(
+                          children: [
+                            Icon(icon, color: color),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                title,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        content: Text(
+                          subtitle,
+                          style: const TextStyle(fontSize: 14, height: 1.45),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _dismissNotification(id);
+                            },
+                            child: const Text('Okundu İşaretle'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Tamam'),
+                          ),
+                        ],
                       ),
                     );
                   }
@@ -1642,22 +2290,64 @@ class _NotificationSectionState extends State<_NotificationSection>
                         children: [
                           Container(
                             padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
+                            decoration: BoxDecoration(
+                              color: color.withValues(alpha: 0.1),
+                              shape: BoxShape.circle,
+                            ),
                             child: Icon(icon, color: color, size: 20),
                           ),
                           const SizedBox(width: 16),
-                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                              Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                              Text(timeStr, style: const TextStyle(color: Colors.grey, fontSize: 11)),
-                            ]),
-                            const SizedBox(height: 4),
-                            Text(subtitle, style: TextStyle(color: Colors.grey.shade600, fontSize: 12, height: 1.4), maxLines: 2, overflow: TextOverflow.ellipsis),
-                          ])),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        title,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Text(
+                                      timeStr,
+                                      style: const TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  subtitle,
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 12,
+                                    height: 1.4,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
                           const SizedBox(width: 8),
-                          if (type != 'attendance_warning' && type != 'etut_attendance_warning')
+                          if (type != 'attendance_warning' &&
+                              type != 'etut_attendance_warning')
                             IconButton(
-                              icon: const Icon(Icons.close, size: 16, color: Colors.grey),
+                              icon: const Icon(
+                                Icons.close,
+                                size: 16,
+                                color: Colors.grey,
+                              ),
                               constraints: const BoxConstraints(),
                               padding: const EdgeInsets.all(4),
                               onPressed: () {
@@ -1710,7 +2400,7 @@ class _NotificationSectionState extends State<_NotificationSection>
         topic == 'null') {
       final campGroupId = etutData['campGroupId']?.toString();
       final agmGroupId = etutData['agmGroupId']?.toString();
-      
+
       if (campGroupId != null && campGroupId.isNotEmpty) {
         try {
           final groupDoc = await FirebaseFirestore.instance
@@ -1718,7 +2408,9 @@ class _NotificationSectionState extends State<_NotificationSection>
               .doc(campGroupId)
               .get();
           if (groupDoc.exists) {
-            final list = List<dynamic>.from(groupDoc.data()?['kazanimlar'] ?? []);
+            final list = List<dynamic>.from(
+              groupDoc.data()?['kazanimlar'] ?? [],
+            );
             if (list.isNotEmpty) {
               resolvedTopic = list.join(', ');
             }
@@ -1733,7 +2425,9 @@ class _NotificationSectionState extends State<_NotificationSection>
               .doc(agmGroupId)
               .get();
           if (groupDoc.exists) {
-            final list = List<dynamic>.from(groupDoc.data()?['kazanimlar'] ?? []);
+            final list = List<dynamic>.from(
+              groupDoc.data()?['kazanimlar'] ?? [],
+            );
             if (list.isNotEmpty) {
               resolvedTopic = list.join(', ');
             }
@@ -1769,7 +2463,8 @@ class _NotificationSectionState extends State<_NotificationSection>
 
         for (var doc in studentSnap.docs) {
           final data = doc.data();
-          studentNameMap[doc.id] = (data['fullName'] ?? data['name'] ?? '').toString();
+          studentNameMap[doc.id] = (data['fullName'] ?? data['name'] ?? '')
+              .toString();
         }
       } catch (e) {
         debugPrint('Error loading students for sheet: $e');
@@ -1806,7 +2501,9 @@ class _NotificationSectionState extends State<_NotificationSection>
             height: MediaQuery.of(context).size.height * 0.92,
             decoration: BoxDecoration(
               color: Colors.grey.shade50,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
+              ),
             ),
             child: Column(
               children: [
@@ -1831,7 +2528,10 @@ class _NotificationSectionState extends State<_NotificationSection>
                           color: Colors.indigo.shade50,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(Icons.assignment_rounded, color: Colors.indigo.shade700),
+                        child: Icon(
+                          Icons.assignment_rounded,
+                          color: Colors.indigo.shade700,
+                        ),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
@@ -1848,7 +2548,10 @@ class _NotificationSectionState extends State<_NotificationSection>
                             ),
                             Text(
                               'Yoklama durumunu ve notlarınızı güncelleyin',
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
                             ),
                           ],
                         ),
@@ -1887,10 +2590,23 @@ class _NotificationSectionState extends State<_NotificationSection>
                             ),
                             child: Column(
                               children: [
-                                _buildInfoRowForDialog(Icons.topic, 'Konu', resolvedTopic.isNotEmpty ? resolvedTopic : 'Belirtilmemiş'),
-                                if ((etutData['action'] ?? '').toString().isNotEmpty) ...[
+                                _buildInfoRowForDialog(
+                                  Icons.topic,
+                                  'Konu',
+                                  resolvedTopic.isNotEmpty
+                                      ? resolvedTopic
+                                      : 'Belirtilmemiş',
+                                ),
+                                if ((etutData['action'] ?? '')
+                                    .toString()
+                                    .isNotEmpty) ...[
                                   const Divider(height: 24),
-                                  _buildInfoRowForDialog(Icons.category, 'Kategori', etutData['action'], isOrange: true),
+                                  _buildInfoRowForDialog(
+                                    Icons.category,
+                                    'Kategori',
+                                    etutData['action'],
+                                    isOrange: true,
+                                  ),
                                 ],
                               ],
                             ),
@@ -1913,7 +2629,10 @@ class _NotificationSectionState extends State<_NotificationSection>
                               const Spacer(),
                               Text(
                                 '${studentIds.length} Öğrenci',
-                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
                               ),
                             ],
                           ),
@@ -1926,24 +2645,38 @@ class _NotificationSectionState extends State<_NotificationSection>
                             decoration: BoxDecoration(
                               color: Colors.white,
                               border: Border.symmetric(
-                                horizontal: BorderSide(color: Colors.grey.shade200, width: 0.5),
+                                horizontal: BorderSide(
+                                  color: Colors.grey.shade200,
+                                  width: 0.5,
+                                ),
                               ),
                             ),
                             child: ListView.separated(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
                               itemCount: studentIds.length,
-                              separatorBuilder: (context, index) =>
-                                  Divider(height: 1, color: Colors.grey.shade100, indent: 24),
+                              separatorBuilder: (context, index) => Divider(
+                                height: 1,
+                                color: Colors.grey.shade100,
+                                indent: 24,
+                              ),
                               itemBuilder: (context, index) {
                                 final sId = studentIds[index];
                                 final sName = studentNames[index];
                                 final isPresent = localAttendance[sId] ?? true;
 
                                 return ListTile(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
-                                  title: Text(sName,
-                                      style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 15)),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 24,
+                                    vertical: 4,
+                                  ),
+                                  title: Text(
+                                    sName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 15,
+                                    ),
+                                  ),
                                   trailing: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
@@ -1952,7 +2685,9 @@ class _NotificationSectionState extends State<_NotificationSection>
                                         label: 'VAR',
                                         isSelected: isPresent,
                                         activeColor: Colors.green,
-                                        onTap: () => setDialogState(() => localAttendance[sId] = true),
+                                        onTap: () => setDialogState(
+                                          () => localAttendance[sId] = true,
+                                        ),
                                       ),
                                       const SizedBox(width: 8),
                                       _buildPresenceButtonForDialog(
@@ -1960,7 +2695,9 @@ class _NotificationSectionState extends State<_NotificationSection>
                                         label: 'YOK',
                                         isSelected: !isPresent,
                                         activeColor: Colors.red,
-                                        onTap: () => setDialogState(() => localAttendance[sId] = false),
+                                        onTap: () => setDialogState(
+                                          () => localAttendance[sId] = false,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -1989,21 +2726,32 @@ class _NotificationSectionState extends State<_NotificationSection>
                                 maxLines: 4,
                                 style: const TextStyle(fontSize: 14),
                                 decoration: InputDecoration(
-                                  hintText: 'Etüt ile ilgili gözlemlerinizi buraya yazabilirsiniz...',
-                                  hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                                  hintText:
+                                      'Etüt ile ilgili gözlemlerinizi buraya yazabilirsiniz...',
+                                  hintStyle: TextStyle(
+                                    color: Colors.grey.shade400,
+                                    fontSize: 13,
+                                  ),
                                   filled: true,
                                   fillColor: Colors.white,
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(16),
-                                    borderSide: BorderSide(color: Colors.grey.shade200),
+                                    borderSide: BorderSide(
+                                      color: Colors.grey.shade200,
+                                    ),
                                   ),
                                   enabledBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(16),
-                                    borderSide: BorderSide(color: Colors.grey.shade200),
+                                    borderSide: BorderSide(
+                                      color: Colors.grey.shade200,
+                                    ),
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(16),
-                                    borderSide: BorderSide(color: Colors.indigo.shade300, width: 1.5),
+                                    borderSide: BorderSide(
+                                      color: Colors.indigo.shade300,
+                                      width: 1.5,
+                                    ),
                                   ),
                                   contentPadding: const EdgeInsets.all(16),
                                 ),
@@ -2012,13 +2760,20 @@ class _NotificationSectionState extends State<_NotificationSection>
                           ),
                         ),
                         const SizedBox(height: 40),
-                        SizedBox(height: MediaQuery.of(context).viewInsets.bottom),
+                        SizedBox(
+                          height: MediaQuery.of(context).viewInsets.bottom,
+                        ),
                       ],
                     ),
                   ),
                 ),
                 Container(
-                  padding: EdgeInsets.fromLTRB(24, 16, 24, 16 + MediaQuery.of(context).padding.bottom),
+                  padding: EdgeInsets.fromLTRB(
+                    24,
+                    16,
+                    24,
+                    16 + MediaQuery.of(context).padding.bottom,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     boxShadow: [
@@ -2036,11 +2791,16 @@ class _NotificationSectionState extends State<_NotificationSection>
                           onPressed: () => Navigator.pop(context),
                           style: TextButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                           child: Text(
                             'İPTAL',
-                            style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ),
@@ -2053,13 +2813,17 @@ class _NotificationSectionState extends State<_NotificationSection>
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                           onPressed: () async {
-                            final scaffoldMessenger = ScaffoldMessenger.of(context);
+                            final scaffoldMessenger = ScaffoldMessenger.of(
+                              context,
+                            );
                             final notes = notesController.text;
                             Navigator.pop(context);
-                            
+
                             // Save attendance
                             try {
                               await FirebaseFirestore.instance
@@ -2068,19 +2832,28 @@ class _NotificationSectionState extends State<_NotificationSection>
                                   .update({
                                     'attendance': localAttendance,
                                     'attendanceTaken': true,
-                                    'attendanceTakenAt': FieldValue.serverTimestamp(),
+                                    'attendanceTakenAt':
+                                        FieldValue.serverTimestamp(),
                                     'teacherNotes': notes,
                                   });
                               scaffoldMessenger.showSnackBar(
-                                const SnackBar(content: Text('Yoklama kaydedildi.'))
+                                const SnackBar(
+                                  content: Text('Yoklama kaydedildi.'),
+                                ),
                               );
                             } catch (e) {
                               scaffoldMessenger.showSnackBar(
-                                SnackBar(content: Text('Hata: $e'))
+                                SnackBar(content: Text('Hata: $e')),
                               );
                             }
                           },
-                          child: const Text('KAYDET', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
+                          child: const Text(
+                            'KAYDET',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1,
+                            ),
+                          ),
                         ),
                       ),
                     ],
@@ -2094,7 +2867,12 @@ class _NotificationSectionState extends State<_NotificationSection>
     );
   }
 
-  Widget _buildInfoRowForDialog(IconData icon, String label, String value, {bool isOrange = false}) {
+  Widget _buildInfoRowForDialog(
+    IconData icon,
+    String label,
+    String value, {
+    bool isOrange = false,
+  }) {
     return Row(
       children: [
         Icon(icon, size: 20, color: Colors.indigo.shade300),
@@ -2103,14 +2881,22 @@ class _NotificationSectionState extends State<_NotificationSection>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey.shade500,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               Text(
                 value,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: isOrange ? Colors.orange.shade800 : Colors.indigo.shade900,
+                  color: isOrange
+                      ? Colors.orange.shade800
+                      : Colors.indigo.shade900,
                 ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -2137,9 +2923,15 @@ class _NotificationSectionState extends State<_NotificationSection>
         decoration: BoxDecoration(
           color: isSelected ? activeColor : Colors.grey.shade50,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: isSelected ? activeColor : Colors.grey.shade200),
+          border: Border.all(
+            color: isSelected ? activeColor : Colors.grey.shade200,
+          ),
         ),
-        child: Icon(icon, size: 20, color: isSelected ? Colors.white : Colors.grey.shade400),
+        child: Icon(
+          icon,
+          size: 20,
+          color: isSelected ? Colors.white : Colors.grey.shade400,
+        ),
       ),
     );
   }
@@ -2148,12 +2940,15 @@ class _NotificationSectionState extends State<_NotificationSection>
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Text(message, style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
+        child: Text(
+          message,
+          style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+        ),
       ),
     );
   }
 }
- 
+
 class Rx {
   static Stream<T> combineLatest3<A, B, C, T>(
     Stream<A> streamA,
@@ -2167,9 +2962,9 @@ class Rx {
     bool hasA = false;
     bool hasB = false;
     bool hasC = false;
- 
+
     final controller = StreamController<T>();
- 
+
     void emitIfReady() {
       try {
         if (hasA && hasB && hasC) {
@@ -2179,20 +2974,32 @@ class Rx {
         debugPrint('CombineLatest3 Error: $e\n$s');
       }
     }
- 
-    final subA = streamA.listen((val) { lastA = val; hasA = true; emitIfReady(); }, onError: controller.addError);
-    final subB = streamB.listen((val) { lastB = val; hasB = true; emitIfReady(); }, onError: controller.addError);
-    final subC = streamC.listen((val) { lastC = val; hasC = true; emitIfReady(); }, onError: controller.addError);
- 
+
+    final subA = streamA.listen((val) {
+      lastA = val;
+      hasA = true;
+      emitIfReady();
+    }, onError: controller.addError);
+    final subB = streamB.listen((val) {
+      lastB = val;
+      hasB = true;
+      emitIfReady();
+    }, onError: controller.addError);
+    final subC = streamC.listen((val) {
+      lastC = val;
+      hasC = true;
+      emitIfReady();
+    }, onError: controller.addError);
+
     controller.onCancel = () {
       subA.cancel();
       subB.cancel();
       subC.cancel();
     };
- 
+
     return controller.stream;
   }
- 
+
   static Stream<T> combineLatest6<A, B, C, D, E, F, T>(
     Stream<A> streamA,
     Stream<B> streamB,
@@ -2214,26 +3021,59 @@ class Rx {
     bool hasD = false;
     bool hasE = false;
     bool hasF = false;
- 
+
     final controller = StreamController<T>();
- 
+
     void emitIfReady() {
       try {
         if (hasA && hasB && hasC && hasD && hasE && hasF) {
-          controller.add(combiner(lastA as A, lastB as B, lastC as C, lastD as D, lastE as E, lastF as F));
+          controller.add(
+            combiner(
+              lastA as A,
+              lastB as B,
+              lastC as C,
+              lastD as D,
+              lastE as E,
+              lastF as F,
+            ),
+          );
         }
       } catch (e, s) {
         debugPrint('CombineLatest Error: $e\n$s');
       }
     }
- 
-    final subA = streamA.listen((val) { lastA = val; hasA = true; emitIfReady(); }, onError: controller.addError);
-    final subB = streamB.listen((val) { lastB = val; hasB = true; emitIfReady(); }, onError: controller.addError);
-    final subC = streamC.listen((val) { lastC = val; hasC = true; emitIfReady(); }, onError: controller.addError);
-    final subD = streamD.listen((val) { lastD = val; hasD = true; emitIfReady(); }, onError: controller.addError);
-    final subE = streamE.listen((val) { lastE = val; hasE = true; emitIfReady(); }, onError: controller.addError);
-    final subF = streamF.listen((val) { lastF = val; hasF = true; emitIfReady(); }, onError: controller.addError);
- 
+
+    final subA = streamA.listen((val) {
+      lastA = val;
+      hasA = true;
+      emitIfReady();
+    }, onError: controller.addError);
+    final subB = streamB.listen((val) {
+      lastB = val;
+      hasB = true;
+      emitIfReady();
+    }, onError: controller.addError);
+    final subC = streamC.listen((val) {
+      lastC = val;
+      hasC = true;
+      emitIfReady();
+    }, onError: controller.addError);
+    final subD = streamD.listen((val) {
+      lastD = val;
+      hasD = true;
+      emitIfReady();
+    }, onError: controller.addError);
+    final subE = streamE.listen((val) {
+      lastE = val;
+      hasE = true;
+      emitIfReady();
+    }, onError: controller.addError);
+    final subF = streamF.listen((val) {
+      lastF = val;
+      hasF = true;
+      emitIfReady();
+    }, onError: controller.addError);
+
     controller.onCancel = () {
       subA.cancel();
       subB.cancel();
@@ -2242,7 +3082,7 @@ class Rx {
       subE.cancel();
       subF.cancel();
     };
- 
+
     return controller.stream;
   }
 }
@@ -2250,10 +3090,8 @@ class Rx {
 class _CalendarSection extends StatefulWidget {
   final String institutionId;
 
-  const _CalendarSection({
-    Key? key,
-    required this.institutionId,
-  }) : super(key: key);
+  const _CalendarSection({Key? key, required this.institutionId})
+    : super(key: key);
 
   @override
   State<_CalendarSection> createState() => _CalendarSectionState();

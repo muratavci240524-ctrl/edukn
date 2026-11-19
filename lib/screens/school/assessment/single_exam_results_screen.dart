@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
+import 'central_school_reports_screen.dart';
 import 'exam_detail_table_screen.dart';
 import '../../../../services/assessment_service.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
@@ -121,6 +122,10 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
   OverlayEntry? _questionFrequencyStudentDropdownOverlay;
   final LayerLink _questionFrequencyStudentLayerLink = LayerLink();
 
+  // Fare ile kazanım/konu satırının üzerine gelindiğinde altta tam metni gösteren canlı okuyucu
+  final ValueNotifier<({String badge, String text, String stats})?>
+  _hoveredOutcomeInfo = ValueNotifier(null);
+
   /// Sınavda E şıkkı olup olmadığını belirler (Lise/YKS veya cevap anahtarında E olanlar)
   bool get _hasEOption {
     if (_selectedExam == null) return false;
@@ -181,13 +186,14 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
       if (doc != null && doc.exists && mounted) {
         final data = doc.data();
-        final name = (data?['name'] ??
-                data?['schoolTypeName'] ??
-                data?['schoolType'] ??
-                data?['title'] ??
-                '')
-            .toString()
-            .trim();
+        final name =
+            (data?['name'] ??
+                    data?['schoolTypeName'] ??
+                    data?['schoolType'] ??
+                    data?['title'] ??
+                    '')
+                .toString()
+                .trim();
         if (name.isNotEmpty) {
           setState(() {
             _schoolTypeName = name;
@@ -217,17 +223,28 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       }
     }
     final clean = level.toLowerCase();
-    if (clean.contains('anaokul') || clean.contains('kreş') || clean.contains('anasınıf')) return 'Anaokulu';
+    if (clean.contains('anaokul') ||
+        clean.contains('kreş') ||
+        clean.contains('anasınıf'))
+      return 'Anaokulu';
     if (clean.contains('ilkokul')) return 'İlkokul';
     if (clean.contains('ortaokul') || clean.contains('lgs')) return 'Ortaokul';
-    if (clean.contains('lise') || clean.contains('yks') || clean.contains('tyt')) return 'Anadolu Lisesi';
+    if (clean.contains('lise') ||
+        clean.contains('yks') ||
+        clean.contains('tyt'))
+      return 'Anadolu Lisesi';
     return 'Ortaokul';
   }
 
   Future<void> _loadExams() async {
     try {
-      _activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
-      final stream = _service.getTrialExams(widget.institutionId, termId: _activeTermId);
+      _activeTermId =
+          await TermService().getSelectedTermId() ??
+          await TermService().getActiveTermId();
+      final stream = _service.getTrialExams(
+        widget.institutionId,
+        termId: _activeTermId,
+      );
       stream.listen((exams) {
         if (mounted) {
           setState(() {
@@ -278,9 +295,21 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
   void _filterExams() {
     setState(() {
       _filteredExams = _allExams.where((exam) {
+        if (exam.targetSchoolTypeId != null &&
+            exam.targetSchoolTypeId!.isNotEmpty &&
+            widget.schoolTypeId.isNotEmpty &&
+            exam.targetSchoolTypeId != widget.schoolTypeId) {
+          return false;
+        }
+        final selDigits = (_selectedClassLevel ?? '').replaceAll(
+          RegExp(r'[^0-9]'),
+          '',
+        );
+        final exDigits = exam.classLevel.replaceAll(RegExp(r'[^0-9]'), '');
         final matchesClass =
             _selectedClassLevel == null ||
-            exam.classLevel == _selectedClassLevel;
+            exam.classLevel == _selectedClassLevel ||
+            (selDigits.isNotEmpty && selDigits == exDigits);
         final matchesBranch =
             _selectedBranchFilter == null ||
             exam.selectedBranches.isEmpty ||
@@ -351,24 +380,26 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                     0.0,
                 'totalNet': calcNet,
                 'subjects': item['subjects'] ?? {}, // PRESERVE SUBJECTS
-                'studentNumber': (item['studentNo'] ??
-                        item['studentNumber'] ??
-                        item['number'] ??
-                        item['no'] ??
-                        item['schoolNumber'] ??
-                        item['ogrNo'] ??
-                        '')
-                    .toString()
-                    .trim(),
-                'studentNo': (item['studentNo'] ??
-                        item['studentNumber'] ??
-                        item['number'] ??
-                        item['no'] ??
-                        item['schoolNumber'] ??
-                        item['ogrNo'] ??
-                        '')
-                    .toString()
-                    .trim(),
+                'studentNumber':
+                    (item['studentNo'] ??
+                            item['studentNumber'] ??
+                            item['number'] ??
+                            item['no'] ??
+                            item['schoolNumber'] ??
+                            item['ogrNo'] ??
+                            '')
+                        .toString()
+                        .trim(),
+                'studentNo':
+                    (item['studentNo'] ??
+                            item['studentNumber'] ??
+                            item['number'] ??
+                            item['no'] ??
+                            item['schoolNumber'] ??
+                            item['ogrNo'] ??
+                            '')
+                        .toString()
+                        .trim(),
                 'booklet': item['booklet'] ?? 'A',
                 // Capture root-level answer maps if available
                 'answers': item['answers'],
@@ -391,9 +422,12 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         return scoreB.compareTo(scoreA); // Desc
       });
 
-      // 2. Assign General Rank
+      // 2. Assign General & Institution Rank
       // Aynı puanı alanlar aynı sırayı alır; sonraki farklı puan bir artar.
       {
+        final bool hasCentralMerge =
+            _selectedExam?.isCentralExam == true &&
+            _selectedExam?.centralTotalParticipants != null;
         int currentRank = 0;
         num? prevScore;
         for (int i = 0; i < _examResults.length; i++) {
@@ -404,7 +438,19 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
             currentRank++;
             prevScore = s;
           }
-          _examResults[i]['rankGeneral'] = currentRank;
+          _examResults[i]['rankInstitution'] = currentRank;
+          if (hasCentralMerge) {
+            final rawMap = _examResults[i]['raw'];
+            final rawGen = rawMap is Map
+                ? (num.tryParse(
+                        rawMap['rankGeneral']?.toString() ?? '0',
+                      )?.toInt() ??
+                      0)
+                : 0;
+            _examResults[i]['rankGeneral'] = rawGen > 0 ? rawGen : currentRank;
+          } else {
+            _examResults[i]['rankGeneral'] = currentRank;
+          }
         }
       }
 
@@ -426,8 +472,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         int currentRank = 0;
         num? prevScore;
         for (int k = 0; k < list.length; k++) {
-          final s =
-              num.tryParse(list[k]['totalScore']?.toString() ?? '0') ?? 0;
+          final s = num.tryParse(list[k]['totalScore']?.toString() ?? '0') ?? 0;
           if (prevScore == null || (s - prevScore).abs() >= 0.001) {
             currentRank++;
             prevScore = s;
@@ -584,6 +629,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
   void dispose() {
     _tabController.dispose();
     _searchController.dispose();
+    _hoveredOutcomeInfo.dispose();
     super.dispose();
   }
 
@@ -691,11 +737,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
   Widget _buildLeftPanelHeader({bool showBack = false}) {
     final classLevels = _allExams.map((e) => e.classLevel).toSet().toList()
       ..sort();
-    final branchOptions = _allExams
-        .expand((e) => e.selectedBranches)
-        .toSet()
-        .toList()
-      ..sort();
+    final branchOptions =
+        _allExams.expand((e) => e.selectedBranches).toSet().toList()..sort();
 
     return Container(
       decoration: BoxDecoration(
@@ -967,31 +1010,61 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
             ),
             subtitle: Padding(
               padding: const EdgeInsets.only(top: 4.0),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      exam.classLevel,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.orange[800],
-                        fontWeight: FontWeight.bold,
+                  if (exam.isCentralExam)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEF2FF),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          '🏛️ GENEL MERKEZ',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF1E3A8A),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                  SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      exam.examTypeName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12),
-                    ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          exam.classLevel,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.orange[800],
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          exam.examTypeName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1022,24 +1095,24 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                   children: [
                     // Icon acts as Back Button now
                     if (showBack) ...[
-                    InkWell(
-                      onTap: () {
-                        Navigator.of(context).pop();
-                      },
-                      child: Container(
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.indigo.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          Icons.arrow_back,
-                          color: Colors.indigo,
-                          size: 24,
+                      InkWell(
+                        onTap: () {
+                          Navigator.of(context).pop();
+                        },
+                        child: Container(
+                          padding: EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.indigo.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.arrow_back,
+                            color: Colors.indigo,
+                            size: 24,
+                          ),
                         ),
                       ),
-                    ),
-                    SizedBox(width: 16),
+                      SizedBox(width: 16),
                     ],
 
                     Expanded(
@@ -1201,20 +1274,50 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                       title: 'Sınav Sonuç Listesi',
                       reportType: 'Liste',
                       getPdfBytes: () => _getExamResultsPdfBytes(),
-                      pdfFileName: sanitizeFileName('sinav_sonuclari_${_selectedExam?.name ?? "sinav"}.pdf'),
+                      pdfFileName: sanitizeFileName(
+                        'sinav_sonuclari_${_selectedExam?.name ?? "sinav"}.pdf',
+                      ),
                       getExcelBytes: () => _buildExamResultsExcelBytes(),
-                      excelFileName: sanitizeFileName('sinav_sonuclari_${_selectedExam?.name ?? "sinav"}.xlsx'),
+                      excelFileName: sanitizeFileName(
+                        'sinav_sonuclari_${_selectedExam?.name ?? "sinav"}.xlsx',
+                      ),
                       onSharePdf: () => _generateAndPrintPDF(shareOnly: true),
-                      onShareExcel: () => _generateAndExportExcel(shareOnly: false),
+                      onShareExcel: () =>
+                          _generateAndExportExcel(shareOnly: false),
                     );
                   }
                 },
                 items: [
-                  _buildPopupItem('list', Icons.table_rows_rounded, Colors.indigo, 'Sonuçları Tabloda Göster'),
-                  _buildPopupItem('yazdir', Icons.print_rounded, Colors.blue.shade700, 'Yazdır'),
-                  _buildPopupItem('pdf', Icons.picture_as_pdf_rounded, Colors.red.shade700, 'PDF İndir'),
-                  _buildPopupItem('excel', Icons.table_chart_rounded, Colors.green.shade700, 'Excel İndir'),
-                  _buildPopupItem('paylas', Icons.share_rounded, Colors.indigo.shade700, 'Paylaş'),
+                  _buildPopupItem(
+                    'list',
+                    Icons.table_rows_rounded,
+                    Colors.indigo,
+                    'Sonuçları Tabloda Göster',
+                  ),
+                  _buildPopupItem(
+                    'yazdir',
+                    Icons.print_rounded,
+                    Colors.blue.shade700,
+                    'Yazdır',
+                  ),
+                  _buildPopupItem(
+                    'pdf',
+                    Icons.picture_as_pdf_rounded,
+                    Colors.red.shade700,
+                    'PDF İndir',
+                  ),
+                  _buildPopupItem(
+                    'excel',
+                    Icons.table_chart_rounded,
+                    Colors.green.shade700,
+                    'Excel İndir',
+                  ),
+                  _buildPopupItem(
+                    'paylas',
+                    Icons.share_rounded,
+                    Colors.indigo.shade700,
+                    'Paylaş',
+                  ),
                 ],
               ),
             ],
@@ -1252,11 +1355,14 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                   examName: _selectedExam?.name ?? 'Sınav',
                   subjects: _availableSubjects,
                   outcomes: _selectedExam?.outcomes ?? {},
-                  totalStudents: _examResults.length,
+                  totalStudents:
+                      _selectedExam?.centralTotalParticipants ??
+                      _examResults.length,
                   schoolStudents: _examResults.length,
                   branchStudents: branchCount,
                   isRankingVisible:
-                      _selectedExam?.sharingSettings['isRankingVisible'] ?? true,
+                      _selectedExam?.sharingSettings['isRankingVisible'] ??
+                      true,
                   trialExamId: _selectedExam?.id,
                   schoolTypeName: _getEffectiveSchoolTypeName(),
                 ),
@@ -1264,6 +1370,170 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
             );
           },
         ),
+      ),
+    );
+  }
+
+  Widget _buildCentralExamComparisonBanner() {
+    final exam = _selectedExam;
+    if (exam == null) return const SizedBox.shrink();
+    final summary = exam.centralSummary;
+    final totalParticipants =
+        exam.centralTotalParticipants ??
+        (summary['totalParticipants'] as num?)?.toInt();
+    final genAvg = (summary['avgScore'] as num?)?.toDouble();
+    final regAvg = (summary['regionAvgScore'] as num?)?.toDouble();
+    final regName = (summary['regionName'] ?? '').toString();
+    final schoolRank = (summary['schoolRank'] as num?)?.toInt();
+    final totalSchools =
+        (summary['totalRankedSchools'] as num?)?.toInt() ??
+        (summary['participatingSchools'] as num?)?.toInt();
+
+    double localAvg = 0.0;
+    if (_examResults.isNotEmpty) {
+      localAvg =
+          _examResults.fold<double>(
+            0.0,
+            (acc, r) =>
+                acc +
+                (num.tryParse(r['totalScore']?.toString() ?? '0')?.toDouble() ??
+                    0.0),
+          ) /
+          _examResults.length;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0F172A), Color(0xFF1E3A8A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.account_balance_rounded,
+                    color: Color(0xFF93C5FD),
+                    size: 22,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      totalParticipants != null
+                          ? 'Genel Merkez Türkiye Sıralaması Birleştirildi'
+                          : 'Genel Merkez Merkezi Deneme (Genel Birleştirme Bekleniyor)',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CentralSchoolReportsScreen(
+                        institutionId: widget.institutionId,
+                        schoolTypeId: widget.schoolTypeId,
+                        initialCentralExamId: exam.centralExamId,
+                      ),
+                    ),
+                  );
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.4)),
+                ),
+                icon: const Icon(Icons.assessment_outlined, size: 17),
+                label: const Text('Genel Merkez Raporları'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (totalParticipants != null)
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                _centralStatPill(
+                  'Genel Katılımcı',
+                  '$totalParticipants Öğrenci',
+                ),
+                _centralStatPill(
+                  'Okul Ortalaması',
+                  localAvg.toStringAsFixed(2),
+                ),
+                if (regAvg != null)
+                  _centralStatPill(
+                    '${regName.isNotEmpty ? regName : "Bölge"} Ort.',
+                    regAvg.toStringAsFixed(2),
+                  ),
+                if (genAvg != null)
+                  _centralStatPill(
+                    'Türkiye / Genel Ort.',
+                    genAvg.toStringAsFixed(2),
+                  ),
+                if (schoolRank != null &&
+                    schoolRank > 0 &&
+                    totalSchools != null)
+                  _centralStatPill(
+                    'Kurum Sıralaması',
+                    '#$schoolRank / $totalSchools Okul',
+                  ),
+              ],
+            )
+          else
+            const Text(
+              'Öğrencilerinizin kurum ve şube sıralaması hazırdır. Genel Merkez tüm okulları birleştirdiğinde öğrenci karnelerindeki Genel Sıralama otomatik güncellenecektir.',
+              style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 12.5),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _centralStatPill(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: Color(0xFF93C5FD), fontSize: 11),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 13.5,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1328,6 +1598,10 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       padding: EdgeInsets.all(24),
       child: Column(
         children: [
+          if (_selectedExam?.isCentralExam == true) ...[
+            _buildCentralExamComparisonBanner(),
+            const SizedBox(height: 20),
+          ],
           // Subject Selection Chips (Reordered to Top)
           if (_availableSubjects.isNotEmpty) ...[
             Container(
@@ -1645,9 +1919,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         color: isSelected ? Colors.indigo : Colors.grey.shade300,
         width: 1,
       ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       labelStyle: TextStyle(
         color: isSelected ? Colors.white : Colors.indigo.shade900,
         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
@@ -1680,7 +1952,11 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
             child: PopupMenuButton<String>(
               tooltip: tooltip,
               padding: EdgeInsets.zero,
-              icon: Icon(Icons.more_vert, color: Colors.indigo.shade800, size: 20),
+              icon: Icon(
+                Icons.more_vert,
+                color: Colors.indigo.shade800,
+                size: 20,
+              ),
               onSelected: onSelected,
               itemBuilder: itemBuilder ?? ((context) => items ?? []),
             ),
@@ -1744,8 +2020,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         sb.writeln('🏫 *Şube:* $_selectedBranchId');
       }
       sb.writeln('📅 *Tarih:* $examDate');
-      final list =
-          _filteredResults.isNotEmpty ? _filteredResults : _examResults;
+      final list = _filteredResults.isNotEmpty
+          ? _filteredResults
+          : _examResults;
       sb.writeln('👥 *Toplam Öğrenci:* ${list.length}');
       sb.writeln('🔢 *Sıralama:* $_listSort');
       sb.writeln('');
@@ -1762,11 +2039,13 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         final cls = item['className']?.toString() ?? '';
         final net = item['totalNet'] != null
             ? (num.tryParse(item['totalNet'].toString())?.toStringAsFixed(2) ??
-                item['totalNet'].toString())
+                  item['totalNet'].toString())
             : '0.00';
         final score = item['totalScore'] != null
-            ? (num.tryParse(item['totalScore'].toString())?.toStringAsFixed(2) ??
-                item['totalScore'].toString())
+            ? (num.tryParse(
+                    item['totalScore'].toString(),
+                  )?.toStringAsFixed(2) ??
+                  item['totalScore'].toString())
             : '0.00';
         final classInfo = cls.isNotEmpty ? ' ($cls)' : '';
         sb.writeln('$rank. $name$classInfo • Net: $net | Puan: $score');
@@ -1776,7 +2055,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         sb.writeln('────────────────────────');
         sb.writeln('... ve ${list.length - 50} öğrenci daha.');
         sb.writeln(
-            '📄 Listenin tamamı için PDF veya Excel raporunu inceleyebilirsiniz.');
+          '📄 Listenin tamamı için PDF veya Excel raporunu inceleyebilirsiniz.',
+        );
       }
     } else if (reportType == 'Kazanım Analizi' ||
         reportType == 'Kazanım Frekansları') {
@@ -1804,7 +2084,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           final corr = item['correct'] ?? item['dogru'] ?? 0;
           final incorr = item['incorrect'] ?? item['yanlis'] ?? 0;
           sb.writeln(
-              '• $topic ($qCount Soru) - Başarı: $succ (D: $corr, Y: $incorr)');
+            '• $topic ($qCount Soru) - Başarı: $succ (D: $corr, Y: $incorr)',
+          );
         }
         if (!fullListForClipboard && items.length > 40) {
           sb.writeln('────────────────────────');
@@ -1812,7 +2093,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         }
       } else {
         sb.writeln(
-            'ℹ️ Detaylı kazanım analizlerine eduKN üzerinden erişebilirsiniz.');
+          'ℹ️ Detaylı kazanım analizlerine eduKN üzerinden erişebilirsiniz.',
+        );
       }
     } else if (reportType == 'Soru Frekansları') {
       sb.writeln('📊 *eduKN Soru Frekans Analizi*');
@@ -1833,13 +2115,15 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           final item = items[i];
           final qNum = item['qNum'] ?? (i + 1);
           final correctOpt = item['correctAnswer'] ?? item['correct'] ?? '-';
-          final succ =
-              item['successRate'] != null ? '%${item['successRate']}' : '';
+          final succ = item['successRate'] != null
+              ? '%${item['successRate']}'
+              : '';
           final d = item['d'] ?? item['dogru'] ?? 0;
           final y = item['y'] ?? item['yanlis'] ?? 0;
           final b = item['b'] ?? item['bos'] ?? 0;
           sb.writeln(
-              '$qNum. Soru (Doğru: $correctOpt) • Başarı: $succ | D: $d, Y: $y, B: $b');
+            '$qNum. Soru (Doğru: $correctOpt) • Başarı: $succ | D: $d, Y: $y, B: $b',
+          );
         }
         if (!fullListForClipboard && items.length > 40) {
           sb.writeln('────────────────────────');
@@ -1858,20 +2142,23 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         final stName = student['studentName'] ?? 'Öğrenci';
         final stClass = student['className']?.toString() ?? '';
         final stNet = student['totalNet'] != null
-            ? (num.tryParse(student['totalNet'].toString())
-                    ?.toStringAsFixed(2) ??
-                student['totalNet'].toString())
+            ? (num.tryParse(
+                    student['totalNet'].toString(),
+                  )?.toStringAsFixed(2) ??
+                  student['totalNet'].toString())
             : '0.00';
         final stScore = student['totalScore'] != null
-            ? (num.tryParse(student['totalScore'].toString())
-                    ?.toStringAsFixed(2) ??
-                student['totalScore'].toString())
+            ? (num.tryParse(
+                    student['totalScore'].toString(),
+                  )?.toStringAsFixed(2) ??
+                  student['totalScore'].toString())
             : '0.00';
         final stRank = student['rank'] ?? '-';
         sb.writeln('📊 *eduKN Öğrenci Sınav Karnesi*');
         sb.writeln('📝 *Sınav:* $examName');
         sb.writeln(
-            '👤 *Öğrenci:* $stName ${stClass.isNotEmpty ? "($stClass)" : ""}');
+          '👤 *Öğrenci:* $stName ${stClass.isNotEmpty ? "($stClass)" : ""}',
+        );
         sb.writeln('📅 *Tarih:* $examDate');
         sb.writeln('');
         sb.writeln('🏆 *SONUÇLAR:*');
@@ -1884,7 +2171,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         sb.writeln('📅 *Tarih:* $examDate');
         sb.writeln('👥 *Katılan Öğrenci:* ${_examResults.length}');
         sb.writeln(
-            'ℹ️ Kurumsal analiz ve şube karşılaştırmalarına rapor ekinden erişebilirsiniz.');
+          'ℹ️ Kurumsal analiz ve şube karşılaştırmalarına rapor ekinden erişebilirsiniz.',
+        );
       }
     } else if (reportType == 'Ortalama') {
       sb.writeln('📊 *eduKN Sınav Ortalamaları*');
@@ -1911,7 +2199,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       sb.writeln('📋 *Rapor:* $title');
       sb.writeln('📅 *Tarih:* $examDate');
       sb.writeln(
-          'ℹ️ Detaylı sınav analizleri ve sonuçlarına eduKN sistemi üzerinden erişebilirsiniz.');
+        'ℹ️ Detaylı sınav analizleri ve sonuçlarına eduKN sistemi üzerinden erişebilirsiniz.',
+      );
     }
 
     return sb.toString().trim();
@@ -1950,9 +2239,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       final safeName = sanitizeFileName(pdfFileName);
       String? pdfUrl;
       try {
-        final ref = FirebaseStorage.instance
-            .ref()
-            .child('reports/${_selectedExam?.id ?? "exam"}_${DateTime.now().millisecondsSinceEpoch}_$safeName');
+        final ref = FirebaseStorage.instance.ref().child(
+          'reports/${_selectedExam?.id ?? "exam"}_${DateTime.now().millisecondsSinceEpoch}_$safeName',
+        );
         final task = await ref.putData(
           bytes,
           SettableMetadata(contentType: 'application/pdf'),
@@ -1998,7 +2287,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
       final examName = _selectedExam?.name ?? 'Sınav';
       final dateStr = DateFormat('dd.MM.yyyy').format(DateTime.now());
-      final studentCount = _filteredResults.isNotEmpty ? _filteredResults.length : _examResults.length;
+      final studentCount = _filteredResults.isNotEmpty
+          ? _filteredResults.length
+          : _examResults.length;
       final sb = StringBuffer();
       sb.writeln('📊 *eduKN Sınav Sonuç Belgesi (PDF)*');
       sb.writeln('📝 *Sınav:* $examName');
@@ -2008,12 +2299,15 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       }
       sb.writeln('');
       if (pdfUrl != null) {
-        sb.writeln('📄 *Resmi Sonuç Listesi PDF Belgesini İncelemek ve İndirmek İçin Tıklayın:*');
+        sb.writeln(
+          '📄 *Resmi Sonuç Listesi PDF Belgesini İncelemek ve İndirmek İçin Tıklayın:*',
+        );
         sb.writeln('👉 $pdfUrl');
       }
 
       final waUrl = Uri.parse(
-          'https://api.whatsapp.com/send?text=${Uri.encodeComponent(sb.toString().trim())}');
+        'https://api.whatsapp.com/send?text=${Uri.encodeComponent(sb.toString().trim())}',
+      );
       await launchUrl(waUrl, mode: LaunchMode.externalApplication);
     } catch (e) {
       if (mounted) {
@@ -2058,12 +2352,15 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       final safeName = sanitizeFileName(excelFileName);
       String? excelUrl;
       try {
-        final ref = FirebaseStorage.instance
-            .ref()
-            .child('reports/${_selectedExam?.id ?? "exam"}_${DateTime.now().millisecondsSinceEpoch}_$safeName');
+        final ref = FirebaseStorage.instance.ref().child(
+          'reports/${_selectedExam?.id ?? "exam"}_${DateTime.now().millisecondsSinceEpoch}_$safeName',
+        );
         final task = await ref.putData(
           bytes,
-          SettableMetadata(contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+          SettableMetadata(
+            contentType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ),
         );
         excelUrl = await task.ref.getDownloadURL();
       } catch (e) {
@@ -2077,7 +2374,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
             files: [
               XFile.fromData(
                 bytes,
-                mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                mimeType:
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 name: safeName,
               ),
             ],
@@ -2117,7 +2415,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
       final examName = _selectedExam?.name ?? 'Sınav';
       final dateStr = DateFormat('dd.MM.yyyy').format(DateTime.now());
-      final studentCount = _filteredResults.isNotEmpty ? _filteredResults.length : _examResults.length;
+      final studentCount = _filteredResults.isNotEmpty
+          ? _filteredResults.length
+          : _examResults.length;
       final sb = StringBuffer();
       sb.writeln('📊 *eduKN Sınav Sonuç Tablosu (Excel)*');
       sb.writeln('📝 *Sınav:* $examName');
@@ -2127,12 +2427,15 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       }
       sb.writeln('');
       if (excelUrl != null) {
-        sb.writeln('📊 *Resmi Sonuç Listesi Excel Tablosunu İncelemek ve İndirmek İçin Tıklayın:*');
+        sb.writeln(
+          '📊 *Resmi Sonuç Listesi Excel Tablosunu İncelemek ve İndirmek İçin Tıklayın:*',
+        );
         sb.writeln('👉 $excelUrl');
       }
 
       final waUrl = Uri.parse(
-          'https://api.whatsapp.com/send?text=${Uri.encodeComponent(sb.toString().trim())}');
+        'https://api.whatsapp.com/send?text=${Uri.encodeComponent(sb.toString().trim())}',
+      );
       await launchUrl(waUrl, mode: LaunchMode.externalApplication);
     } catch (e) {
       if (mounted) {
@@ -2143,7 +2446,6 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       }
     }
   }
-
 
   Future<void> _showShareDialog({
     required String title,
@@ -2198,8 +2500,11 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                       color: Colors.indigo.shade50,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Icon(Icons.share_rounded,
-                        color: Colors.indigo.shade800, size: 24),
+                    child: Icon(
+                      Icons.share_rounded,
+                      color: Colors.indigo.shade800,
+                      size: 24,
+                    ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -2218,7 +2523,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                         Text(
                           '$examName • $title',
                           style: TextStyle(
-                              fontSize: 12, color: Colors.grey.shade600),
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -2242,11 +2549,14 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                   iconColor: const Color(0xFF25D366),
                   bgColor: const Color(0xFFE8F5E9),
                   title: 'PDF Belgesini Paylaş (WhatsApp vb.)',
-                  subtitle: 'PDF dosyasını WhatsApp veya cihazınızda doğrudan belge olarak paylaşın',
+                  subtitle:
+                      'PDF dosyasını WhatsApp veya cihazınızda doğrudan belge olarak paylaşın',
                   onTap: () async {
                     Navigator.pop(ctx);
                     try {
-                      final bytes = getPdfBytes != null ? await getPdfBytes() : null;
+                      final bytes = getPdfBytes != null
+                          ? await getPdfBytes()
+                          : null;
                       final fName = safePdfName;
                       if (bytes != null) {
                         final shared = await _tryShareFile(
@@ -2278,17 +2588,21 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                   iconColor: const Color(0xFF107C41),
                   bgColor: const Color(0xFFE8F5E9),
                   title: 'Excel Dosyasını Paylaş (WhatsApp vb.)',
-                  subtitle: 'Excel dosyasını WhatsApp veya cihazınızda doğrudan belge olarak paylaşın',
+                  subtitle:
+                      'Excel dosyasını WhatsApp veya cihazınızda doğrudan belge olarak paylaşın',
                   onTap: () async {
                     Navigator.pop(ctx);
                     try {
-                      final bytes = getExcelBytes != null ? await getExcelBytes() : null;
+                      final bytes = getExcelBytes != null
+                          ? await getExcelBytes()
+                          : null;
                       final fName = safeExcelName;
                       if (bytes != null) {
                         final shared = await _tryShareFile(
                           bytes: bytes,
                           fileName: fName,
-                          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                          mimeType:
+                              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                           title: '$examName - $title',
                           text: '$examName • $title tablosu ektedir.',
                         );
@@ -2319,21 +2633,21 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                   iconColor: Colors.red.shade700,
                   bgColor: Colors.red.shade50,
                   title: 'PDF Belgesini İndir',
-                  subtitle: 'Resmi PDF belgesini doğrudan bilgisayarınıza indirin',
+                  subtitle:
+                      'Resmi PDF belgesini doğrudan bilgisayarınıza indirin',
                   onTap: () async {
                     Navigator.pop(ctx);
                     try {
                       if (getPdfBytes != null) {
                         final bytes = await getPdfBytes();
                         final fName = safePdfName;
-                        await Printing.sharePdf(
-                          bytes: bytes,
-                          filename: fName,
-                        );
+                        await Printing.sharePdf(bytes: bytes, filename: fName);
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text('📁 "$fName" bilgisayarınıza indirildi.'),
+                              content: Text(
+                                '📁 "$fName" bilgisayarınıza indirildi.',
+                              ),
                               backgroundColor: Colors.indigo.shade800,
                               behavior: SnackBarBehavior.floating,
                             ),
@@ -2371,7 +2685,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                             files: [
                               XFile.fromData(
                                 bytes,
-                                mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                mimeType:
+                                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                                 name: fName,
                               ),
                             ],
@@ -2381,7 +2696,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text('📁 "$fName" bilgisayarınıza indirildi.'),
+                              content: Text(
+                                '📁 "$fName" bilgisayarınıza indirildi.',
+                              ),
                               backgroundColor: Colors.teal.shade800,
                               behavior: SnackBarBehavior.floating,
                             ),
@@ -2406,10 +2723,18 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 children: [
                   if (getPdfBytes != null)
                     TextButton.icon(
-                      icon: Icon(Icons.cloud_upload_outlined, size: 16, color: Colors.teal.shade700),
+                      icon: Icon(
+                        Icons.cloud_upload_outlined,
+                        size: 16,
+                        color: Colors.teal.shade700,
+                      ),
                       label: Text(
                         'WhatsApp PDF Linki (Bulut)',
-                        style: TextStyle(fontSize: 12, color: Colors.teal.shade700, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.teal.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       onPressed: () => _sharePdfToWhatsApp(
                         dialogCtx: ctx,
@@ -2420,10 +2745,18 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                     ),
                   if (getExcelBytes != null && getPdfBytes == null)
                     TextButton.icon(
-                      icon: Icon(Icons.cloud_upload_outlined, size: 16, color: Colors.teal.shade700),
+                      icon: Icon(
+                        Icons.cloud_upload_outlined,
+                        size: 16,
+                        color: Colors.teal.shade700,
+                      ),
                       label: Text(
                         'WhatsApp Excel Linki (Bulut)',
-                        style: TextStyle(fontSize: 12, color: Colors.teal.shade700, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.teal.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       onPressed: () => _shareExcelToWhatsApp(
                         dialogCtx: ctx,
@@ -2433,20 +2766,31 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                       ),
                     ),
                   TextButton.icon(
-                    icon: Icon(Icons.copy_rounded, size: 16, color: Colors.grey.shade700),
+                    icon: Icon(
+                      Icons.copy_rounded,
+                      size: 16,
+                      color: Colors.grey.shade700,
+                    ),
                     label: Text(
                       'Metni Kopyala',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                      ),
                     ),
                     onPressed: () async {
                       Navigator.pop(ctx);
-                      await Clipboard.setData(ClipboardData(text: clipboardText));
+                      await Clipboard.setData(
+                        ClipboardData(text: clipboardText),
+                      );
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text(reportType == 'Liste'
-                                ? 'Sınav sonuç listesi panoya kopyalandı!'
-                                : 'Rapor metni panoya kopyalandı!'),
+                            content: Text(
+                              reportType == 'Liste'
+                                  ? 'Sınav sonuç listesi panoya kopyalandı!'
+                                  : 'Rapor metni panoya kopyalandı!',
+                            ),
                             backgroundColor: Colors.indigo.shade800,
                             behavior: SnackBarBehavior.floating,
                             duration: const Duration(seconds: 3),
@@ -2463,7 +2807,6 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       ),
     );
   }
-
 
   Future<bool> _tryShareFile({
     required Uint8List bytes,
@@ -2530,7 +2873,10 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -2540,7 +2886,11 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 ],
               ),
             ),
-            Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey.shade400),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 14,
+              color: Colors.grey.shade400,
+            ),
           ],
         ),
       ),
@@ -2569,8 +2919,13 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigo,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
                 onPressed: () => _exportTopicFrequencyPdf(),
               ),
@@ -2582,7 +2937,10 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                   backgroundColor: Colors.indigo.shade50,
                   foregroundColor: Colors.indigo.shade900,
                   elevation: 0,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                     side: BorderSide(color: Colors.indigo.shade200),
@@ -2598,7 +2956,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                   getExcelBytes: () => _buildTopicFrequencyExcelBytes(),
                   excelFileName: '${subject}_Kazanim_Analizi.xlsx',
                   onSharePdf: () => _exportTopicFrequencyPdf(shareOnly: true),
-                  onShareExcel: () => _exportTopicFrequencyExcel(shareOnly: false),
+                  onShareExcel: () =>
+                      _exportTopicFrequencyExcel(shareOnly: false),
                 ),
               ),
               const SizedBox(width: 8),
@@ -2611,7 +2970,11 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 ),
                 child: PopupMenuButton<String>(
                   tooltip: 'İşlemler',
-                  icon: Icon(Icons.more_vert, color: Colors.indigo.shade800, size: 20),
+                  icon: Icon(
+                    Icons.more_vert,
+                    color: Colors.indigo.shade800,
+                    size: 20,
+                  ),
                   onSelected: (val) {
                     if (val == 'yazdir' || val == 'pdf') {
                       _exportTopicFrequencyPdf();
@@ -2627,16 +2990,38 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                         pdfFileName: '${subject}_Kazanim_Analizi.pdf',
                         getExcelBytes: () => _buildTopicFrequencyExcelBytes(),
                         excelFileName: '${subject}_Kazanim_Analizi.xlsx',
-                        onSharePdf: () => _exportTopicFrequencyPdf(shareOnly: true),
-                        onShareExcel: () => _exportTopicFrequencyExcel(shareOnly: false),
+                        onSharePdf: () =>
+                            _exportTopicFrequencyPdf(shareOnly: true),
+                        onShareExcel: () =>
+                            _exportTopicFrequencyExcel(shareOnly: false),
                       );
                     }
                   },
                   itemBuilder: (context) => [
-                    _buildPopupItem('yazdir', Icons.print_rounded, Colors.blue.shade700, 'Yazdır'),
-                    _buildPopupItem('pdf', Icons.picture_as_pdf_rounded, Colors.red.shade700, 'PDF İndir'),
-                    _buildPopupItem('excel', Icons.table_chart_rounded, Colors.green.shade700, 'Excel İndir'),
-                    _buildPopupItem('paylas', Icons.share_rounded, Colors.indigo.shade700, 'Paylaş'),
+                    _buildPopupItem(
+                      'yazdir',
+                      Icons.print_rounded,
+                      Colors.blue.shade700,
+                      'Yazdır',
+                    ),
+                    _buildPopupItem(
+                      'pdf',
+                      Icons.picture_as_pdf_rounded,
+                      Colors.red.shade700,
+                      'PDF İndir',
+                    ),
+                    _buildPopupItem(
+                      'excel',
+                      Icons.table_chart_rounded,
+                      Colors.green.shade700,
+                      'Excel İndir',
+                    ),
+                    _buildPopupItem(
+                      'paylas',
+                      Icons.share_rounded,
+                      Colors.indigo.shade700,
+                      'Paylaş',
+                    ),
                   ],
                 ),
               ),
@@ -2654,6 +3039,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                     isFullScreen: true,
                   ),
                 ),
+                const SizedBox(height: 10),
+                _buildHoveredOutcomeFooter(),
               ],
             ),
           ),
@@ -2680,8 +3067,13 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigo,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
                 onPressed: () => _exportTopicFrequencyPdf(),
               ),
@@ -2693,7 +3085,10 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                   backgroundColor: Colors.indigo.shade50,
                   foregroundColor: Colors.indigo.shade900,
                   elevation: 0,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                     side: BorderSide(color: Colors.indigo.shade200),
@@ -2709,7 +3104,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                   getExcelBytes: () => _buildTopicFrequencyExcelBytes(),
                   excelFileName: '${subject}_Kazanim_Frekanslari.xlsx',
                   onSharePdf: () => _exportTopicFrequencyPdf(shareOnly: true),
-                  onShareExcel: () => _exportTopicFrequencyExcel(shareOnly: false),
+                  onShareExcel: () =>
+                      _exportTopicFrequencyExcel(shareOnly: false),
                 ),
               ),
               const SizedBox(width: 8),
@@ -2722,7 +3118,11 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 ),
                 child: PopupMenuButton<String>(
                   tooltip: 'İşlemler',
-                  icon: Icon(Icons.more_vert, color: Colors.indigo.shade800, size: 20),
+                  icon: Icon(
+                    Icons.more_vert,
+                    color: Colors.indigo.shade800,
+                    size: 20,
+                  ),
                   onSelected: (val) {
                     if (val == 'yazdir' || val == 'pdf') {
                       _exportTopicFrequencyPdf();
@@ -2738,16 +3138,38 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                         pdfFileName: '${subject}_Kazanim_Frekanslari.pdf',
                         getExcelBytes: () => _buildTopicFrequencyExcelBytes(),
                         excelFileName: '${subject}_Kazanim_Frekanslari.xlsx',
-                        onSharePdf: () => _exportTopicFrequencyPdf(shareOnly: true),
-                        onShareExcel: () => _exportTopicFrequencyExcel(shareOnly: false),
+                        onSharePdf: () =>
+                            _exportTopicFrequencyPdf(shareOnly: true),
+                        onShareExcel: () =>
+                            _exportTopicFrequencyExcel(shareOnly: false),
                       );
                     }
                   },
                   itemBuilder: (context) => [
-                    _buildPopupItem('yazdir', Icons.print_rounded, Colors.blue.shade700, 'Yazdır'),
-                    _buildPopupItem('pdf', Icons.picture_as_pdf_rounded, Colors.red.shade700, 'PDF İndir'),
-                    _buildPopupItem('excel', Icons.table_chart_rounded, Colors.green.shade700, 'Excel İndir'),
-                    _buildPopupItem('paylas', Icons.share_rounded, Colors.indigo.shade700, 'Paylaş'),
+                    _buildPopupItem(
+                      'yazdir',
+                      Icons.print_rounded,
+                      Colors.blue.shade700,
+                      'Yazdır',
+                    ),
+                    _buildPopupItem(
+                      'pdf',
+                      Icons.picture_as_pdf_rounded,
+                      Colors.red.shade700,
+                      'PDF İndir',
+                    ),
+                    _buildPopupItem(
+                      'excel',
+                      Icons.table_chart_rounded,
+                      Colors.green.shade700,
+                      'Excel İndir',
+                    ),
+                    _buildPopupItem(
+                      'paylas',
+                      Icons.share_rounded,
+                      Colors.indigo.shade700,
+                      'Paylaş',
+                    ),
                   ],
                 ),
               ),
@@ -2765,6 +3187,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                     isFullScreen: true,
                   ),
                 ),
+                const SizedBox(height: 10),
+                _buildHoveredOutcomeFooter(),
               ],
             ),
           ),
@@ -2791,8 +3215,13 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigo,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
                 onPressed: () => _exportQuestionFrequencyPdf(),
               ),
@@ -2804,7 +3233,10 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                   backgroundColor: Colors.indigo.shade50,
                   foregroundColor: Colors.indigo.shade900,
                   elevation: 0,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                     side: BorderSide(color: Colors.indigo.shade200),
@@ -2819,8 +3251,10 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                   pdfFileName: '${subject}_Soru_Frekanslari.pdf',
                   getExcelBytes: () => _buildQuestionFrequencyExcelBytes(),
                   excelFileName: '${subject}_Soru_Frekanslari.xlsx',
-                  onSharePdf: () => _exportQuestionFrequencyPdf(shareOnly: true),
-                  onShareExcel: () => _exportQuestionFrequencyExcel(shareOnly: false),
+                  onSharePdf: () =>
+                      _exportQuestionFrequencyPdf(shareOnly: true),
+                  onShareExcel: () =>
+                      _exportQuestionFrequencyExcel(shareOnly: false),
                 ),
               ),
               const SizedBox(width: 8),
@@ -2833,7 +3267,11 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 ),
                 child: PopupMenuButton<String>(
                   tooltip: 'İşlemler',
-                  icon: Icon(Icons.more_vert, color: Colors.indigo.shade800, size: 20),
+                  icon: Icon(
+                    Icons.more_vert,
+                    color: Colors.indigo.shade800,
+                    size: 20,
+                  ),
                   onSelected: (val) {
                     if (val == 'yazdir' || val == 'pdf') {
                       _exportQuestionFrequencyPdf();
@@ -2847,18 +3285,41 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                         data: students,
                         getPdfBytes: () => _buildQuestionFrequencyPdfBytes(),
                         pdfFileName: '${subject}_Soru_Frekanslari.pdf',
-                        getExcelBytes: () => _buildQuestionFrequencyExcelBytes(),
+                        getExcelBytes: () =>
+                            _buildQuestionFrequencyExcelBytes(),
                         excelFileName: '${subject}_Soru_Frekanslari.xlsx',
-                        onSharePdf: () => _exportQuestionFrequencyPdf(shareOnly: true),
-                        onShareExcel: () => _exportQuestionFrequencyExcel(shareOnly: false),
+                        onSharePdf: () =>
+                            _exportQuestionFrequencyPdf(shareOnly: true),
+                        onShareExcel: () =>
+                            _exportQuestionFrequencyExcel(shareOnly: false),
                       );
                     }
                   },
                   itemBuilder: (context) => [
-                    _buildPopupItem('yazdir', Icons.print_rounded, Colors.blue.shade700, 'Yazdır'),
-                    _buildPopupItem('pdf', Icons.picture_as_pdf_rounded, Colors.red.shade700, 'PDF İndir'),
-                    _buildPopupItem('excel', Icons.table_chart_rounded, Colors.green.shade700, 'Excel İndir'),
-                    _buildPopupItem('paylas', Icons.share_rounded, Colors.indigo.shade700, 'Paylaş'),
+                    _buildPopupItem(
+                      'yazdir',
+                      Icons.print_rounded,
+                      Colors.blue.shade700,
+                      'Yazdır',
+                    ),
+                    _buildPopupItem(
+                      'pdf',
+                      Icons.picture_as_pdf_rounded,
+                      Colors.red.shade700,
+                      'PDF İndir',
+                    ),
+                    _buildPopupItem(
+                      'excel',
+                      Icons.table_chart_rounded,
+                      Colors.green.shade700,
+                      'Excel İndir',
+                    ),
+                    _buildPopupItem(
+                      'paylas',
+                      Icons.share_rounded,
+                      Colors.indigo.shade700,
+                      'Paylaş',
+                    ),
                   ],
                 ),
               ),
@@ -2876,6 +3337,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                     isFullScreen: true,
                   ),
                 ),
+                const SizedBox(height: 10),
+                _buildHoveredOutcomeFooter(),
               ],
             ),
           ),
@@ -3338,20 +3801,27 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                       if (val == 'institution_pdf') {
                         _printInstitutionalReportCard();
                       } else if (val == 'branch_students_pdf') {
-                        _printStudentReportCards(branchFilter: _reportSelectedBranchId);
+                        _printStudentReportCards(
+                          branchFilter: _reportSelectedBranchId,
+                        );
                       } else if (val == 'all_students_pdf') {
                         _printStudentReportCards();
                       } else if (val == 'student_pdf') {
-                        _printStudentReportCards(studentIdFilter: _reportSelectedStudentId);
+                        _printStudentReportCards(
+                          studentIdFilter: _reportSelectedStudentId,
+                        );
                       } else if (val == 'student_view') {
                         _openStudentReportCardDialog(_reportSelectedStudentId);
                       } else if (val == 'paylas') {
                         _showShareDialog(
                           title: 'Kurum ve Öğrenci Karneleri',
                           reportType: 'Karne',
-                          getPdfBytes: () => _buildInstitutionalReportCardBytes(),
-                          pdfFileName: 'kurum_karnesi_${_selectedExam?.name ?? "sinav"}.pdf',
-                          onSharePdf: () => _printInstitutionalReportCard(shareOnly: true),
+                          getPdfBytes: () =>
+                              _buildInstitutionalReportCardBytes(),
+                          pdfFileName:
+                              'kurum_karnesi_${_selectedExam?.name ?? "sinav"}.pdf',
+                          onSharePdf: () =>
+                              _printInstitutionalReportCard(shareOnly: true),
                         );
                       }
                     },
@@ -3360,41 +3830,86 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
                       if (_reportCardScope == 'Kurum') {
                         items.add(
-                          _buildPopupItem('institution_pdf', Icons.business_center, Colors.indigo, 'Kurum Karnesi'),
+                          _buildPopupItem(
+                            'institution_pdf',
+                            Icons.business_center,
+                            Colors.indigo,
+                            'Kurum Karnesi',
+                          ),
                         );
                         items.add(
-                          _buildPopupItem('all_students_pdf', Icons.print, Colors.blue.shade700, 'Tüm Öğrenci Karneleri'),
+                          _buildPopupItem(
+                            'all_students_pdf',
+                            Icons.print,
+                            Colors.blue.shade700,
+                            'Tüm Öğrenci Karneleri',
+                          ),
                         );
                       } else if (_reportCardScope == 'Şube') {
                         final branchLabel = _reportSelectedBranchId == 'all'
                             ? 'Tüm Şubeler'
                             : '$_reportSelectedBranchId Şubesi';
                         items.add(
-                          _buildPopupItem('branch_students_pdf', Icons.print, Colors.blue.shade700, '$branchLabel Karnelerini Yazdır'),
+                          _buildPopupItem(
+                            'branch_students_pdf',
+                            Icons.print,
+                            Colors.blue.shade700,
+                            '$branchLabel Karnelerini Yazdır',
+                          ),
                         );
                         items.add(
-                          _buildPopupItem('institution_pdf', Icons.business_center, Colors.indigo, 'Kurum Karnesi'),
+                          _buildPopupItem(
+                            'institution_pdf',
+                            Icons.business_center,
+                            Colors.indigo,
+                            'Kurum Karnesi',
+                          ),
                         );
                       } else if (_reportCardScope == 'Öğrenci') {
                         if (_reportSelectedStudentId != 'all') {
                           items.add(
-                            _buildPopupItem('student_pdf', Icons.picture_as_pdf, Colors.red.shade700, 'Öğrenci Karnesi'),
+                            _buildPopupItem(
+                              'student_pdf',
+                              Icons.picture_as_pdf,
+                              Colors.red.shade700,
+                              'Öğrenci Karnesi',
+                            ),
                           );
                           items.add(
-                            _buildPopupItem('student_view', Icons.visibility, Colors.indigo, 'Karneyi Ekranda İncele'),
+                            _buildPopupItem(
+                              'student_view',
+                              Icons.visibility,
+                              Colors.indigo,
+                              'Karneyi Ekranda İncele',
+                            ),
                           );
                         } else {
                           items.add(
-                            _buildPopupItem('all_students_pdf', Icons.print, Colors.blue.shade700, 'Tüm Öğrenci Karneleri'),
+                            _buildPopupItem(
+                              'all_students_pdf',
+                              Icons.print,
+                              Colors.blue.shade700,
+                              'Tüm Öğrenci Karneleri',
+                            ),
                           );
                         }
                         items.add(
-                          _buildPopupItem('institution_pdf', Icons.business_center, Colors.indigo, 'Kurum Karnesi'),
+                          _buildPopupItem(
+                            'institution_pdf',
+                            Icons.business_center,
+                            Colors.indigo,
+                            'Kurum Karnesi',
+                          ),
                         );
                       }
 
                       items.add(
-                        _buildPopupItem('paylas', Icons.share_rounded, Colors.indigo.shade700, 'Paylaş'),
+                        _buildPopupItem(
+                          'paylas',
+                          Icons.share_rounded,
+                          Colors.indigo.shade700,
+                          'Paylaş',
+                        ),
                       );
 
                       return items;
@@ -3813,19 +4328,43 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                           title: 'Kazanım Frekansları Raporu',
                           reportType: 'Kazanım Frekansları',
                           getPdfBytes: () => _buildTopicFrequencyPdfBytes(),
-                          pdfFileName: 'kazanim_frekanslari_${_selectedExam?.name ?? "sinav"}.pdf',
+                          pdfFileName:
+                              'kazanim_frekanslari_${_selectedExam?.name ?? "sinav"}.pdf',
                           getExcelBytes: () => _buildTopicFrequencyExcelBytes(),
-                          excelFileName: 'kazanim_frekanslari_${_selectedExam?.name ?? "sinav"}.xlsx',
-                          onSharePdf: () => _exportTopicFrequencyPdf(shareOnly: true),
-                          onShareExcel: () => _exportTopicFrequencyExcel(shareOnly: false),
+                          excelFileName:
+                              'kazanim_frekanslari_${_selectedExam?.name ?? "sinav"}.xlsx',
+                          onSharePdf: () =>
+                              _exportTopicFrequencyPdf(shareOnly: true),
+                          onShareExcel: () =>
+                              _exportTopicFrequencyExcel(shareOnly: false),
                         );
                       }
                     },
                     items: [
-                      _buildPopupItem('yazdir', Icons.print_rounded, Colors.blue.shade700, 'Yazdır'),
-                      _buildPopupItem('pdf', Icons.picture_as_pdf_rounded, Colors.red.shade700, 'PDF İndir'),
-                      _buildPopupItem('excel', Icons.table_chart_rounded, Colors.green.shade700, 'Excel İndir'),
-                      _buildPopupItem('paylas', Icons.share_rounded, Colors.indigo.shade700, 'Paylaş'),
+                      _buildPopupItem(
+                        'yazdir',
+                        Icons.print_rounded,
+                        Colors.blue.shade700,
+                        'Yazdır',
+                      ),
+                      _buildPopupItem(
+                        'pdf',
+                        Icons.picture_as_pdf_rounded,
+                        Colors.red.shade700,
+                        'PDF İndir',
+                      ),
+                      _buildPopupItem(
+                        'excel',
+                        Icons.table_chart_rounded,
+                        Colors.green.shade700,
+                        'Excel İndir',
+                      ),
+                      _buildPopupItem(
+                        'paylas',
+                        Icons.share_rounded,
+                        Colors.indigo.shade700,
+                        'Paylaş',
+                      ),
                     ],
                   ),
                 ],
@@ -4073,10 +4612,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 relevantData,
                 isMobile: false,
                 fitHeight: true, // Enable scrolling within fixed height
-                onFullScreen: () => _openFullScreenTopicFrequency(
-                  subject,
-                  relevantData,
-                ),
+                onFullScreen: () =>
+                    _openFullScreenTopicFrequency(subject, relevantData),
               ),
             ),
           ],
@@ -4150,6 +4687,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                     students,
                     isMobile: isMobile,
                   ),
+            const SizedBox(height: 10),
+            _buildHoveredOutcomeFooter(),
           ],
         ),
       ),
@@ -4224,7 +4763,13 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
               allRows.addAll(subjRows);
             }
           }
-          return _buildDataTable(context, allRows, isMobile, isFullScreen, minWidth: constraints.maxWidth);
+          return _buildDataTable(
+            context,
+            allRows,
+            isMobile,
+            isFullScreen,
+            minWidth: constraints.maxWidth,
+          );
         }
 
         // --- SINGLE SUBJECT LOGIC ---
@@ -4241,7 +4786,13 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           constraints.maxWidth,
         );
 
-        return _buildDataTable(context, dynamicRows, isMobile, isFullScreen, minWidth: constraints.maxWidth);
+        return _buildDataTable(
+          context,
+          dynamicRows,
+          isMobile,
+          isFullScreen,
+          minWidth: constraints.maxWidth,
+        );
       },
     );
   }
@@ -4426,15 +4977,38 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         DataRow(
           cells: [
             DataCell(
-              Container(
-                width: topicW,
-                child: _CursorTooltip(
-                  message: topic,
-                  child: Text(
-                    topic,
-                    style: TextStyle(fontSize: 12),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                onEnter: (_) {
+                  _hoveredOutcomeInfo.value = (
+                    badge: subject,
+                    text: topic,
+                    stats:
+                        'Soru: $questionColValue • Doğru: ${rawCorrect.toStringAsFixed(0)}/$totalQCount • Başarı: %${successRate.toStringAsFixed(0)}',
+                  );
+                },
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    _hoveredOutcomeInfo.value = (
+                      badge: subject,
+                      text: topic,
+                      stats:
+                          'Soru: $questionColValue • Doğru: ${rawCorrect.toStringAsFixed(0)}/$totalQCount • Başarı: %${successRate.toStringAsFixed(0)}',
+                    );
+                  },
+                  child: Container(
+                    width: topicW,
+                    alignment: Alignment.centerLeft,
+                    child: _CursorTooltip(
+                      message: topic,
+                      child: Text(
+                        topic,
+                        style: TextStyle(fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -4993,19 +5567,41 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                       title: 'Ortalamalar Raporu (${_averageType})',
                       reportType: 'Ortalama',
                       getPdfBytes: () => _buildAveragePdfBytes(),
-                      pdfFileName: 'ortalamalar_${_selectedExam?.name ?? "sinav"}.pdf',
+                      pdfFileName:
+                          'ortalamalar_${_selectedExam?.name ?? "sinav"}.pdf',
                       getExcelBytes: () => _buildAverageExcelBytes(),
-                      excelFileName: 'ortalamalar_${_selectedExam?.name ?? "sinav"}.xlsx',
+                      excelFileName:
+                          'ortalamalar_${_selectedExam?.name ?? "sinav"}.xlsx',
                       onSharePdf: () => _exportAveragePdf(shareOnly: true),
                       onShareExcel: () => _exportAverageExcel(shareOnly: false),
                     );
                   }
                 },
                 items: [
-                  _buildPopupItem('yazdir', Icons.print_rounded, Colors.blue.shade700, 'Yazdır'),
-                  _buildPopupItem('pdf', Icons.picture_as_pdf_rounded, Colors.red.shade700, 'PDF İndir'),
-                  _buildPopupItem('excel', Icons.table_chart_rounded, Colors.green.shade700, 'Excel İndir'),
-                  _buildPopupItem('paylas', Icons.share_rounded, Colors.indigo.shade700, 'Paylaş'),
+                  _buildPopupItem(
+                    'yazdir',
+                    Icons.print_rounded,
+                    Colors.blue.shade700,
+                    'Yazdır',
+                  ),
+                  _buildPopupItem(
+                    'pdf',
+                    Icons.picture_as_pdf_rounded,
+                    Colors.red.shade700,
+                    'PDF İndir',
+                  ),
+                  _buildPopupItem(
+                    'excel',
+                    Icons.table_chart_rounded,
+                    Colors.green.shade700,
+                    'Excel İndir',
+                  ),
+                  _buildPopupItem(
+                    'paylas',
+                    Icons.share_rounded,
+                    Colors.indigo.shade700,
+                    'Paylaş',
+                  ),
                 ],
               ),
             ],
@@ -6960,15 +7556,19 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       try {
         final sr = StudentResult.fromJson(Map<String, dynamic>.from(r['raw']));
         sr.rankGeneral = r['rankGeneral'] ?? sr.rankGeneral;
-        sr.rankInstitution = r['rankInstitution'] ?? r['rankGeneral'] ?? sr.rankInstitution;
+        sr.rankInstitution =
+            r['rankInstitution'] ?? r['rankGeneral'] ?? sr.rankInstitution;
         sr.rankBranch = r['rankBranch'] ?? sr.rankBranch;
         if (sr.score == 0.0 && r['totalScore'] != null) {
-          sr.score = num.tryParse(r['totalScore'].toString())?.toDouble() ?? 0.0;
+          sr.score =
+              num.tryParse(r['totalScore'].toString())?.toDouble() ?? 0.0;
         }
         if (sr.correctAnswers.isEmpty && _selectedExam != null) {
           final b = sr.booklet.isNotEmpty ? sr.booklet : 'A';
           if (_selectedExam!.answerKeys.containsKey(b)) {
-            sr.correctAnswers = Map<String, String>.from(_selectedExam!.answerKeys[b]!);
+            sr.correctAnswers = Map<String, String>.from(
+              _selectedExam!.answerKeys[b]!,
+            );
           }
         }
         return sr;
@@ -6977,18 +7577,30 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       }
     }
 
-    final answers = (r['answers'] as Map?)?.map((k, v) => MapEntry(k.toString(), v.toString())) ??
-        (r['cevaplar'] as Map?)?.map((k, v) => MapEntry(k.toString(), v.toString())) ??
+    final answers =
+        (r['answers'] as Map?)?.map(
+          (k, v) => MapEntry(k.toString(), v.toString()),
+        ) ??
+        (r['cevaplar'] as Map?)?.map(
+          (k, v) => MapEntry(k.toString(), v.toString()),
+        ) ??
         <String, String>{};
 
     final booklet = (r['booklet'] ?? 'A').toString();
     Map<String, String> correctAnswers = {};
     if (r['correctAnswers'] != null && r['correctAnswers'] is Map) {
-      correctAnswers = (r['correctAnswers'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
-    } else if (_selectedExam != null && _selectedExam!.answerKeys.containsKey(booklet)) {
-      correctAnswers = Map<String, String>.from(_selectedExam!.answerKeys[booklet]!);
+      correctAnswers = (r['correctAnswers'] as Map).map(
+        (k, v) => MapEntry(k.toString(), v.toString()),
+      );
+    } else if (_selectedExam != null &&
+        _selectedExam!.answerKeys.containsKey(booklet)) {
+      correctAnswers = Map<String, String>.from(
+        _selectedExam!.answerKeys[booklet]!,
+      );
     } else if (_selectedExam != null && _selectedExam!.answerKeys.isNotEmpty) {
-      correctAnswers = Map<String, String>.from(_selectedExam!.answerKeys.values.first);
+      correctAnswers = Map<String, String>.from(
+        _selectedExam!.answerKeys.values.first,
+      );
     }
 
     final Map<String, SubjectStats> subjectStats = {};
@@ -7007,24 +7619,26 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
     return StudentResult(
       tcNo: (r['tcNo'] ?? '').toString(),
-      studentNo: (r['studentNo'] ??
-              r['studentNumber'] ??
-              r['no'] ??
-              r['number'] ??
-              (r['raw'] is Map
-                  ? (r['raw']['studentNo'] ??
-                      r['raw']['studentNumber'] ??
-                      r['raw']['no'] ??
-                      r['raw']['number'])
-                  : null) ??
-              '')
-          .toString()
-          .trim(),
+      studentNo:
+          (r['studentNo'] ??
+                  r['studentNumber'] ??
+                  r['no'] ??
+                  r['number'] ??
+                  (r['raw'] is Map
+                      ? (r['raw']['studentNo'] ??
+                            r['raw']['studentNumber'] ??
+                            r['raw']['no'] ??
+                            r['raw']['number'])
+                      : null) ??
+                  '')
+              .toString()
+              .trim(),
       name: (r['studentName'] ?? r['name'] ?? '').toString(),
       classLevel: _selectedExam?.classLevel ?? '',
       branch: (r['className'] ?? r['branch'] ?? '').toString(),
       booklet: booklet,
-      score: num.tryParse(r['totalScore']?.toString() ?? '0')?.toDouble() ?? 0.0,
+      score:
+          num.tryParse(r['totalScore']?.toString() ?? '0')?.toDouble() ?? 0.0,
       rankGeneral: r['rankGeneral'] ?? 0,
       rankInstitution: r['rankInstitution'] ?? r['rankGeneral'] ?? 0,
       rankBranch: r['rankBranch'] ?? 0,
@@ -7074,10 +7688,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
               Text(
                 subtitle,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
             ],
           ],
@@ -7114,7 +7725,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       barrierDismissible: false,
       builder: (BuildContext ctx) => _buildPdfLoadingDialog(
         "Kurum Karnesi Hazırlanıyor",
-        subtitle: "Kurum geneli ve şube başarı sayfaları oluşturuluyor, lütfen bekleyiniz...",
+        subtitle:
+            "Kurum geneli ve şube başarı sayfaları oluşturuluyor, lütfen bekleyiniz...",
       ),
     );
 
@@ -7129,7 +7741,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       if (shareOnly) {
         await Printing.sharePdf(
           bytes: pdfBytes,
-          filename: sanitizeFileName('kurum_karnesi_${_selectedExam!.name}.pdf'),
+          filename: sanitizeFileName(
+            'kurum_karnesi_${_selectedExam!.name}.pdf',
+          ),
         );
       } else {
         await Printing.layoutPdf(
@@ -7143,7 +7757,10 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Kurum karnesi oluşturulurken hata: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Kurum karnesi oluşturulurken hata: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -7155,7 +7772,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
   }) async {
     if (_selectedExam == null || _examResults.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Yazdırılacak öğrenci verisi bulunamadı.')),
+        const SnackBar(
+          content: Text('Yazdırılacak öğrenci verisi bulunamadı.'),
+        ),
       );
       return;
     }
@@ -7163,14 +7782,20 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     List<Map<String, dynamic>> targetList = List.from(_examResults);
 
     if (studentIdFilter != null && studentIdFilter != 'all') {
-      targetList = targetList.where((r) => _getStudentId(r) == studentIdFilter).toList();
+      targetList = targetList
+          .where((r) => _getStudentId(r) == studentIdFilter)
+          .toList();
     } else if (branchFilter != null && branchFilter != 'all') {
-      targetList = targetList.where((r) => (r['className'] ?? r['branch']) == branchFilter).toList();
+      targetList = targetList
+          .where((r) => (r['className'] ?? r['branch']) == branchFilter)
+          .toList();
     }
 
     if (targetList.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Seçili kritere uygun öğrenci bulunamadı.')),
+        const SnackBar(
+          content: Text('Seçili kritere uygun öğrenci bulunamadı.'),
+        ),
       );
       return;
     }
@@ -7220,7 +7845,10 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       String nameOf(Map<String, dynamic> r) =>
           (r['studentName'] ?? r['name'] ?? '').toString().trim();
       double scoreOf(Map<String, dynamic> r) =>
-          num.tryParse((r['totalScore'] ?? r['score'] ?? '0').toString())?.toDouble() ?? 0.0;
+          num.tryParse(
+            (r['totalScore'] ?? r['score'] ?? '0').toString(),
+          )?.toDouble() ??
+          0.0;
       String branchOf(Map<String, dynamic> r) =>
           (r['className'] ?? r['branch'] ?? '').toString();
 
@@ -7242,7 +7870,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       barrierDismissible: false,
       builder: (BuildContext ctx) => _buildPdfLoadingDialog(
         "Öğrenci Karneleri Hazırlanıyor",
-        subtitle: "${targetList.length} öğrencinin karne sayfası oluşturuluyor, lütfen bekleyiniz...",
+        subtitle:
+            "${targetList.length} öğrencinin karne sayfası oluşturuluyor, lütfen bekleyiniz...",
       ),
     );
 
@@ -7256,20 +7885,25 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         branchCounts[b] = (branchCounts[b] ?? 0) + 1;
       }
 
-      final studentResults = targetList.map((m) => _mapToStudentResult(m)).toList();
+      final studentResults = targetList
+          .map((m) => _mapToStudentResult(m))
+          .toList();
 
-      final pdfBytes = await ExamReportCardService().generateStudentReportCardsPdf(
-        students: studentResults,
-        examName: _selectedExam!.name,
-        examDate: _selectedExam!.date,
-        institutionName: instName,
-        subjects: _availableSubjects,
-        outcomes: _selectedExam!.outcomes,
-        totalStudents: _examResults.length,
-        schoolStudents: _examResults.length,
-        branchStudentCounts: branchCounts,
-        isRankingVisible: _selectedExam!.sharingSettings['isRankingVisible'] ?? true,
-      );
+      final pdfBytes = await ExamReportCardService()
+          .generateStudentReportCardsPdf(
+            students: studentResults,
+            examName: _selectedExam!.name,
+            examDate: _selectedExam!.date,
+            institutionName: instName,
+            subjects: _availableSubjects,
+            outcomes: _selectedExam!.outcomes,
+            totalStudents:
+                _selectedExam!.centralTotalParticipants ?? _examResults.length,
+            schoolStudents: _examResults.length,
+            branchStudentCounts: branchCounts,
+            isRankingVisible:
+                _selectedExam!.sharingSettings['isRankingVisible'] ?? true,
+          );
 
       if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
         Navigator.of(context, rootNavigator: true).pop();
@@ -7285,7 +7919,10 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Karne oluşturulurken hata: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Karne oluşturulurken hata: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -7299,7 +7936,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     if (found.isEmpty) return;
 
     final student = _mapToStudentResult(found);
-    final branchCount = _examResults.where((r) => r['className'] == found['className']).length;
+    final branchCount = _examResults
+        .where((r) => r['className'] == found['className'])
+        .length;
 
     Navigator.push(
       context,
@@ -7309,10 +7948,12 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           examName: _selectedExam!.name,
           subjects: _availableSubjects,
           outcomes: _selectedExam!.outcomes,
-          totalStudents: _examResults.length,
+          totalStudents:
+              _selectedExam!.centralTotalParticipants ?? _examResults.length,
           schoolStudents: _examResults.length,
           branchStudents: branchCount,
-          isRankingVisible: _selectedExam!.sharingSettings['isRankingVisible'] ?? true,
+          isRankingVisible:
+              _selectedExam!.sharingSettings['isRankingVisible'] ?? true,
           trialExamId: _selectedExam!.id,
           schoolTypeName: _getEffectiveSchoolTypeName(),
         ),
@@ -7352,7 +7993,10 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       if (isBranchMode) {
         // If a specific branch is selected (not 'all'), generate only for that branch
         if (_selectedBranchId != null && _selectedBranchId != 'all') {
-          await _generatePdfByBranch(singleBranchId: _selectedBranchId, shareOnly: shareOnly);
+          await _generatePdfByBranch(
+            singleBranchId: _selectedBranchId,
+            shareOnly: shareOnly,
+          );
         } else {
           await _generatePdfByBranch(
             singleBranchId: null,
@@ -7364,9 +8008,10 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       }
     } catch (e) {
       debugPrint('PDF Error: $e');
-      if (mounted) ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('PDF oluşturulurken hata: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('PDF oluşturulurken hata: $e')));
     } finally {
       // Close Loading Dialog
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
@@ -7460,7 +8105,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     if (shareOnly) {
       await Printing.sharePdf(
         bytes: bytes,
-        filename: sanitizeFileName('sinav_sonuclari_${_selectedExam?.name ?? ""}.pdf'),
+        filename: sanitizeFileName(
+          'sinav_sonuclari_${_selectedExam?.name ?? ""}.pdf',
+        ),
       );
     } else {
       await Printing.layoutPdf(onLayout: (format) => bytes);
@@ -7558,12 +8205,17 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     return await pdf.save();
   }
 
-  Future<void> _generatePdfByBranch({String? singleBranchId, bool shareOnly = false}) async {
+  Future<void> _generatePdfByBranch({
+    String? singleBranchId,
+    bool shareOnly = false,
+  }) async {
     final bytes = await _buildPdfByBranchBytes(singleBranchId: singleBranchId);
     if (shareOnly) {
       await Printing.sharePdf(
         bytes: bytes,
-        filename: sanitizeFileName('sube_sonuclari_${_selectedExam?.name ?? ""}.pdf'),
+        filename: sanitizeFileName(
+          'sube_sonuclari_${_selectedExam?.name ?? ""}.pdf',
+        ),
       );
     } else {
       await Printing.layoutPdf(onLayout: (format) => bytes);
@@ -8473,7 +9125,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
   Future<void> _generateAndExportExcel({bool shareOnly = false}) async {
     final excel = _buildExamResultsExcel();
-    final fileName = sanitizeFileName('${_selectedExam?.name ?? "Sonuclar"}.xlsx');
+    final fileName = sanitizeFileName(
+      '${_selectedExam?.name ?? "Sonuclar"}.xlsx',
+    );
     if (shareOnly) {
       final bytes = excel.encode();
       if (bytes != null) {
@@ -8481,7 +9135,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           XFile.fromData(
             Uint8List.fromList(bytes),
             name: fileName,
-            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           ),
         ]);
       }
@@ -8511,7 +9166,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       branchGroups.putIfAbsent(bName, () => []).add(r);
     }
     final sortedBranches = branchGroups.keys.toList()..sort();
-    final columns = _averageSelectedSubjects.isEmpty ? _availableSubjects : _averageSelectedSubjects;
+    final columns = _averageSelectedSubjects.isEmpty
+        ? _availableSubjects
+        : _averageSelectedSubjects;
 
     List<CellValue> headerRow = [TextCellValue('Şube Adı')];
     for (var col in columns) {
@@ -8536,15 +9193,31 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
             if (sData is Map) {
               double val = 0;
               if (_averageType == 'Net') {
-                val = num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ?? 0.0;
+                val =
+                    num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ??
+                    0.0;
               } else if (_averageType == 'Başarı Yüzdesi') {
-                double c = num.tryParse(sData['correct']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                double w = num.tryParse(sData['wrong']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                double e = num.tryParse(sData['empty']?.toString() ?? '0')?.toDouble() ?? 0.0;
+                double c =
+                    num.tryParse(
+                      sData['correct']?.toString() ?? '0',
+                    )?.toDouble() ??
+                    0.0;
+                double w =
+                    num.tryParse(
+                      sData['wrong']?.toString() ?? '0',
+                    )?.toDouble() ??
+                    0.0;
+                double e =
+                    num.tryParse(
+                      sData['empty']?.toString() ?? '0',
+                    )?.toDouble() ??
+                    0.0;
                 double totalQ = c + w + e;
                 if (totalQ > 0) val = (c / totalQ) * 100;
               } else {
-                val = num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ?? 0.0;
+                val =
+                    num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ??
+                    0.0;
               }
               totalVal += val;
               validCount++;
@@ -8568,9 +9241,21 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
               for (var subj in columns) {
                 final sData = sMap[subj];
                 if (sData is Map) {
-                  c += num.tryParse(sData['correct']?.toString() ?? '0')?.toDouble() ?? 0;
-                  w += num.tryParse(sData['wrong']?.toString() ?? '0')?.toDouble() ?? 0;
-                  e += num.tryParse(sData['empty']?.toString() ?? '0')?.toDouble() ?? 0;
+                  c +=
+                      num.tryParse(
+                        sData['correct']?.toString() ?? '0',
+                      )?.toDouble() ??
+                      0;
+                  w +=
+                      num.tryParse(
+                        sData['wrong']?.toString() ?? '0',
+                      )?.toDouble() ??
+                      0;
+                  e +=
+                      num.tryParse(
+                        sData['empty']?.toString() ?? '0',
+                      )?.toDouble() ??
+                      0;
                 }
               }
             }
@@ -8583,18 +9268,24 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           if (successCount > 0) {
             branchGenAvg = totalSuccessSum / successCount;
           } else if (branchSubjAverages.isNotEmpty) {
-            branchGenAvg = branchSubjAverages.reduce((a, b) => a + b) / branchSubjAverages.length;
+            branchGenAvg =
+                branchSubjAverages.reduce((a, b) => a + b) /
+                branchSubjAverages.length;
           }
         } else if (_averageType == 'Puan') {
           double totalSum = 0;
           for (var s in students) {
-            totalSum += num.tryParse(s['totalScore']?.toString() ?? '0')?.toDouble() ?? 0.0;
+            totalSum +=
+                num.tryParse(s['totalScore']?.toString() ?? '0')?.toDouble() ??
+                0.0;
           }
           branchGenAvg = students.isNotEmpty ? totalSum / students.length : 0;
         } else if (_averageType == 'Net') {
           double totalSum = 0;
           for (var s in students) {
-            totalSum += num.tryParse(s['totalNet']?.toString() ?? '0')?.toDouble() ?? 0.0;
+            totalSum +=
+                num.tryParse(s['totalNet']?.toString() ?? '0')?.toDouble() ??
+                0.0;
           }
           branchGenAvg = students.isNotEmpty ? totalSum / students.length : 0;
         }
@@ -8618,15 +9309,31 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
             if (sData is Map) {
               double val = 0;
               if (_averageType == 'Net') {
-                val = num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ?? 0.0;
+                val =
+                    num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ??
+                    0.0;
               } else if (_averageType == 'Başarı Yüzdesi') {
-                double c = num.tryParse(sData['correct']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                double w = num.tryParse(sData['wrong']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                double e = num.tryParse(sData['empty']?.toString() ?? '0')?.toDouble() ?? 0.0;
+                double c =
+                    num.tryParse(
+                      sData['correct']?.toString() ?? '0',
+                    )?.toDouble() ??
+                    0.0;
+                double w =
+                    num.tryParse(
+                      sData['wrong']?.toString() ?? '0',
+                    )?.toDouble() ??
+                    0.0;
+                double e =
+                    num.tryParse(
+                      sData['empty']?.toString() ?? '0',
+                    )?.toDouble() ??
+                    0.0;
                 double totalQ = c + w + e;
                 if (totalQ > 0) val = (c / totalQ) * 100;
               } else {
-                val = num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ?? 0.0;
+                val =
+                    num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ??
+                    0.0;
               }
               totalVal += val;
               validCount++;
@@ -8650,9 +9357,21 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
               for (var subj in columns) {
                 final sData = sMap[subj];
                 if (sData is Map) {
-                  c += num.tryParse(sData['correct']?.toString() ?? '0')?.toDouble() ?? 0;
-                  w += num.tryParse(sData['wrong']?.toString() ?? '0')?.toDouble() ?? 0;
-                  e += num.tryParse(sData['empty']?.toString() ?? '0')?.toDouble() ?? 0;
+                  c +=
+                      num.tryParse(
+                        sData['correct']?.toString() ?? '0',
+                      )?.toDouble() ??
+                      0;
+                  w +=
+                      num.tryParse(
+                        sData['wrong']?.toString() ?? '0',
+                      )?.toDouble() ??
+                      0;
+                  e +=
+                      num.tryParse(
+                        sData['empty']?.toString() ?? '0',
+                      )?.toDouble() ??
+                      0;
                 }
               }
             }
@@ -8665,22 +9384,34 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           if (successCount > 0) {
             schoolOverallGenAvg = totalSuccessSum / successCount;
           } else if (schoolSubjAverages.isNotEmpty) {
-            schoolOverallGenAvg = schoolSubjAverages.reduce((a, b) => a + b) / schoolSubjAverages.length;
+            schoolOverallGenAvg =
+                schoolSubjAverages.reduce((a, b) => a + b) /
+                schoolSubjAverages.length;
           }
         } else if (_averageType == 'Puan') {
           double totalSum = 0;
           for (var s in _examResults) {
-            totalSum += num.tryParse(s['totalScore']?.toString() ?? '0')?.toDouble() ?? 0.0;
+            totalSum +=
+                num.tryParse(s['totalScore']?.toString() ?? '0')?.toDouble() ??
+                0.0;
           }
-          schoolOverallGenAvg = _examResults.isNotEmpty ? totalSum / _examResults.length : 0.0;
+          schoolOverallGenAvg = _examResults.isNotEmpty
+              ? totalSum / _examResults.length
+              : 0.0;
         } else if (_averageType == 'Net') {
           double totalSum = 0;
           for (var s in _examResults) {
-            totalSum += num.tryParse(s['totalNet']?.toString() ?? '0')?.toDouble() ?? 0.0;
+            totalSum +=
+                num.tryParse(s['totalNet']?.toString() ?? '0')?.toDouble() ??
+                0.0;
           }
-          schoolOverallGenAvg = _examResults.isNotEmpty ? totalSum / _examResults.length : 0.0;
+          schoolOverallGenAvg = _examResults.isNotEmpty
+              ? totalSum / _examResults.length
+              : 0.0;
         }
-        summaryRow.add(DoubleCellValue(double.parse(schoolOverallGenAvg.toStringAsFixed(2))));
+        summaryRow.add(
+          DoubleCellValue(double.parse(schoolOverallGenAvg.toStringAsFixed(2))),
+        );
       }
 
       sheet.appendRow(summaryRow);
@@ -8697,7 +9428,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
   Future<void> _exportAverageExcel({bool shareOnly = false}) async {
     final excel = _buildAverageExcel();
-    final fileName = '${_selectedExam?.name ?? "Sinav"}_Ortalamalar_${_averageType}.xlsx';
+    final fileName =
+        '${_selectedExam?.name ?? "Sinav"}_Ortalamalar_${_averageType}.xlsx';
     if (shareOnly) {
       final bytes = excel.encode();
       if (bytes != null) {
@@ -8705,7 +9437,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           XFile.fromData(
             Uint8List.fromList(bytes),
             name: fileName,
-            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           ),
         ]);
       }
@@ -8740,10 +9473,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       final bytes = await _buildAveragePdfBytes();
       final fileName = '${_selectedExam?.name ?? "Sinav"}_Ortalamalar.pdf';
       if (shareOnly) {
-        await Printing.sharePdf(
-          bytes: bytes,
-          filename: fileName,
-        );
+        await Printing.sharePdf(bytes: bytes, filename: fileName);
       } else {
         await Printing.layoutPdf(
           onLayout: (format) async => bytes,
@@ -8753,9 +9483,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     } catch (e) {
       debugPrint('Export Average PDF Error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF oluşturulurken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('PDF oluşturulurken hata: $e')));
       }
     } finally {
       if (mounted) {
@@ -8766,434 +9496,588 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
   Future<Uint8List> _buildAveragePdfBytes() async {
     Map<String, List<Map<String, dynamic>>> branchGroups = {};
-      for (var r in _examResults) {
-        final bName = r['className']?.toString() ?? 'Bilinmeyen';
-        if (_averageScope == 'Şube' &&
-            _averageSelectedBranchId != 'all' &&
-            bName != _averageSelectedBranchId) {
-          continue;
-        }
-        branchGroups.putIfAbsent(bName, () => []).add(r);
+    for (var r in _examResults) {
+      final bName = r['className']?.toString() ?? 'Bilinmeyen';
+      if (_averageScope == 'Şube' &&
+          _averageSelectedBranchId != 'all' &&
+          bName != _averageSelectedBranchId) {
+        continue;
       }
-      final sortedBranches = branchGroups.keys.toList()..sort();
-      final columns = _averageSelectedSubjects.isEmpty ? _availableSubjects : _averageSelectedSubjects;
+      branchGroups.putIfAbsent(bName, () => []).add(r);
+    }
+    final sortedBranches = branchGroups.keys.toList()..sort();
+    final columns = _averageSelectedSubjects.isEmpty
+        ? _availableSubjects
+        : _averageSelectedSubjects;
 
-      final font = await _loadPdfFont();
-      final fontBold = await _loadPdfFontBold();
-      final pdf = pw.Document();
+    final font = await _loadPdfFont();
+    final fontBold = await _loadPdfFontBold();
+    final pdf = pw.Document();
 
-      // Color coding helpers for "Başarı Yüzdesi"
-      PdfColor getAvgTextColor(double val) {
-        if (_averageType == 'Başarı Yüzdesi') {
-          if (val >= 85) return PdfColor.fromInt(0xFF1B5E20); // green 900
-          if (val >= 70) return PdfColor.fromInt(0xFF0D47A1); // blue 900
-          if (val >= 50) return PdfColor.fromInt(0xFFE65100); // orange 900
-          return PdfColor.fromInt(0xFFB71C1C); // red 900
-        }
-        return PdfColors.grey900;
-      }
-
-      PdfColor getAvgBgColor(double val, bool isEvenRow) {
-        if (_averageType == 'Başarı Yüzdesi') {
-          if (val >= 85) return PdfColor.fromInt(0xFFE8F5E9); // green 50
-          if (val >= 70) return PdfColor.fromInt(0xFFE3F2FD); // blue 50
-          if (val >= 50) return PdfColor.fromInt(0xFFFFF3E0); // orange 50
-          return PdfColor.fromInt(0xFFFFEBEE); // red 50
-        }
-        return isEvenRow ? PdfColors.white : PdfColor.fromInt(0xFFF9FAFB);
-      }
-
-      // Column widths: Fixed width for Branch Name, EXACT SAME flex width (1.0) for all lesson columns & GENEL ORT.
-      final Map<int, pw.TableColumnWidth> columnWidths = {
-        0: const pw.FixedColumnWidth(65),
-      };
-      int colIdx = 1;
-      for (int i = 0; i < columns.length; i++) {
-        columnWidths[colIdx++] = const pw.FlexColumnWidth(1.0);
-      }
-      if (columns.length > 1) {
-        columnWidths[colIdx++] = const pw.FlexColumnWidth(1.0);
-      }
-
-      // Header TableRow
-      final headerRow = pw.TableRow(
-        decoration: const pw.BoxDecoration(color: PdfColors.indigo50),
-        children: [
-          pw.Container(
-            padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-            alignment: pw.Alignment.centerLeft,
-            child: pw.Text(
-              'Şube Adı',
-              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9, color: PdfColors.indigo900),
-            ),
-          ),
-          for (var col in columns)
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-              alignment: pw.Alignment.center,
-              child: pw.Text(
-                col,
-                textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8.5, color: PdfColors.indigo900),
-              ),
-            ),
-          if (columns.length > 1)
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-              alignment: pw.Alignment.center,
-              child: pw.Text(
-                'GENEL ORT.',
-                textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8.5, color: PdfColors.indigo900),
-              ),
-            ),
-        ],
-      );
-
-      List<pw.TableRow> tableRows = [headerRow];
-
-      for (int rIdx = 0; rIdx < sortedBranches.length; rIdx++) {
-        final branchName = sortedBranches[rIdx];
-        final students = branchGroups[branchName]!;
-        final bool isEven = rIdx.isEven;
-
-        List<double> branchSubjAverages = [];
-        List<pw.Widget> cells = [
-          pw.Container(
-            padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6),
-            alignment: pw.Alignment.centerLeft,
-            color: isEven ? PdfColors.white : PdfColor.fromInt(0xFFF9FAFB),
-            child: pw.Text(
-              branchName,
-              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9, color: PdfColors.grey800),
-            ),
-          ),
-        ];
-
-        for (var subj in columns) {
-          double totalVal = 0;
-          int validCount = 0;
-          for (var s in students) {
-            if (s['subjects'] is Map) {
-              final sData = (s['subjects'] as Map)[subj];
-              if (sData is Map) {
-                double val = 0;
-                if (_averageType == 'Net') {
-                  val = num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                } else if (_averageType == 'Başarı Yüzdesi') {
-                  double c = num.tryParse(sData['correct']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                  double w = num.tryParse(sData['wrong']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                  double e = num.tryParse(sData['empty']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                  double totalQ = c + w + e;
-                  if (totalQ > 0) val = (c / totalQ) * 100;
-                } else {
-                  val = num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                }
-                totalVal += val;
-                validCount++;
-              }
-            }
-          }
-          double avg = validCount > 0 ? totalVal / students.length : 0.0;
-          branchSubjAverages.add(avg);
-
-          cells.add(
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 2),
-              alignment: pw.Alignment.center,
-              color: getAvgBgColor(avg, isEven),
-              child: pw.Text(
-                avg.toStringAsFixed(2),
-                style: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 9,
-                  color: getAvgTextColor(avg),
-                ),
-              ),
-            ),
-          );
-        }
-
-        if (columns.length > 1) {
-          double branchGenAvg = 0.0;
-          if (_averageType == 'Başarı Yüzdesi') {
-            double totalSuccessSum = 0;
-            int successCount = 0;
-            for (var s in students) {
-              double c = 0, w = 0, e = 0;
-              if (s['subjects'] is Map) {
-                final sMap = s['subjects'] as Map;
-                for (var subj in columns) {
-                  final sData = sMap[subj];
-                  if (sData is Map) {
-                    c += num.tryParse(sData['correct']?.toString() ?? '0')?.toDouble() ?? 0;
-                    w += num.tryParse(sData['wrong']?.toString() ?? '0')?.toDouble() ?? 0;
-                    e += num.tryParse(sData['empty']?.toString() ?? '0')?.toDouble() ?? 0;
-                  }
-                }
-              }
-              double totalQ = c + w + e;
-              if (totalQ > 0) {
-                totalSuccessSum += (c / totalQ) * 100;
-                successCount++;
-              }
-            }
-            if (successCount > 0) {
-              branchGenAvg = totalSuccessSum / successCount;
-            } else if (branchSubjAverages.isNotEmpty) {
-              branchGenAvg = branchSubjAverages.reduce((a, b) => a + b) / branchSubjAverages.length;
-            }
-          } else if (_averageType == 'Puan') {
-            double totalSum = 0;
-            for (var s in students) {
-              totalSum += num.tryParse(s['totalScore']?.toString() ?? '0')?.toDouble() ?? 0.0;
-            }
-            branchGenAvg = students.isNotEmpty ? totalSum / students.length : 0.0;
-          } else if (_averageType == 'Net') {
-            double totalSum = 0;
-            for (var s in students) {
-              totalSum += num.tryParse(s['totalNet']?.toString() ?? '0')?.toDouble() ?? 0.0;
-            }
-            branchGenAvg = students.isNotEmpty ? totalSum / students.length : 0.0;
-          }
-
-          cells.add(
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 2),
-              alignment: pw.Alignment.center,
-              color: getAvgBgColor(branchGenAvg, isEven),
-              child: pw.Text(
-                branchGenAvg.toStringAsFixed(2),
-                style: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 9.5,
-                  color: _averageType == 'Başarı Yüzdesi'
-                      ? getAvgTextColor(branchGenAvg)
-                      : PdfColors.indigo900,
-                ),
-              ),
-            ),
-          );
-        }
-
-        tableRows.add(pw.TableRow(children: cells));
-      }
-
-      // KURUM GENELİ Summary Row for PDF
-      if (sortedBranches.length > 1) {
-        List<double> schoolSubjAverages = [];
-        List<pw.Widget> summaryCells = [
-          pw.Container(
-            padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 6),
-            alignment: pw.Alignment.centerLeft,
-            color: PdfColors.indigo50,
-            child: pw.Text(
-              'KURUM GENELİ',
-              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9, color: PdfColors.indigo900),
-            ),
-          ),
-        ];
-
-        for (var subj in columns) {
-          double totalVal = 0;
-          int validCount = 0;
-          for (var s in _examResults) {
-            if (s['subjects'] is Map) {
-              final sData = (s['subjects'] as Map)[subj];
-              if (sData is Map) {
-                double val = 0;
-                if (_averageType == 'Net') {
-                  val = num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                } else if (_averageType == 'Başarı Yüzdesi') {
-                  double c = num.tryParse(sData['correct']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                  double w = num.tryParse(sData['wrong']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                  double e = num.tryParse(sData['empty']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                  double totalQ = c + w + e;
-                  if (totalQ > 0) val = (c / totalQ) * 100;
-                } else {
-                  val = num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ?? 0.0;
-                }
-                totalVal += val;
-                validCount++;
-              }
-            }
-          }
-          double sAvg = validCount > 0 ? totalVal / _examResults.length : 0.0;
-          schoolSubjAverages.add(sAvg);
-
-          summaryCells.add(
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-              alignment: pw.Alignment.center,
-              color: _averageType == 'Başarı Yüzdesi' ? getAvgBgColor(sAvg, false) : PdfColors.indigo50,
-              child: pw.Text(
-                sAvg.toStringAsFixed(2),
-                style: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 9,
-                  color: _averageType == 'Başarı Yüzdesi' ? getAvgTextColor(sAvg) : PdfColors.indigo900,
-                ),
-              ),
-            ),
-          );
-        }
-
-        if (columns.length > 1) {
-          double schoolOverallGenAvg = 0.0;
-          if (_averageType == 'Başarı Yüzdesi') {
-            double totalSuccessSum = 0;
-            int successCount = 0;
-            for (var s in _examResults) {
-              double c = 0, w = 0, e = 0;
-              if (s['subjects'] is Map) {
-                final sMap = s['subjects'] as Map;
-                for (var subj in columns) {
-                  final sData = sMap[subj];
-                  if (sData is Map) {
-                    c += num.tryParse(sData['correct']?.toString() ?? '0')?.toDouble() ?? 0;
-                    w += num.tryParse(sData['wrong']?.toString() ?? '0')?.toDouble() ?? 0;
-                    e += num.tryParse(sData['empty']?.toString() ?? '0')?.toDouble() ?? 0;
-                  }
-                }
-              }
-              double totalQ = c + w + e;
-              if (totalQ > 0) {
-                totalSuccessSum += (c / totalQ) * 100;
-                successCount++;
-              }
-            }
-            if (successCount > 0) {
-              schoolOverallGenAvg = totalSuccessSum / successCount;
-            } else if (schoolSubjAverages.isNotEmpty) {
-              schoolOverallGenAvg = schoolSubjAverages.reduce((a, b) => a + b) / schoolSubjAverages.length;
-            }
-          } else if (_averageType == 'Puan') {
-            double totalSum = 0;
-            for (var s in _examResults) {
-              totalSum += num.tryParse(s['totalScore']?.toString() ?? '0')?.toDouble() ?? 0.0;
-            }
-            schoolOverallGenAvg = _examResults.isNotEmpty ? totalSum / _examResults.length : 0.0;
-          } else if (_averageType == 'Net') {
-            double totalSum = 0;
-            for (var s in _examResults) {
-              totalSum += num.tryParse(s['totalNet']?.toString() ?? '0')?.toDouble() ?? 0.0;
-            }
-            schoolOverallGenAvg = _examResults.isNotEmpty ? totalSum / _examResults.length : 0.0;
-          }
-
-          summaryCells.add(
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-              alignment: pw.Alignment.center,
-              color: _averageType == 'Başarı Yüzdesi' ? getAvgBgColor(schoolOverallGenAvg, false) : PdfColors.indigo50,
-              child: pw.Text(
-                schoolOverallGenAvg.toStringAsFixed(2),
-                style: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 9.5,
-                  color: _averageType == 'Başarı Yüzdesi' ? getAvgTextColor(schoolOverallGenAvg) : PdfColors.indigo900,
-                ),
-              ),
-            ),
-          );
-        }
-
-        tableRows.add(pw.TableRow(children: summaryCells));
-      }
-
-      // Legend Widget for Success Rate
-      pw.Widget? legendWidget;
+    // Color coding helpers for "Başarı Yüzdesi"
+    PdfColor getAvgTextColor(double val) {
       if (_averageType == 'Başarı Yüzdesi') {
-        legendWidget = pw.Container(
-          margin: const pw.EdgeInsets.only(bottom: 8),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.end,
-            children: [
-              pw.Container(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: pw.BoxDecoration(
-                  color: PdfColor.fromInt(0xFFE8F5E9),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
-                ),
-                child: pw.Text('>= %85', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFF1B5E20))),
+        if (val >= 85) return PdfColor.fromInt(0xFF1B5E20); // green 900
+        if (val >= 70) return PdfColor.fromInt(0xFF0D47A1); // blue 900
+        if (val >= 50) return PdfColor.fromInt(0xFFE65100); // orange 900
+        return PdfColor.fromInt(0xFFB71C1C); // red 900
+      }
+      return PdfColors.grey900;
+    }
+
+    PdfColor getAvgBgColor(double val, bool isEvenRow) {
+      if (_averageType == 'Başarı Yüzdesi') {
+        if (val >= 85) return PdfColor.fromInt(0xFFE8F5E9); // green 50
+        if (val >= 70) return PdfColor.fromInt(0xFFE3F2FD); // blue 50
+        if (val >= 50) return PdfColor.fromInt(0xFFFFF3E0); // orange 50
+        return PdfColor.fromInt(0xFFFFEBEE); // red 50
+      }
+      return isEvenRow ? PdfColors.white : PdfColor.fromInt(0xFFF9FAFB);
+    }
+
+    // Column widths: Fixed width for Branch Name, EXACT SAME flex width (1.0) for all lesson columns & GENEL ORT.
+    final Map<int, pw.TableColumnWidth> columnWidths = {
+      0: const pw.FixedColumnWidth(65),
+    };
+    int colIdx = 1;
+    for (int i = 0; i < columns.length; i++) {
+      columnWidths[colIdx++] = const pw.FlexColumnWidth(1.0);
+    }
+    if (columns.length > 1) {
+      columnWidths[colIdx++] = const pw.FlexColumnWidth(1.0);
+    }
+
+    // Header TableRow
+    final headerRow = pw.TableRow(
+      decoration: const pw.BoxDecoration(color: PdfColors.indigo50),
+      children: [
+        pw.Container(
+          padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+          alignment: pw.Alignment.centerLeft,
+          child: pw.Text(
+            'Şube Adı',
+            style: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 9,
+              color: PdfColors.indigo900,
+            ),
+          ),
+        ),
+        for (var col in columns)
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+            alignment: pw.Alignment.center,
+            child: pw.Text(
+              col,
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 8.5,
+                color: PdfColors.indigo900,
               ),
-              pw.SizedBox(width: 6),
-              pw.Container(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: pw.BoxDecoration(
-                  color: PdfColor.fromInt(0xFFE3F2FD),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
-                ),
-                child: pw.Text('%70 - %84', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFF0D47A1))),
+            ),
+          ),
+        if (columns.length > 1)
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+            alignment: pw.Alignment.center,
+            child: pw.Text(
+              'GENEL ORT.',
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 8.5,
+                color: PdfColors.indigo900,
               ),
-              pw.SizedBox(width: 6),
-              pw.Container(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: pw.BoxDecoration(
-                  color: PdfColor.fromInt(0xFFFFF3E0),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
-                ),
-                child: pw.Text('%50 - %69', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFFE65100))),
+            ),
+          ),
+      ],
+    );
+
+    List<pw.TableRow> tableRows = [headerRow];
+
+    for (int rIdx = 0; rIdx < sortedBranches.length; rIdx++) {
+      final branchName = sortedBranches[rIdx];
+      final students = branchGroups[branchName]!;
+      final bool isEven = rIdx.isEven;
+
+      List<double> branchSubjAverages = [];
+      List<pw.Widget> cells = [
+        pw.Container(
+          padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6),
+          alignment: pw.Alignment.centerLeft,
+          color: isEven ? PdfColors.white : PdfColor.fromInt(0xFFF9FAFB),
+          child: pw.Text(
+            branchName,
+            style: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 9,
+              color: PdfColors.grey800,
+            ),
+          ),
+        ),
+      ];
+
+      for (var subj in columns) {
+        double totalVal = 0;
+        int validCount = 0;
+        for (var s in students) {
+          if (s['subjects'] is Map) {
+            final sData = (s['subjects'] as Map)[subj];
+            if (sData is Map) {
+              double val = 0;
+              if (_averageType == 'Net') {
+                val =
+                    num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ??
+                    0.0;
+              } else if (_averageType == 'Başarı Yüzdesi') {
+                double c =
+                    num.tryParse(
+                      sData['correct']?.toString() ?? '0',
+                    )?.toDouble() ??
+                    0.0;
+                double w =
+                    num.tryParse(
+                      sData['wrong']?.toString() ?? '0',
+                    )?.toDouble() ??
+                    0.0;
+                double e =
+                    num.tryParse(
+                      sData['empty']?.toString() ?? '0',
+                    )?.toDouble() ??
+                    0.0;
+                double totalQ = c + w + e;
+                if (totalQ > 0) val = (c / totalQ) * 100;
+              } else {
+                val =
+                    num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ??
+                    0.0;
+              }
+              totalVal += val;
+              validCount++;
+            }
+          }
+        }
+        double avg = validCount > 0 ? totalVal / students.length : 0.0;
+        branchSubjAverages.add(avg);
+
+        cells.add(
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 2),
+            alignment: pw.Alignment.center,
+            color: getAvgBgColor(avg, isEven),
+            child: pw.Text(
+              avg.toStringAsFixed(2),
+              style: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 9,
+                color: getAvgTextColor(avg),
               ),
-              pw.SizedBox(width: 6),
-              pw.Container(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: pw.BoxDecoration(
-                  color: PdfColor.fromInt(0xFFFFEBEE),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
-                ),
-                child: pw.Text('< %50', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFFB71C1C))),
-              ),
-            ],
+            ),
           ),
         );
       }
 
-      pdf.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4.landscape,
-          margin: const pw.EdgeInsets.all(24),
-          theme: pw.ThemeData.withFont(base: font, bold: fontBold),
-          header: (context) => pw.Container(
-            margin: const pw.EdgeInsets.only(bottom: 12),
-            padding: const pw.EdgeInsets.only(bottom: 8),
-            decoration: const pw.BoxDecoration(
-              border: pw.Border(bottom: pw.BorderSide(color: PdfColors.indigo, width: 2)),
-            ),
-            child: pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      _selectedExam?.name ?? 'Sınav Sonuçları',
-                      style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900),
-                    ),
-                    pw.SizedBox(height: 2),
-                    pw.Text(
-                      'Ders Ortalamaları Raporu (${_averageType}) - Kapsam: ${_averageScope}',
-                      style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
-                    ),
-                  ],
-                ),
-                pw.Text(
-                  DateFormat('dd.MM.yyyy').format(DateTime.now()),
-                  style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
-                ),
-              ],
+      if (columns.length > 1) {
+        double branchGenAvg = 0.0;
+        if (_averageType == 'Başarı Yüzdesi') {
+          double totalSuccessSum = 0;
+          int successCount = 0;
+          for (var s in students) {
+            double c = 0, w = 0, e = 0;
+            if (s['subjects'] is Map) {
+              final sMap = s['subjects'] as Map;
+              for (var subj in columns) {
+                final sData = sMap[subj];
+                if (sData is Map) {
+                  c +=
+                      num.tryParse(
+                        sData['correct']?.toString() ?? '0',
+                      )?.toDouble() ??
+                      0;
+                  w +=
+                      num.tryParse(
+                        sData['wrong']?.toString() ?? '0',
+                      )?.toDouble() ??
+                      0;
+                  e +=
+                      num.tryParse(
+                        sData['empty']?.toString() ?? '0',
+                      )?.toDouble() ??
+                      0;
+                }
+              }
+            }
+            double totalQ = c + w + e;
+            if (totalQ > 0) {
+              totalSuccessSum += (c / totalQ) * 100;
+              successCount++;
+            }
+          }
+          if (successCount > 0) {
+            branchGenAvg = totalSuccessSum / successCount;
+          } else if (branchSubjAverages.isNotEmpty) {
+            branchGenAvg =
+                branchSubjAverages.reduce((a, b) => a + b) /
+                branchSubjAverages.length;
+          }
+        } else if (_averageType == 'Puan') {
+          double totalSum = 0;
+          for (var s in students) {
+            totalSum +=
+                num.tryParse(s['totalScore']?.toString() ?? '0')?.toDouble() ??
+                0.0;
+          }
+          branchGenAvg = students.isNotEmpty ? totalSum / students.length : 0.0;
+        } else if (_averageType == 'Net') {
+          double totalSum = 0;
+          for (var s in students) {
+            totalSum +=
+                num.tryParse(s['totalNet']?.toString() ?? '0')?.toDouble() ??
+                0.0;
+          }
+          branchGenAvg = students.isNotEmpty ? totalSum / students.length : 0.0;
+        }
+
+        cells.add(
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 2),
+            alignment: pw.Alignment.center,
+            color: getAvgBgColor(branchGenAvg, isEven),
+            child: pw.Text(
+              branchGenAvg.toStringAsFixed(2),
+              style: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 9.5,
+                color: _averageType == 'Başarı Yüzdesi'
+                    ? getAvgTextColor(branchGenAvg)
+                    : PdfColors.indigo900,
+              ),
             ),
           ),
-          build: (context) => [
-            if (legendWidget != null) legendWidget,
-            pw.Table(
-              border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-              columnWidths: columnWidths,
-              children: tableRows,
+        );
+      }
+
+      tableRows.add(pw.TableRow(children: cells));
+    }
+
+    // KURUM GENELİ Summary Row for PDF
+    if (sortedBranches.length > 1) {
+      List<double> schoolSubjAverages = [];
+      List<pw.Widget> summaryCells = [
+        pw.Container(
+          padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+          alignment: pw.Alignment.centerLeft,
+          color: PdfColors.indigo50,
+          child: pw.Text(
+            'KURUM GENELİ',
+            style: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 9,
+              color: PdfColors.indigo900,
+            ),
+          ),
+        ),
+      ];
+
+      for (var subj in columns) {
+        double totalVal = 0;
+        int validCount = 0;
+        for (var s in _examResults) {
+          if (s['subjects'] is Map) {
+            final sData = (s['subjects'] as Map)[subj];
+            if (sData is Map) {
+              double val = 0;
+              if (_averageType == 'Net') {
+                val =
+                    num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ??
+                    0.0;
+              } else if (_averageType == 'Başarı Yüzdesi') {
+                double c =
+                    num.tryParse(
+                      sData['correct']?.toString() ?? '0',
+                    )?.toDouble() ??
+                    0.0;
+                double w =
+                    num.tryParse(
+                      sData['wrong']?.toString() ?? '0',
+                    )?.toDouble() ??
+                    0.0;
+                double e =
+                    num.tryParse(
+                      sData['empty']?.toString() ?? '0',
+                    )?.toDouble() ??
+                    0.0;
+                double totalQ = c + w + e;
+                if (totalQ > 0) val = (c / totalQ) * 100;
+              } else {
+                val =
+                    num.tryParse(sData['net']?.toString() ?? '0')?.toDouble() ??
+                    0.0;
+              }
+              totalVal += val;
+              validCount++;
+            }
+          }
+        }
+        double sAvg = validCount > 0 ? totalVal / _examResults.length : 0.0;
+        schoolSubjAverages.add(sAvg);
+
+        summaryCells.add(
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+            alignment: pw.Alignment.center,
+            color: _averageType == 'Başarı Yüzdesi'
+                ? getAvgBgColor(sAvg, false)
+                : PdfColors.indigo50,
+            child: pw.Text(
+              sAvg.toStringAsFixed(2),
+              style: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 9,
+                color: _averageType == 'Başarı Yüzdesi'
+                    ? getAvgTextColor(sAvg)
+                    : PdfColors.indigo900,
+              ),
+            ),
+          ),
+        );
+      }
+
+      if (columns.length > 1) {
+        double schoolOverallGenAvg = 0.0;
+        if (_averageType == 'Başarı Yüzdesi') {
+          double totalSuccessSum = 0;
+          int successCount = 0;
+          for (var s in _examResults) {
+            double c = 0, w = 0, e = 0;
+            if (s['subjects'] is Map) {
+              final sMap = s['subjects'] as Map;
+              for (var subj in columns) {
+                final sData = sMap[subj];
+                if (sData is Map) {
+                  c +=
+                      num.tryParse(
+                        sData['correct']?.toString() ?? '0',
+                      )?.toDouble() ??
+                      0;
+                  w +=
+                      num.tryParse(
+                        sData['wrong']?.toString() ?? '0',
+                      )?.toDouble() ??
+                      0;
+                  e +=
+                      num.tryParse(
+                        sData['empty']?.toString() ?? '0',
+                      )?.toDouble() ??
+                      0;
+                }
+              }
+            }
+            double totalQ = c + w + e;
+            if (totalQ > 0) {
+              totalSuccessSum += (c / totalQ) * 100;
+              successCount++;
+            }
+          }
+          if (successCount > 0) {
+            schoolOverallGenAvg = totalSuccessSum / successCount;
+          } else if (schoolSubjAverages.isNotEmpty) {
+            schoolOverallGenAvg =
+                schoolSubjAverages.reduce((a, b) => a + b) /
+                schoolSubjAverages.length;
+          }
+        } else if (_averageType == 'Puan') {
+          double totalSum = 0;
+          for (var s in _examResults) {
+            totalSum +=
+                num.tryParse(s['totalScore']?.toString() ?? '0')?.toDouble() ??
+                0.0;
+          }
+          schoolOverallGenAvg = _examResults.isNotEmpty
+              ? totalSum / _examResults.length
+              : 0.0;
+        } else if (_averageType == 'Net') {
+          double totalSum = 0;
+          for (var s in _examResults) {
+            totalSum +=
+                num.tryParse(s['totalNet']?.toString() ?? '0')?.toDouble() ??
+                0.0;
+          }
+          schoolOverallGenAvg = _examResults.isNotEmpty
+              ? totalSum / _examResults.length
+              : 0.0;
+        }
+
+        summaryCells.add(
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+            alignment: pw.Alignment.center,
+            color: _averageType == 'Başarı Yüzdesi'
+                ? getAvgBgColor(schoolOverallGenAvg, false)
+                : PdfColors.indigo50,
+            child: pw.Text(
+              schoolOverallGenAvg.toStringAsFixed(2),
+              style: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 9.5,
+                color: _averageType == 'Başarı Yüzdesi'
+                    ? getAvgTextColor(schoolOverallGenAvg)
+                    : PdfColors.indigo900,
+              ),
+            ),
+          ),
+        );
+      }
+
+      tableRows.add(pw.TableRow(children: summaryCells));
+    }
+
+    // Legend Widget for Success Rate
+    pw.Widget? legendWidget;
+    if (_averageType == 'Başarı Yüzdesi') {
+      legendWidget = pw.Container(
+        margin: const pw.EdgeInsets.only(bottom: 8),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.end,
+          children: [
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(
+                horizontal: 6,
+                vertical: 2,
+              ),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromInt(0xFFE8F5E9),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
+              ),
+              child: pw.Text(
+                '>= %85',
+                style: pw.TextStyle(
+                  fontSize: 8,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColor.fromInt(0xFF1B5E20),
+                ),
+              ),
+            ),
+            pw.SizedBox(width: 6),
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(
+                horizontal: 6,
+                vertical: 2,
+              ),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromInt(0xFFE3F2FD),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
+              ),
+              child: pw.Text(
+                '%70 - %84',
+                style: pw.TextStyle(
+                  fontSize: 8,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColor.fromInt(0xFF0D47A1),
+                ),
+              ),
+            ),
+            pw.SizedBox(width: 6),
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(
+                horizontal: 6,
+                vertical: 2,
+              ),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromInt(0xFFFFF3E0),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
+              ),
+              child: pw.Text(
+                '%50 - %69',
+                style: pw.TextStyle(
+                  fontSize: 8,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColor.fromInt(0xFFE65100),
+                ),
+              ),
+            ),
+            pw.SizedBox(width: 6),
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(
+                horizontal: 6,
+                vertical: 2,
+              ),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromInt(0xFFFFEBEE),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
+              ),
+              child: pw.Text(
+                '< %50',
+                style: pw.TextStyle(
+                  fontSize: 8,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColor.fromInt(0xFFB71C1C),
+                ),
+              ),
             ),
           ],
         ),
       );
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4.landscape,
+        margin: const pw.EdgeInsets.all(24),
+        theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+        header: (context) => pw.Container(
+          margin: const pw.EdgeInsets.only(bottom: 12),
+          padding: const pw.EdgeInsets.only(bottom: 8),
+          decoration: const pw.BoxDecoration(
+            border: pw.Border(
+              bottom: pw.BorderSide(color: PdfColors.indigo, width: 2),
+            ),
+          ),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    _selectedExam?.name ?? 'Sınav Sonuçları',
+                    style: pw.TextStyle(
+                      fontSize: 16,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.indigo900,
+                    ),
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    'Ders Ortalamaları Raporu (${_averageType}) - Kapsam: ${_averageScope}',
+                    style: const pw.TextStyle(
+                      fontSize: 10,
+                      color: PdfColors.grey700,
+                    ),
+                  ),
+                ],
+              ),
+              pw.Text(
+                DateFormat('dd.MM.yyyy').format(DateTime.now()),
+                style: const pw.TextStyle(
+                  fontSize: 10,
+                  color: PdfColors.grey700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        build: (context) => [
+          if (legendWidget != null) legendWidget,
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+            columnWidths: columnWidths,
+            children: tableRows,
+          ),
+        ],
+      ),
+    );
 
     return await pdf.save();
   }
@@ -9210,7 +10094,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
     List<Map<String, dynamic>> data = List.from(_examResults);
     if (_certificateScope == 'Şube' && _certificateSelectedBranchId != 'all') {
-      data = data.where((r) => r['className'] == _certificateSelectedBranchId).toList();
+      data = data
+          .where((r) => r['className'] == _certificateSelectedBranchId)
+          .toList();
     }
 
     bool isGeneral = _certificateSelectedSubject == 'Tümü';
@@ -9223,35 +10109,53 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       } else {
         if (a['subjects'] is Map) {
           final subMap = a['subjects'][_certificateSelectedSubject];
-          if (subMap is Map) valA = double.tryParse(subMap['net']?.toString() ?? '0') ?? 0;
+          if (subMap is Map)
+            valA = double.tryParse(subMap['net']?.toString() ?? '0') ?? 0;
         }
         if (b['subjects'] is Map) {
           final subMap = b['subjects'][_certificateSelectedSubject];
-          if (subMap is Map) valB = double.tryParse(subMap['net']?.toString() ?? '0') ?? 0;
+          if (subMap is Map)
+            valB = double.tryParse(subMap['net']?.toString() ?? '0') ?? 0;
         }
       }
       return valB.compareTo(valA);
     });
 
-    int limit = _certificateSort == 'İlk 10' ? 10 : (_certificateSort == 'İlk 5' ? 5 : 3);
+    int limit = _certificateSort == 'İlk 10'
+        ? 10
+        : (_certificateSort == 'İlk 5' ? 5 : 3);
     final topStudents = data.take(limit).toList();
 
-    List<String> headers = ['Derece', 'Öğrenci No', 'Ad Soyad', 'Sınıf / Şube', 'Alan / Ders', 'Sonuç (Puan/Net)'];
+    List<String> headers = [
+      'Derece',
+      'Öğrenci No',
+      'Ad Soyad',
+      'Sınıf / Şube',
+      'Alan / Ders',
+      'Sonuç (Puan/Net)',
+    ];
     sheet.appendRow(headers.map((h) => TextCellValue(h)).toList());
 
     for (int i = 0; i < topStudents.length; i++) {
       final s = topStudents[i];
-      final sNo = s['studentNumber'] ?? s['studentNo'] ?? s['schoolNumber'] ?? s['number'] ?? '-';
+      final sNo =
+          s['studentNumber'] ??
+          s['studentNo'] ??
+          s['schoolNumber'] ??
+          s['number'] ??
+          '-';
       final sName = s['studentName'] ?? '-';
       final cName = s['className'] ?? '-';
       String valStr = '';
       if (isGeneral) {
-        valStr = (double.tryParse(s['totalScore']?.toString() ?? '0') ?? 0).toStringAsFixed(3);
+        valStr = (double.tryParse(s['totalScore']?.toString() ?? '0') ?? 0)
+            .toStringAsFixed(3);
       } else {
         double net = 0;
         if (s['subjects'] is Map) {
           final subMap = s['subjects'][_certificateSelectedSubject];
-          if (subMap is Map) net = double.tryParse(subMap['net']?.toString() ?? '0') ?? 0;
+          if (subMap is Map)
+            net = double.tryParse(subMap['net']?.toString() ?? '0') ?? 0;
         }
         valStr = net.toStringAsFixed(2);
       }
@@ -9285,7 +10189,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           XFile.fromData(
             Uint8List.fromList(bytes),
             name: fileName,
-            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           ),
         ]);
       }
@@ -9320,10 +10225,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       final bytes = await _buildCertificatePdfBytes();
       final fileName = '${_selectedExam?.name ?? "Sinav"}_Basari_Belgeleri.pdf';
       if (shareOnly) {
-        await Printing.sharePdf(
-          bytes: bytes,
-          filename: fileName,
-        );
+        await Printing.sharePdf(bytes: bytes, filename: fileName);
       } else {
         await Printing.layoutPdf(
           onLayout: (format) async => bytes,
@@ -9333,9 +10235,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     } catch (e) {
       debugPrint('Export Certificate PDF Error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF oluşturulurken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('PDF oluşturulurken hata: $e')));
       }
     } finally {
       if (mounted) {
@@ -9346,211 +10248,262 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
   Future<Uint8List> _buildCertificatePdfBytes() async {
     List<Map<String, dynamic>> data = List.from(_examResults);
-      if (_certificateScope == 'Şube' && _certificateSelectedBranchId != 'all') {
-        data = data.where((r) => r['className'] == _certificateSelectedBranchId).toList();
+    if (_certificateScope == 'Şube' && _certificateSelectedBranchId != 'all') {
+      data = data
+          .where((r) => r['className'] == _certificateSelectedBranchId)
+          .toList();
+    }
+
+    bool isGeneral = _certificateSelectedSubject == 'Tümü';
+    data.sort((a, b) {
+      double valA = 0;
+      double valB = 0;
+      if (isGeneral) {
+        valA = double.tryParse(a['totalScore']?.toString() ?? '0') ?? 0;
+        valB = double.tryParse(b['totalScore']?.toString() ?? '0') ?? 0;
+      } else {
+        if (a['subjects'] is Map) {
+          final subMap = a['subjects'][_certificateSelectedSubject];
+          if (subMap is Map)
+            valA = double.tryParse(subMap['net']?.toString() ?? '0') ?? 0;
+        }
+        if (b['subjects'] is Map) {
+          final subMap = b['subjects'][_certificateSelectedSubject];
+          if (subMap is Map)
+            valB = double.tryParse(subMap['net']?.toString() ?? '0') ?? 0;
+        }
+      }
+      return valB.compareTo(valA);
+    });
+
+    int limit = _certificateSort == 'İlk 10'
+        ? 10
+        : (_certificateSort == 'İlk 5' ? 5 : 3);
+    final topStudents = data.take(limit).toList();
+    if (topStudents.isEmpty) {
+      throw Exception('Yazdırılacak öğrenci bulunamadı.');
+    }
+
+    final font = await _loadPdfFont();
+    final fontBold = await _loadPdfFontBold();
+    final pdf = pw.Document();
+
+    for (int i = 0; i < topStudents.length; i++) {
+      final s = topStudents[i];
+      final rank = i + 1;
+      final sNo =
+          s['studentNumber'] ??
+          s['studentNo'] ??
+          s['schoolNumber'] ??
+          s['number'] ??
+          '';
+      final sName = s['studentName'] ?? 'Öğrenci';
+      final cName = s['className'] ?? '';
+      String valStr = '';
+      String fieldLabel = '';
+      if (isGeneral) {
+        fieldLabel = 'Toplam Puan';
+        valStr = (double.tryParse(s['totalScore']?.toString() ?? '0') ?? 0)
+            .toStringAsFixed(3);
+      } else {
+        fieldLabel = '$_certificateSelectedSubject Net';
+        double net = 0;
+        if (s['subjects'] is Map) {
+          final subMap = s['subjects'][_certificateSelectedSubject];
+          if (subMap is Map)
+            net = double.tryParse(subMap['net']?.toString() ?? '0') ?? 0;
+        }
+        valStr = net.toStringAsFixed(2);
       }
 
-      bool isGeneral = _certificateSelectedSubject == 'Tümü';
-      data.sort((a, b) {
-        double valA = 0;
-        double valB = 0;
-        if (isGeneral) {
-          valA = double.tryParse(a['totalScore']?.toString() ?? '0') ?? 0;
-          valB = double.tryParse(b['totalScore']?.toString() ?? '0') ?? 0;
-        } else {
-          if (a['subjects'] is Map) {
-            final subMap = a['subjects'][_certificateSelectedSubject];
-            if (subMap is Map) valA = double.tryParse(subMap['net']?.toString() ?? '0') ?? 0;
-          }
-          if (b['subjects'] is Map) {
-            final subMap = b['subjects'][_certificateSelectedSubject];
-            if (subMap is Map) valB = double.tryParse(subMap['net']?.toString() ?? '0') ?? 0;
-          }
-        }
-        return valB.compareTo(valA);
-      });
-
-      int limit = _certificateSort == 'İlk 10' ? 10 : (_certificateSort == 'İlk 5' ? 5 : 3);
-      final topStudents = data.take(limit).toList();
-      if (topStudents.isEmpty) {
-        throw Exception('Yazdırılacak öğrenci bulunamadı.');
+      PdfColor medalColor = PdfColors.amber700;
+      String medalName = 'BİRİNCİLİK';
+      if (rank == 1) {
+        medalColor = PdfColors.amber700;
+        medalName = 'BİRİNCİLİK';
+      } else if (rank == 2) {
+        medalColor = PdfColors.blueGrey600;
+        medalName = 'İKİNCİLİK';
+      } else if (rank == 3) {
+        medalColor = PdfColors.brown600;
+        medalName = 'ÜÇÜNCÜLÜK';
       }
 
-      final font = await _loadPdfFont();
-      final fontBold = await _loadPdfFontBold();
-      final pdf = pw.Document();
-
-      for (int i = 0; i < topStudents.length; i++) {
-        final s = topStudents[i];
-        final rank = i + 1;
-        final sNo = s['studentNumber'] ?? s['studentNo'] ?? s['schoolNumber'] ?? s['number'] ?? '';
-        final sName = s['studentName'] ?? 'Öğrenci';
-        final cName = s['className'] ?? '';
-        String valStr = '';
-        String fieldLabel = '';
-        if (isGeneral) {
-          fieldLabel = 'Toplam Puan';
-          valStr = (double.tryParse(s['totalScore']?.toString() ?? '0') ?? 0).toStringAsFixed(3);
-        } else {
-          fieldLabel = '$_certificateSelectedSubject Net';
-          double net = 0;
-          if (s['subjects'] is Map) {
-            final subMap = s['subjects'][_certificateSelectedSubject];
-            if (subMap is Map) net = double.tryParse(subMap['net']?.toString() ?? '0') ?? 0;
-          }
-          valStr = net.toStringAsFixed(2);
-        }
-
-        PdfColor medalColor = PdfColors.amber700;
-        String medalName = 'BİRİNCİLİK';
-        if (rank == 1) {
-          medalColor = PdfColors.amber700;
-          medalName = 'BİRİNCİLİK';
-        } else if (rank == 2) {
-          medalColor = PdfColors.blueGrey600;
-          medalName = 'İKİNCİLİK';
-        } else if (rank == 3) {
-          medalColor = PdfColors.brown600;
-          medalName = 'ÜÇÜNCÜLÜK';
-        }
-
-        pdf.addPage(
-          pw.Page(
-            pageFormat: PdfPageFormat.a4.landscape,
-            margin: const pw.EdgeInsets.all(32),
-            theme: pw.ThemeData.withFont(base: font, bold: fontBold),
-            build: (context) {
-              return pw.Container(
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4.landscape,
+          margin: const pw.EdgeInsets.all(32),
+          theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+          build: (context) {
+            return pw.Container(
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: medalColor, width: 4),
+                borderRadius: pw.BorderRadius.circular(16),
+              ),
+              padding: const pw.EdgeInsets.all(24),
+              child: pw.Container(
                 decoration: pw.BoxDecoration(
-                  border: pw.Border.all(color: medalColor, width: 4),
-                  borderRadius: pw.BorderRadius.circular(16),
+                  border: pw.Border.all(color: PdfColors.grey300, width: 1.5),
+                  borderRadius: pw.BorderRadius.circular(10),
                 ),
-                padding: const pw.EdgeInsets.all(24),
-                child: pw.Container(
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.grey300, width: 1.5),
-                    borderRadius: pw.BorderRadius.circular(10),
-                  ),
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 36, vertical: 24),
-                  child: pw.Column(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      // Header
-                      pw.Column(
-                        children: [
-                          pw.Text(
-                            (_schoolTypeName ?? 'EĞİTİM KURUMLARI').toUpperCase(),
-                            style: pw.TextStyle(
-                              fontSize: 14,
-                              fontWeight: pw.FontWeight.bold,
-                              color: PdfColors.indigo900,
-                              letterSpacing: 1.5,
-                            ),
+                padding: const pw.EdgeInsets.symmetric(
+                  horizontal: 36,
+                  vertical: 24,
+                ),
+                child: pw.Column(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Header
+                    pw.Column(
+                      children: [
+                        pw.Text(
+                          (_schoolTypeName ?? 'EĞİTİM KURUMLARI').toUpperCase(),
+                          style: pw.TextStyle(
+                            fontSize: 14,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.indigo900,
+                            letterSpacing: 1.5,
                           ),
-                          pw.SizedBox(height: 8),
-                          pw.Text(
-                            'BAŞARI BELGESİ',
-                            style: pw.TextStyle(
-                              fontSize: 28,
-                              fontWeight: pw.FontWeight.bold,
-                              color: medalColor,
-                              letterSpacing: 3,
-                            ),
-                          ),
-                          pw.Container(
-                            margin: const pw.EdgeInsets.symmetric(vertical: 8),
-                            height: 2,
-                            width: 140,
+                        ),
+                        pw.SizedBox(height: 8),
+                        pw.Text(
+                          'BAŞARI BELGESİ',
+                          style: pw.TextStyle(
+                            fontSize: 28,
+                            fontWeight: pw.FontWeight.bold,
                             color: medalColor,
+                            letterSpacing: 3,
                           ),
-                          pw.Text(
-                            '$medalName ÖDÜLÜ',
+                        ),
+                        pw.Container(
+                          margin: const pw.EdgeInsets.symmetric(vertical: 8),
+                          height: 2,
+                          width: 140,
+                          color: medalColor,
+                        ),
+                        pw.Text(
+                          '$medalName ÖDÜLÜ',
+                          style: pw.TextStyle(
+                            fontSize: 12,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.grey700,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    // Body
+                    pw.Column(
+                      children: [
+                        pw.Text(
+                          sName,
+                          style: pw.TextStyle(
+                            fontSize: 24,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.black,
+                          ),
+                        ),
+                        pw.SizedBox(height: 6),
+                        pw.Text(
+                          'Sınıfı: $cName   ${sNo.toString().isNotEmpty ? "•   Öğrenci No: $sNo" : ""}',
+                          style: const pw.TextStyle(
+                            fontSize: 12,
+                            color: PdfColors.grey700,
+                          ),
+                        ),
+                        pw.SizedBox(height: 16),
+                        pw.Container(
+                          constraints: const pw.BoxConstraints(maxWidth: 500),
+                          child: pw.Text(
+                            'Kurumumuzda uygulanan "${_selectedExam?.name ?? 'Sınav'}" değerlendirmesinde '
+                            '${isGeneral ? "Genel Değerlendirmede" : "$_certificateSelectedSubject Dersinde"} '
+                            'üstün gayret ve başarı göstererek ${rank}. olmuştur. Öğrencimizi tebrik eder, başarılarının devamını dileriz.',
+                            textAlign: pw.TextAlign.center,
+                            style: const pw.TextStyle(
+                              fontSize: 11,
+                              height: 1.5,
+                              color: PdfColors.grey800,
+                            ),
+                          ),
+                        ),
+                        pw.SizedBox(height: 14),
+                        pw.Container(
+                          padding: const pw.EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 8,
+                          ),
+                          decoration: pw.BoxDecoration(
+                            color: PdfColors.grey100,
+                            borderRadius: pw.BorderRadius.circular(8),
+                            border: pw.Border.all(color: PdfColors.grey300),
+                          ),
+                          child: pw.Text(
+                            '$fieldLabel: $valStr',
                             style: pw.TextStyle(
                               fontSize: 12,
                               fontWeight: pw.FontWeight.bold,
-                              color: PdfColors.grey700,
-                              letterSpacing: 2,
+                              color: PdfColors.indigo900,
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
+                    ),
 
-                      // Body
-                      pw.Column(
-                        children: [
-                          pw.Text(
-                            sName,
-                            style: pw.TextStyle(
-                              fontSize: 24,
-                              fontWeight: pw.FontWeight.bold,
-                              color: PdfColors.black,
+                    // Footer
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Text(
+                              'Tarih: ${DateFormat('dd.MM.yyyy').format(DateTime.now())}',
+                              style: const pw.TextStyle(
+                                fontSize: 10,
+                                color: PdfColors.grey700,
+                              ),
                             ),
-                          ),
-                          pw.SizedBox(height: 6),
-                          pw.Text(
-                            'Sınıfı: $cName   ${sNo.toString().isNotEmpty ? "•   Öğrenci No: $sNo" : ""}',
-                            style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey700),
-                          ),
-                          pw.SizedBox(height: 16),
-                          pw.Container(
-                            constraints: const pw.BoxConstraints(maxWidth: 500),
-                            child: pw.Text(
-                              'Kurumumuzda uygulanan "${_selectedExam?.name ?? 'Sınav'}" değerlendirmesinde '
-                              '${isGeneral ? "Genel Değerlendirmede" : "$_certificateSelectedSubject Dersinde"} '
-                              'üstün gayret ve başarı göstererek ${rank}. olmuştur. Öğrencimizi tebrik eder, başarılarının devamını dileriz.',
-                              textAlign: pw.TextAlign.center,
-                              style: const pw.TextStyle(fontSize: 11, height: 1.5, color: PdfColors.grey800),
+                            pw.Text(
+                              'eduKN Ölçme ve Değerlendirme',
+                              style: const pw.TextStyle(
+                                fontSize: 9,
+                                color: PdfColors.grey500,
+                              ),
                             ),
-                          ),
-                          pw.SizedBox(height: 14),
-                          pw.Container(
-                            padding: const pw.EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                            decoration: pw.BoxDecoration(
-                              color: PdfColors.grey100,
-                              borderRadius: pw.BorderRadius.circular(8),
-                              border: pw.Border.all(color: PdfColors.grey300),
+                          ],
+                        ),
+                        pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.center,
+                          children: [
+                            pw.Text(
+                              'Okul Yönetimi',
+                              style: pw.TextStyle(
+                                fontSize: 11,
+                                fontWeight: pw.FontWeight.bold,
+                                color: PdfColors.grey800,
+                              ),
                             ),
-                            child: pw.Text(
-                              '$fieldLabel: $valStr',
-                              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900),
+                            pw.SizedBox(height: 24),
+                            pw.Text(
+                              'İmza / Mühür',
+                              style: const pw.TextStyle(
+                                fontSize: 9,
+                                color: PdfColors.grey500,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-
-                      // Footer
-                      pw.Row(
-                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                        children: [
-                          pw.Column(
-                            crossAxisAlignment: pw.CrossAxisAlignment.start,
-                            children: [
-                              pw.Text('Tarih: ${DateFormat('dd.MM.yyyy').format(DateTime.now())}',
-                                  style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
-                              pw.Text('eduKN Ölçme ve Değerlendirme',
-                                  style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey500)),
-                            ],
-                          ),
-                          pw.Column(
-                            crossAxisAlignment: pw.CrossAxisAlignment.center,
-                            children: [
-                              pw.Text('Okul Yönetimi',
-                                  style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800)),
-                              pw.SizedBox(height: 24),
-                              pw.Text('İmza / Mühür',
-                                  style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey500)),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              );
-            },
-          ),
-        );
-      }
+              ),
+            );
+          },
+        ),
+      );
+    }
 
     return await pdf.save();
   }
@@ -9571,18 +10524,33 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     } else if (_topicFrequencyScope == 'Şube') {
       relevantData = _topicFrequencySelectedBranchId == 'all'
           ? _examResults
-          : _examResults.where((r) => r['className'] == _topicFrequencySelectedBranchId).toList();
+          : _examResults
+                .where((r) => r['className'] == _topicFrequencySelectedBranchId)
+                .toList();
     } else if (_topicFrequencyScope == 'Öğrenci') {
       relevantData = _topicFrequencySelectedStudentId == 'all'
           ? _examResults
-          : _examResults.where((r) => _getStudentId(r) == _topicFrequencySelectedStudentId).toList();
+          : _examResults
+                .where(
+                  (r) => _getStudentId(r) == _topicFrequencySelectedStudentId,
+                )
+                .toList();
     }
 
     final subjects = _topicFrequencySelectedSubjects.isEmpty
         ? _availableSubjects
         : _topicFrequencySelectedSubjects;
 
-    List<String> headers = ['Ders', 'Kazanım', 'Soru Sayısı', 'Toplam Soru', 'Doğru', 'Yanlış', 'Boş', 'Başarı %'];
+    List<String> headers = [
+      'Ders',
+      'Kazanım',
+      'Soru Sayısı',
+      'Toplam Soru',
+      'Doğru',
+      'Yanlış',
+      'Boş',
+      'Başarı %',
+    ];
     sheet.appendRow(headers.map((h) => TextCellValue(h)).toList());
 
     for (var subj in subjects) {
@@ -9598,7 +10566,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         double correct = stats[topic]?['correct'] ?? 0;
         double wrong = stats[topic]?['wrong'] ?? 0;
         double empty = stats[topic]?['empty'] ?? 0;
-        double successRate = totalQCount > 0 ? (correct / totalQCount) * 100 : 0;
+        double successRate = totalQCount > 0
+            ? (correct / totalQCount) * 100
+            : 0;
 
         sheet.appendRow([
           TextCellValue(subj),
@@ -9624,7 +10594,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
   Future<void> _exportTopicFrequencyExcel({bool shareOnly = false}) async {
     final excel = _buildTopicFrequencyExcel();
-    final fileName = '${_selectedExam?.name ?? "Sinav"}_Kazanim_Frekanslari.xlsx';
+    final fileName =
+        '${_selectedExam?.name ?? "Sinav"}_Kazanim_Frekanslari.xlsx';
     if (shareOnly) {
       final bytes = excel.encode();
       if (bytes != null) {
@@ -9632,7 +10603,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           XFile.fromData(
             Uint8List.fromList(bytes),
             name: fileName,
-            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           ),
         ]);
       }
@@ -9648,11 +10620,17 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     } else if (_topicFrequencyScope == 'Şube') {
       relevantData = _topicFrequencySelectedBranchId == 'all'
           ? _examResults
-          : _examResults.where((r) => r['className'] == _topicFrequencySelectedBranchId).toList();
+          : _examResults
+                .where((r) => r['className'] == _topicFrequencySelectedBranchId)
+                .toList();
     } else if (_topicFrequencyScope == 'Öğrenci') {
       relevantData = _topicFrequencySelectedStudentId == 'all'
           ? _examResults
-          : _examResults.where((r) => _getStudentId(r) == _topicFrequencySelectedStudentId).toList();
+          : _examResults
+                .where(
+                  (r) => _getStudentId(r) == _topicFrequencySelectedStudentId,
+                )
+                .toList();
     }
 
     final subjects = _topicFrequencySelectedSubjects.isEmpty
@@ -9679,7 +10657,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         double correct = stats[topic]?['correct'] ?? 0;
         double wrong = stats[topic]?['wrong'] ?? 0;
         double empty = stats[topic]?['empty'] ?? 0;
-        double successRate = totalQCount > 0 ? (correct / totalQCount) * 100 : 0;
+        double successRate = totalQCount > 0
+            ? (correct / totalQCount) * 100
+            : 0;
 
         tableData.add([
           topic,
@@ -9700,7 +10680,11 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
             decoration: const pw.BoxDecoration(color: PdfColors.indigo50),
             child: pw.Text(
               'DERS: $subj',
-              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900),
+              style: pw.TextStyle(
+                fontSize: 11,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.indigo900,
+              ),
             ),
           ),
         );
@@ -9710,7 +10694,11 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
             headers: ['Kazanım', 'Soru', 'Toplam', 'D', 'Y', 'B', 'Başarı %'],
             data: tableData,
             border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9, color: PdfColors.indigo900),
+            headerStyle: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 9,
+              color: PdfColors.indigo900,
+            ),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.grey100),
             cellStyle: const pw.TextStyle(fontSize: 8),
             cellAlignment: pw.Alignment.center,
@@ -9738,7 +10726,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           margin: const pw.EdgeInsets.only(bottom: 10),
           padding: const pw.EdgeInsets.only(bottom: 6),
           decoration: const pw.BoxDecoration(
-            border: pw.Border(bottom: pw.BorderSide(color: PdfColors.indigo, width: 2)),
+            border: pw.Border(
+              bottom: pw.BorderSide(color: PdfColors.indigo, width: 2),
+            ),
           ),
           child: pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -9748,18 +10738,28 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 children: [
                   pw.Text(
                     _selectedExam?.name ?? 'Sınav Sonuçları',
-                    style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900),
+                    style: pw.TextStyle(
+                      fontSize: 16,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.indigo900,
+                    ),
                   ),
                   pw.SizedBox(height: 2),
                   pw.Text(
                     'Kazanım Analizi ve Frekans Raporu - Kapsam: ${_topicFrequencyScope}',
-                    style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+                    style: const pw.TextStyle(
+                      fontSize: 10,
+                      color: PdfColors.grey700,
+                    ),
                   ),
                 ],
               ),
               pw.Text(
                 DateFormat('dd.MM.yyyy').format(DateTime.now()),
-                style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+                style: const pw.TextStyle(
+                  fontSize: 10,
+                  color: PdfColors.grey700,
+                ),
               ),
             ],
           ),
@@ -9795,13 +10795,11 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     try {
       await Future.delayed(const Duration(milliseconds: 100));
       final bytes = await _buildTopicFrequencyPdfBytes();
-      final filename = '${_selectedExam?.name ?? "Sinav"}_Kazanim_Frekanslari.pdf';
+      final filename =
+          '${_selectedExam?.name ?? "Sinav"}_Kazanim_Frekanslari.pdf';
 
       if (shareOnly) {
-        await Printing.sharePdf(
-          bytes: bytes,
-          filename: filename,
-        );
+        await Printing.sharePdf(bytes: bytes, filename: filename);
       } else {
         await Printing.layoutPdf(
           onLayout: (format) async => bytes,
@@ -9811,9 +10809,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     } catch (e) {
       debugPrint('Export Topic Frequency PDF Error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF oluşturulurken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('PDF oluşturulurken hata: $e')));
       }
     } finally {
       if (mounted) {
@@ -9838,11 +10836,20 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     } else if (_questionFrequencyScope == 'Şube') {
       relevantData = _questionFrequencySelectedBranchId == 'all'
           ? _examResults
-          : _examResults.where((r) => r['className'] == _questionFrequencySelectedBranchId).toList();
+          : _examResults
+                .where(
+                  (r) => r['className'] == _questionFrequencySelectedBranchId,
+                )
+                .toList();
     } else if (_questionFrequencyScope == 'Öğrenci') {
       relevantData = _questionFrequencySelectedStudentId == 'all'
           ? _examResults
-          : _examResults.where((r) => _getStudentId(r) == _questionFrequencySelectedStudentId).toList();
+          : _examResults
+                .where(
+                  (r) =>
+                      _getStudentId(r) == _questionFrequencySelectedStudentId,
+                )
+                .toList();
     }
 
     List<String> headers = [
@@ -9868,14 +10875,28 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           TextCellValue(q['qNo']?.toString() ?? '-'),
           TextCellValue(q['topic']?.toString() ?? '-'),
           TextCellValue(q['key']?.toString() ?? '-'),
-          DoubleCellValue(double.parse((q['A'] as double? ?? 0).toStringAsFixed(1))),
-          DoubleCellValue(double.parse((q['B'] as double? ?? 0).toStringAsFixed(1))),
-          DoubleCellValue(double.parse((q['C'] as double? ?? 0).toStringAsFixed(1))),
-          DoubleCellValue(double.parse((q['D'] as double? ?? 0).toStringAsFixed(1))),
+          DoubleCellValue(
+            double.parse((q['A'] as double? ?? 0).toStringAsFixed(1)),
+          ),
+          DoubleCellValue(
+            double.parse((q['B'] as double? ?? 0).toStringAsFixed(1)),
+          ),
+          DoubleCellValue(
+            double.parse((q['C'] as double? ?? 0).toStringAsFixed(1)),
+          ),
+          DoubleCellValue(
+            double.parse((q['D'] as double? ?? 0).toStringAsFixed(1)),
+          ),
           if (_hasEOption)
-            DoubleCellValue(double.parse((q['E'] as double? ?? 0).toStringAsFixed(1))),
-          DoubleCellValue(double.parse((q['Empty'] as double? ?? 0).toStringAsFixed(1))),
-          DoubleCellValue(double.parse((q['Success'] as double? ?? 0).toStringAsFixed(1))),
+            DoubleCellValue(
+              double.parse((q['E'] as double? ?? 0).toStringAsFixed(1)),
+            ),
+          DoubleCellValue(
+            double.parse((q['Empty'] as double? ?? 0).toStringAsFixed(1)),
+          ),
+          DoubleCellValue(
+            double.parse((q['Success'] as double? ?? 0).toStringAsFixed(1)),
+          ),
         ]);
       }
     }
@@ -9899,7 +10920,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           XFile.fromData(
             Uint8List.fromList(bytes),
             name: fileName,
-            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           ),
         ]);
       }
@@ -9915,11 +10937,20 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     } else if (_questionFrequencyScope == 'Şube') {
       relevantData = _questionFrequencySelectedBranchId == 'all'
           ? _examResults
-          : _examResults.where((r) => r['className'] == _questionFrequencySelectedBranchId).toList();
+          : _examResults
+                .where(
+                  (r) => r['className'] == _questionFrequencySelectedBranchId,
+                )
+                .toList();
     } else if (_questionFrequencyScope == 'Öğrenci') {
       relevantData = _questionFrequencySelectedStudentId == 'all'
           ? _examResults
-          : _examResults.where((r) => _getStudentId(r) == _questionFrequencySelectedStudentId).toList();
+          : _examResults
+                .where(
+                  (r) =>
+                      _getStudentId(r) == _questionFrequencySelectedStudentId,
+                )
+                .toList();
     }
 
     final font = await _loadPdfFont();
@@ -9927,35 +10958,44 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     final pdf = pw.Document();
 
     pw.Widget buildPageHeader() => pw.Container(
-          margin: const pw.EdgeInsets.only(bottom: 10),
-          padding: const pw.EdgeInsets.only(bottom: 6),
-          decoration: const pw.BoxDecoration(
-            border: pw.Border(bottom: pw.BorderSide(color: PdfColors.indigo, width: 2)),
-          ),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      margin: const pw.EdgeInsets.only(bottom: 10),
+      padding: const pw.EdgeInsets.only(bottom: 6),
+      decoration: const pw.BoxDecoration(
+        border: pw.Border(
+          bottom: pw.BorderSide(color: PdfColors.indigo, width: 2),
+        ),
+      ),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    _selectedExam?.name ?? 'Sınav Sonuçları',
-                    style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900),
-                  ),
-                  pw.SizedBox(height: 2),
-                  pw.Text(
-                    'Soru Frekansları ve Madde Analizi Raporu - Kapsam: ${_questionFrequencyScope}',
-                    style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
-                  ),
-                ],
-              ),
               pw.Text(
-                DateFormat('dd.MM.yyyy').format(DateTime.now()),
-                style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+                _selectedExam?.name ?? 'Sınav Sonuçları',
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.indigo900,
+                ),
+              ),
+              pw.SizedBox(height: 2),
+              pw.Text(
+                'Soru Frekansları ve Madde Analizi Raporu - Kapsam: ${_questionFrequencyScope}',
+                style: const pw.TextStyle(
+                  fontSize: 10,
+                  color: PdfColors.grey700,
+                ),
               ),
             ],
           ),
-        );
+          pw.Text(
+            DateFormat('dd.MM.yyyy').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+          ),
+        ],
+      ),
+    );
 
     const double pageMargin = 24;
     bool anyPage = false;
@@ -9982,7 +11022,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       }
 
       // Çok soruluysa dikey sayfa (daha fazla satır sığar), değilse yatay
-      final pageFormat = stats.length > 22 ? PdfPageFormat.a4 : PdfPageFormat.a4.landscape;
+      final pageFormat = stats.length > 22
+          ? PdfPageFormat.a4
+          : PdfPageFormat.a4.landscape;
       final contentWidth = pageFormat.width - pageMargin * 2;
 
       final table = pw.TableHelper.fromTextArray(
@@ -10000,7 +11042,11 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         ],
         data: tableData,
         border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-        headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8.5, color: PdfColors.indigo900),
+        headerStyle: pw.TextStyle(
+          fontWeight: pw.FontWeight.bold,
+          fontSize: 8.5,
+          color: PdfColors.indigo900,
+        ),
         headerDecoration: const pw.BoxDecoration(color: PdfColors.grey100),
         cellStyle: const pw.TextStyle(fontSize: 8),
         cellAlignment: pw.Alignment.center,
@@ -10043,11 +11089,18 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
               buildPageHeader(),
               pw.Container(
                 margin: const pw.EdgeInsets.only(bottom: 6),
-                padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const pw.EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
+                ),
                 decoration: const pw.BoxDecoration(color: PdfColors.indigo50),
                 child: pw.Text(
                   'DERS: $subj',
-                  style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900),
+                  style: pw.TextStyle(
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.indigo900,
+                  ),
                 ),
               ),
               // Tablo sayfaya sığmıyorsa tek sayfaya sığacak kadar küçültülür
@@ -10111,10 +11164,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       final filename = '${_selectedExam?.name ?? "Sinav"}_Soru_Frekanslari.pdf';
 
       if (shareOnly) {
-        await Printing.sharePdf(
-          bytes: bytes,
-          filename: filename,
-        );
+        await Printing.sharePdf(bytes: bytes, filename: filename);
       } else {
         await Printing.layoutPdf(
           onLayout: (format) async => bytes,
@@ -10124,9 +11174,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     } catch (e) {
       debugPrint('Export Question Frequency PDF Error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF oluşturulurken hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('PDF oluşturulurken hata: $e')));
       }
     } finally {
       if (mounted) {
@@ -10163,7 +11213,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 IconButton(
                   icon: const Icon(Icons.fullscreen, color: Colors.indigo),
                   tooltip: 'Tam Ekran',
-                  onPressed: () => _openFullScreenTopicAnalysis(subject, students),
+                  onPressed: () =>
+                      _openFullScreenTopicAnalysis(subject, students),
                 ),
               ],
             ),
@@ -10177,6 +11228,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                       isMobile: isMobile,
                     ),
                   ),
+            const SizedBox(height: 10),
+            _buildHoveredOutcomeFooter(),
           ],
         ),
       ),
@@ -10262,7 +11315,13 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
               allRows.addAll(subjRows);
             }
           }
-          return _buildDataTable(context, allRows, isMobile, isFullScreen, minWidth: constraints.maxWidth);
+          return _buildDataTable(
+            context,
+            allRows,
+            isMobile,
+            isFullScreen,
+            minWidth: constraints.maxWidth,
+          );
         }
 
         // --- SINGLE SUBJECT LOGIC ---
@@ -10282,7 +11341,13 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           showIndices: true, // Enable Question Numbers
         );
 
-        return _buildDataTable(context, dynamicRows, isMobile, isFullScreen, minWidth: constraints.maxWidth);
+        return _buildDataTable(
+          context,
+          dynamicRows,
+          isMobile,
+          isFullScreen,
+          minWidth: constraints.maxWidth,
+        );
       },
     );
   }
@@ -10390,19 +11455,43 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                           title: 'Başarı Belgeleri Raporu',
                           reportType: 'Başarı Belgesi',
                           getPdfBytes: () => _buildCertificatePdfBytes(),
-                          pdfFileName: 'basari_belgeleri_${_selectedExam?.name ?? "sinav"}.pdf',
+                          pdfFileName:
+                              'basari_belgeleri_${_selectedExam?.name ?? "sinav"}.pdf',
                           getExcelBytes: () => _buildCertificateExcelBytes(),
-                          excelFileName: 'basari_belgeleri_${_selectedExam?.name ?? "sinav"}.xlsx',
-                          onSharePdf: () => _exportCertificatePdf(shareOnly: true),
-                          onShareExcel: () => _exportCertificateExcel(shareOnly: false),
+                          excelFileName:
+                              'basari_belgeleri_${_selectedExam?.name ?? "sinav"}.xlsx',
+                          onSharePdf: () =>
+                              _exportCertificatePdf(shareOnly: true),
+                          onShareExcel: () =>
+                              _exportCertificateExcel(shareOnly: false),
                         );
                       }
                     },
                     items: [
-                      _buildPopupItem('yazdir', Icons.print_rounded, Colors.blue.shade700, 'Yazdır'),
-                      _buildPopupItem('pdf', Icons.picture_as_pdf_rounded, Colors.red.shade700, 'PDF İndir'),
-                      _buildPopupItem('excel', Icons.table_chart_rounded, Colors.green.shade700, 'Excel İndir'),
-                      _buildPopupItem('paylas', Icons.share_rounded, Colors.indigo.shade700, 'Paylaş'),
+                      _buildPopupItem(
+                        'yazdir',
+                        Icons.print_rounded,
+                        Colors.blue.shade700,
+                        'Yazdır',
+                      ),
+                      _buildPopupItem(
+                        'pdf',
+                        Icons.picture_as_pdf_rounded,
+                        Colors.red.shade700,
+                        'PDF İndir',
+                      ),
+                      _buildPopupItem(
+                        'excel',
+                        Icons.table_chart_rounded,
+                        Colors.green.shade700,
+                        'Excel İndir',
+                      ),
+                      _buildPopupItem(
+                        'paylas',
+                        Icons.share_rounded,
+                        Colors.indigo.shade700,
+                        'Paylaş',
+                      ),
                     ],
                   ),
                 ],
@@ -10508,7 +11597,9 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     });
 
     // Take top students according to selected limit
-    int limit = _certificateSort == 'İlk 10' ? 10 : (_certificateSort == 'İlk 5' ? 5 : 3);
+    int limit = _certificateSort == 'İlk 10'
+        ? 10
+        : (_certificateSort == 'İlk 5' ? 5 : 3);
     final topStudents = data.take(limit).toList();
 
     if (topStudents.isEmpty) return Center(child: Text('Veri bulunamadı.'));
@@ -11030,19 +12121,44 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                           title: 'Soru Frekansları ve Madde Analizi',
                           reportType: 'Soru Frekansları',
                           getPdfBytes: () => _buildQuestionFrequencyPdfBytes(),
-                          pdfFileName: 'soru_frekanslari_${_selectedExam?.name ?? "sinav"}.pdf',
-                          getExcelBytes: () => _buildQuestionFrequencyExcelBytes(),
-                          excelFileName: 'soru_frekanslari_${_selectedExam?.name ?? "sinav"}.xlsx',
-                          onSharePdf: () => _exportQuestionFrequencyPdf(shareOnly: true),
-                          onShareExcel: () => _exportQuestionFrequencyExcel(shareOnly: false),
+                          pdfFileName:
+                              'soru_frekanslari_${_selectedExam?.name ?? "sinav"}.pdf',
+                          getExcelBytes: () =>
+                              _buildQuestionFrequencyExcelBytes(),
+                          excelFileName:
+                              'soru_frekanslari_${_selectedExam?.name ?? "sinav"}.xlsx',
+                          onSharePdf: () =>
+                              _exportQuestionFrequencyPdf(shareOnly: true),
+                          onShareExcel: () =>
+                              _exportQuestionFrequencyExcel(shareOnly: false),
                         );
                       }
                     },
                     items: [
-                      _buildPopupItem('yazdir', Icons.print_rounded, Colors.blue.shade700, 'Yazdır'),
-                      _buildPopupItem('pdf', Icons.picture_as_pdf_rounded, Colors.red.shade700, 'PDF İndir'),
-                      _buildPopupItem('excel', Icons.table_chart_rounded, Colors.green.shade700, 'Excel İndir'),
-                      _buildPopupItem('paylas', Icons.share_rounded, Colors.indigo.shade700, 'Paylaş'),
+                      _buildPopupItem(
+                        'yazdir',
+                        Icons.print_rounded,
+                        Colors.blue.shade700,
+                        'Yazdır',
+                      ),
+                      _buildPopupItem(
+                        'pdf',
+                        Icons.picture_as_pdf_rounded,
+                        Colors.red.shade700,
+                        'PDF İndir',
+                      ),
+                      _buildPopupItem(
+                        'excel',
+                        Icons.table_chart_rounded,
+                        Colors.green.shade700,
+                        'Excel İndir',
+                      ),
+                      _buildPopupItem(
+                        'paylas',
+                        Icons.share_rounded,
+                        Colors.indigo.shade700,
+                        'Paylaş',
+                      ),
                     ],
                   ),
                 ],
@@ -11189,10 +12305,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                   subject,
                   relevantData,
                   isMobile: true,
-                  onFullScreen: () => _openFullScreenQuestionFrequency(
-                    subject,
-                    relevantData,
-                  ),
+                  onFullScreen: () =>
+                      _openFullScreenQuestionFrequency(subject, relevantData),
                 ),
               );
             }).toList(),
@@ -11249,10 +12363,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                 subject,
                 relevantData,
                 isMobile: true,
-                onFullScreen: () => _openFullScreenQuestionFrequency(
-                  subject,
-                  relevantData,
-                ),
+                onFullScreen: () =>
+                    _openFullScreenQuestionFrequency(subject, relevantData),
               ),
             ],
           ),
@@ -11285,7 +12397,6 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       }
     }
   }
-
 
   Widget _buildQuestionFrequencyTable(
     String subject,
@@ -11336,6 +12447,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                     students,
                     isMobile: isMobile,
                   ),
+            const SizedBox(height: 10),
+            _buildHoveredOutcomeFooter(),
           ],
         ),
       ),
@@ -11672,17 +12785,49 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         return FontWeight.normal;
       }
 
+      final String fullTopicText = (row['topic'] ?? '').toString().trim();
+      final double qSuccess = (row['Success'] as double?) ?? 0.0;
       return DataRow(
         cells: [
           DataCell(Text(row['qNo'].toString(), style: TextStyle(fontSize: 11))),
           DataCell(
-            Container(
-              width: topicW,
-              child: Text(
-                row['topic'] ?? '',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 11),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              onEnter: (_) {
+                if (fullTopicText.isNotEmpty) {
+                  _hoveredOutcomeInfo.value = (
+                    badge: 'Soru ${row['qNo']}',
+                    text: fullTopicText,
+                    stats:
+                        'Cevap: $key • Başarı: %${qSuccess.toStringAsFixed(0)}',
+                  );
+                }
+              },
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  if (fullTopicText.isNotEmpty) {
+                    _hoveredOutcomeInfo.value = (
+                      badge: 'Soru ${row['qNo']}',
+                      text: fullTopicText,
+                      stats:
+                          'Cevap: $key • Başarı: %${qSuccess.toStringAsFixed(0)}',
+                    );
+                  }
+                },
+                child: Container(
+                  width: topicW,
+                  alignment: Alignment.centerLeft,
+                  child: _CursorTooltip(
+                    message: fullTopicText.isEmpty ? '-' : fullTopicText,
+                    child: Text(
+                      fullTopicText,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -11874,6 +13019,112 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
         scrollDirection: Axis.vertical,
         child: table,
       ),
+    );
+  }
+
+  /// Kısaltılmış kazanım metinlerinin üzerine fare ile gelindiğinde altta tam metni gösteren şerit
+  Widget _buildHoveredOutcomeFooter() {
+    return ValueListenableBuilder<({String badge, String text, String stats})?>(
+      valueListenable: _hoveredOutcomeInfo,
+      builder: (context, info, _) {
+        if (info == null || info.text.trim().isEmpty) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.mouse_outlined,
+                  size: 16,
+                  color: Colors.indigo.shade400,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Kısaltılmış kazanım metninin tamamını burada okumak için fareyle tablodaki kazanımın üzerine gelin.',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Colors.blueGrey.shade600,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEEF2FF),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.indigo.shade200),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade700,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      info.badge,
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'KAZANIM TAM METNİ',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.indigo.shade900,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                  Text(
+                    '•  ${info.stats}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.indigo.shade700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 5),
+              SelectableText(
+                info.text,
+                style: const TextStyle(
+                  fontSize: 12.8,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF0F172A),
+                  height: 1.38,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 } // End Class

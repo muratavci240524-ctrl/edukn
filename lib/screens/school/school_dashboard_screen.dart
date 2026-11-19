@@ -10,6 +10,7 @@ import 'dart:html' as html show window;
 import 'profile_settings_screen.dart';
 import '../../services/term_service.dart';
 import '../../services/user_permission_service.dart';
+import '../../services/school_module_guard.dart';
 import 'terms_screen.dart';
 import 'assessment/assessment_dashboard_screen.dart';
 import 'assessment/assessment_reports_screen.dart';
@@ -46,8 +47,9 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
   void _listenForIncomingCalls() {
     CallService().registerFcmToken();
     _incomingCallSubscription?.cancel();
-    _incomingCallSubscription =
-        CallService().listenForIncomingCalls().listen((incomingCalls) {
+    _incomingCallSubscription = CallService().listenForIncomingCalls().listen((
+      incomingCalls,
+    ) {
       if (incomingCalls.isNotEmpty && mounted) {
         final activeCall = incomingCalls.first;
         CallScreenDialog.showCall(
@@ -110,7 +112,10 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
       // Kullanıcı verilerini yükle (institutionId buradan gelecek)
       final profileData = await UserPermissionService.loadUserData();
       final email = user.email!;
-      final institutionId = await UserPermissionService.resolveInstitutionId(email, userData: profileData);
+      final institutionId = await UserPermissionService.resolveInstitutionId(
+        email,
+        userData: profileData,
+      );
       var instIdForQueries = institutionId; // fallback sonrası güncellenebilir
 
       // Firestore'dan okul verilerini al (kurum ID ile)
@@ -232,7 +237,9 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
           debugPrint('🎭 Impersonation modu aktif: $impersonatedEmail');
 
           if (impersonatedEmail != null) {
-            debugPrint('🔍 Firestore\'dan kullanıcı aranıyor: $impersonatedEmail');
+            debugPrint(
+              '🔍 Firestore\'dan kullanıcı aranıyor: $impersonatedEmail',
+            );
             final impUserQuery = await FirebaseFirestore.instance
                 .collection('users')
                 .where('email', isEqualTo: impersonatedEmail)
@@ -272,7 +279,9 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
         }
 
         if (currentUserData != null) {
-          debugPrint('📋 Modül yetkileri: ${currentUserData['modulePermissions']}');
+          debugPrint(
+            '📋 Modül yetkileri: ${currentUserData['modulePermissions']}',
+          );
           debugPrint(
             '🏫 Okul türü yetkileri: ${currentUserData['schoolTypePermissions']}',
           );
@@ -283,10 +292,15 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
 
         // Rol şablonunu yükle
         if (currentUserData != null) {
-          final userRole = (currentUserData['role'] ?? 'ogretmen').toString().toLowerCase();
+          final userRole = (currentUserData['role'] ?? 'ogretmen')
+              .toString()
+              .toLowerCase();
           final instId = (data['institutionId'] ?? '').toString();
           if (instId.isNotEmpty) {
-            await UserPermissionService.loadAndCacheRoleTemplate(instId, userRole);
+            await UserPermissionService.loadAndCacheRoleTemplate(
+              instId,
+              userRole,
+            );
           }
         }
 
@@ -306,12 +320,13 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
       }
     } catch (e) {
       debugPrint('Hata: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Okul verileri yüklenemedi: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Okul verileri yüklenemedi: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       setState(() => isLoading = false);
     }
   }
@@ -319,16 +334,10 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
   // Modül kontrolü - Kullanıcının bu modüle erişimi var mı?
   bool _hasModuleAccess(String moduleKey) {
     if (schoolData == null) return false;
-    
-    final role = userData?['role']?.toString().toLowerCase() ?? '';
-    final isTopAdmin = role == 'admin' || role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur';
-    
-    // Genel müdür / admin dışındakiler için activeModules kontrolü
-    if (!isTopAdmin) {
-      final activeModules = schoolData!['activeModules'] as List<dynamic>? ?? [];
-      if (activeModules.isNotEmpty && !activeModules.contains(moduleKey)) {
-        return false;
-      }
+
+    // Genel Merkez (Süper Admin) lisans bazlı modül kontrolü — tüm roller için geçerli
+    if (!SchoolModuleGuard.isModuleEnabled(schoolData, moduleKey)) {
+      return false;
     }
 
     // Yetki kontrolü (kişisel + rol şablonu fallback)
@@ -574,19 +583,20 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
     if (confirm != true) return;
 
     // Loading dialog göster
-    if (mounted) showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        content: Row(
-          children: [
-            EduKnLoader(size: 40),
-            SizedBox(width: 16),
-            Text('Veriler aktarılıyor...'),
-          ],
+    if (mounted)
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Row(
+            children: [
+              EduKnLoader(size: 40),
+              SizedBox(width: 16),
+              Text('Veriler aktarılıyor...'),
+            ],
+          ),
         ),
-      ),
-    );
+      );
 
     try {
       final count = await TermService().migrateDataToActiveTerm();
@@ -607,9 +617,10 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
       }
     } catch (e) {
       Navigator.pop(context); // Loading dialog kapat
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
     }
   }
 
@@ -646,19 +657,20 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
     if (confirm != true) return;
 
     // Loading dialog
-    if (mounted) showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        content: Row(
-          children: [
-            EduKnLoader(size: 40),
-            SizedBox(width: 16),
-            Text('Veriler siliniyor...'),
-          ],
+    if (mounted)
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Row(
+            children: [
+              EduKnLoader(size: 40),
+              SizedBox(width: 16),
+              Text('Veriler siliniyor...'),
+            ],
+          ),
         ),
-      ),
-    );
+      );
 
     try {
       final count = await TermService().deleteAllData();
@@ -678,9 +690,10 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
       }
     } catch (e) {
       Navigator.pop(context); // Loading dialog kapat
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
     }
   }
 
@@ -895,14 +908,16 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (ctx) => const ProfileSettingsScreen(isSchoolSettings: false),
+                    builder: (ctx) =>
+                        const ProfileSettingsScreen(isSchoolSettings: false),
                   ),
                 );
               } else if (value == 'school-settings') {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (ctx) => const ProfileSettingsScreen(isSchoolSettings: true),
+                    builder: (ctx) =>
+                        const ProfileSettingsScreen(isSchoolSettings: true),
                   ),
                 );
               } else if (value == 'add-user') {
@@ -977,7 +992,11 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
               // Kullanıcı Ekle (Admin her zaman görebilir)
               if ((userData == null) ||
                   (_hasModuleAccess('sistem_ayarlari') &&
-                      UserPermissionService.canEditSubModule('sistem_ayarlari', 'kullanici_yonetimi', userData)))
+                      UserPermissionService.canEditSubModule(
+                        'sistem_ayarlari',
+                        'kullanici_yonetimi',
+                        userData,
+                      )))
                 PopupMenuItem(
                   value: 'add-user',
                   child: Row(
@@ -993,7 +1012,11 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
                   ),
                 ),
               if (_hasModuleAccess('sistem_ayarlari') &&
-                  UserPermissionService.canEditSubModule('sistem_ayarlari', 'kullanici_yonetimi', userData))
+                  UserPermissionService.canEditSubModule(
+                    'sistem_ayarlari',
+                    'kullanici_yonetimi',
+                    userData,
+                  ))
                 PopupMenuDivider(),
               PopupMenuItem(
                 value: 'logout',
@@ -1413,8 +1436,7 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
               title: 'Ön Kayıt / Görüşme',
               subtitle: 'Aday görüşmeleri ve fiyat teklifleri',
               color: Colors.orange,
-              onTap: () =>
-                  Navigator.pushNamed(context, '/pre-registration'),
+              onTap: () => Navigator.pushNamed(context, '/pre-registration'),
             ),
             const SizedBox(height: 8),
             _buildHorizontalCard(
@@ -1798,20 +1820,23 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
         html.window.location.reload();
       } else {
         // Mobil için navigation
-        if (mounted) Navigator.pushReplacementNamed(context, '/school-dashboard');
+        if (mounted)
+          Navigator.pushReplacementNamed(context, '/school-dashboard');
       }
 
       // Başarı mesajı
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Admin hesabına geri dönüldü'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Admin hesabına geri dönüldü'),
+            backgroundColor: Colors.green,
+          ),
+        );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
     }
   }
 }

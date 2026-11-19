@@ -48,6 +48,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
   // Auto-save state
   String? _planId;
   Future<String?>? _createFuture;
+  Future<void>? _userNameFuture;
   bool _isAutoSaving = false;
   DateTime? _lastSaved;
   Map<String, dynamic> _studentInfo = {};
@@ -57,7 +58,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _loadInitialData();
-    _loadUserName();
+    _userNameFuture = _loadUserName();
     _searchController.addListener(() {
       if (mounted) {
         setState(() {
@@ -98,10 +99,14 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
             _userName = resolvedName;
           });
 
-          // Eski kayıtlarda 'Kullanıcı' veya 'Sistem Yöneticisi' olarak kalmış plan varsa veritabanında asıl adla güncelle
+          // Plan oluşturulurken henüz ad yüklenmemişse veya eski kayıtlarda 'Kullanıcı'/'Sistem Yöneticisi' kalmışsa güncelle
           if (_planId != null && _planId!.isNotEmpty) {
             final p = widget.existingPlan;
-            if (p != null && (p.creatorName.isEmpty || p.creatorName == 'Kullanıcı' || p.creatorName == 'Sistem Yöneticisi')) {
+            if (p == null ||
+                p.creatorName.isEmpty ||
+                p.creatorName == 'Kullanıcı' ||
+                p.creatorName == 'Sistem Yöneticisi' ||
+                p.creatorName == 'Yükleniyor...') {
               FirebaseFirestore.instance
                   .collection('assessment_action_plans')
                   .doc(_planId)
@@ -501,19 +506,41 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
     });
   }
 
-  void _loadInitialParameters() {
+  Future<void> _loadInitialParameters() async {
     setState(() {
       _selectedExamIds = Set.from(widget.initialExamIds!);
       _subjectThresholds = Map.from(widget.initialThresholds!);
       _globalThreshold = widget.initialGlobalThreshold ?? 70.0;
       _selectedClassLevel = widget.initialClassLevel;
-      _calculateStats();
     });
+    await _calculateStats();
+    await _autoCreateInitialPlan();
   }
 
   // ───────────────────────── AUTO SAVE ─────────────────────────
 
   bool get _canAutoSave => widget.existingPlan != null || _userRole != 'teacher';
+
+  /// Yeni eylem planı açıldığında herhangi bir işlem/düzenleme beklemeksizin planı
+  /// veritabanına otomatik oluşturur; böylece listede anında yer alır.
+  Future<void> _autoCreateInitialPlan() async {
+    if (!mounted ||
+        widget.existingPlan != null ||
+        !_canAutoSave ||
+        _selectedExamIds.isEmpty ||
+        _planId != null) {
+      return;
+    }
+    setState(() => _isAutoSaving = true);
+    try {
+      final id = await _ensurePlanId();
+      if (id != null && mounted) {
+        setState(() => _lastSaved = DateTime.now());
+      }
+    } finally {
+      if (mounted) setState(() => _isAutoSaving = false);
+    }
+  }
 
   Future<String?> _ensurePlanId() async {
     if (_planId != null) return _planId;
@@ -524,6 +551,9 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
 
   Future<String?> _createPlanDoc() async {
     try {
+      if (_userName == 'Yükleniyor...' && _userNameFuture != null) {
+        await _userNameFuture;
+      }
       final user = FirebaseAuth.instance.currentUser;
       final selectedExams = _allExams.where((e) => _selectedExamIds.contains(e.id)).toList();
       String title;
@@ -536,16 +566,34 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
       }
       title += ' - ${DateFormat("dd.MM.yyyy").format(DateTime.now())}';
 
+      String resolvedClassLevel = (_selectedClassLevel ?? '').trim();
+      if ((resolvedClassLevel.isEmpty || resolvedClassLevel == 'Tümü') && selectedExams.isNotEmpty) {
+        final examLevels = selectedExams
+            .map((e) => e.classLevel.trim())
+            .where((l) => l.isNotEmpty)
+            .toSet();
+        if (examLevels.length == 1) {
+          resolvedClassLevel = examLevels.first;
+        }
+      }
+      if (resolvedClassLevel.isEmpty) {
+        resolvedClassLevel = 'Tümü';
+      }
+
+      final effectiveCreatorName = (_userName.isEmpty || _userName == 'Yükleniyor...')
+          ? 'Yönetici'
+          : _userName;
+
       final plan = AssessmentActionPlan(
         institutionId: widget.institutionId,
         schoolTypeId: widget.schoolTypeId,
         title: title,
         date: DateTime.now(),
         createdBy: user?.uid ?? 'anon',
-        creatorName: _userName,
+        creatorName: effectiveCreatorName,
         selectedExamIds: _selectedExamIds.toList(),
         selectedExamNames: selectedExams.map((e) => e.name).toList(),
-        classLevel: _selectedClassLevel ?? 'Tümü',
+        classLevel: resolvedClassLevel,
         subjectThresholds: _subjectThresholds,
         outcomeStats: _outcomeStats,
         branchActionPlans: _branchActionPlans,
@@ -929,7 +977,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
     });
   }
 
-  void _onExamSelected(String examId) {
+  Future<void> _onExamSelected(String examId) async {
     setState(() {
       if (_selectedExamIds.contains(examId)) {
         _selectedExamIds.remove(examId);
@@ -937,7 +985,10 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
         _selectedExamIds.add(examId);
       }
     });
-    _calculateStats();
+    await _calculateStats();
+    if (_planId == null) {
+      await _autoCreateInitialPlan();
+    }
   }
 
   Future<void> _calculateStats() async {

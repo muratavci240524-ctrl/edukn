@@ -1099,6 +1099,19 @@ class _ExternalExamEntryCardScreenState
         ),
       );
 
+  /// Giriş kodu: asla ikinci satıra geçmez; hücreye sığmazsa yazı otomatik küçülür.
+  pw.Widget _pdfCodeCell(String text, pw.Font fontBold) => pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        child: pw.FittedBox(
+          fit: pw.BoxFit.scaleDown,
+          child: pw.Text(
+            text,
+            maxLines: 1,
+            style: pw.TextStyle(font: fontBold, fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#0f172a')),
+          ),
+        ),
+      );
+
   pw.Widget _pdfDataCell(String text, pw.Font font, pw.Font fontBold, {bool isBold = false, pw.TextAlign align = pw.TextAlign.left}) => pw.Padding(
         padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 6),
         child: pw.Text(
@@ -1110,7 +1123,8 @@ class _ExternalExamEntryCardScreenState
             color: PdfColor.fromHex('#0f172a'),
           ),
           textAlign: align,
-          maxLines: 2,
+          maxLines: 1,
+          overflow: pw.TextOverflow.clip,
         ),
       );
 
@@ -1224,11 +1238,11 @@ class _ExternalExamEntryCardScreenState
                 columnWidths: {
                   0: const pw.FixedColumnWidth(30),
                   1: const pw.FlexColumnWidth(3),
-                  2: const pw.FixedColumnWidth(65),
-                  3: const pw.FixedColumnWidth(55),
-                  4: const pw.FlexColumnWidth(2.5),
-                  5: const pw.FlexColumnWidth(2.5),
-                  6: const pw.FixedColumnWidth(45),
+                  2: const pw.FixedColumnWidth(100),
+                  3: const pw.FixedColumnWidth(52),
+                  4: const pw.FlexColumnWidth(2),
+                  5: const pw.FlexColumnWidth(4),
+                  6: const pw.FixedColumnWidth(40),
                 },
                 children: [
                   pw.TableRow(
@@ -1253,7 +1267,7 @@ class _ExternalExamEntryCardScreenState
                       children: [
                         _pdfDataCell('${idx + 1}', font, fontBold, align: pw.TextAlign.center),
                         _pdfDataCell(s.fullName, font, fontBold, isBold: true),
-                        _pdfDataCell(s.examEntryCode ?? '-', font, fontBold, isBold: true, align: pw.TextAlign.center),
+                        _pdfCodeCell(s.examEntryCode ?? '-', fontBold),
                         _pdfDataCell(s.gradeLevel == 'Mezun' ? 'Mezun' : '${s.gradeLevel}. Sınıf', font, fontBold, align: pw.TextAlign.center),
                         _pdfDataCell(s.assignedRoomName ?? 'Salonsuz (Atanmadı)', font, fontBold, isBold: true, align: pw.TextAlign.center),
                         _pdfDataCell(s.currentSchool, font, fontBold),

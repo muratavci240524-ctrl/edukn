@@ -16,10 +16,14 @@ class SchoolLogoService {
   /// Güncel okul logosu (data URL veya http URL). Yoksa null → eduKN varsayılan logosu.
   static final ValueNotifier<String?> logoUrl = ValueNotifier<String?>(null);
 
+  /// Güncel okul genel adı (`schools` dokümanındaki `schoolName` / `name`).
+  static final ValueNotifier<String?> schoolName = ValueNotifier<String?>(null);
+
   static String? _loadedInstId;
+  static bool _hasFetched = false;
   static Future<void>? _loading;
 
-  /// Verilen (veya oturumdaki) kurumun logosunu yükler. Aynı kurum için tekrar sorgulamaz.
+  /// Verilen (veya oturumdaki) kurumun logosunu ve genel adını yükler. Aynı kurum için tekrar sorgulamaz.
   static Future<void> ensureLoaded([String? institutionId]) {
     final instId = (institutionId ??
             UserPermissionService.getCachedUserData()?['institutionId'])
@@ -43,15 +47,35 @@ class SchoolLogoService {
       return _loading ?? Future.value();
     }
 
-    if (_loadedInstId == instId && logoUrl.value != null) return _loading ?? Future.value();
+    if (_loadedInstId == instId && _hasFetched) {
+      return _loading ?? Future.value();
+    }
 
-    // Farklı bir okula geçildi veya logo henüz yüklenemedi: logoyu tazele
+    // Farklı bir okula geçildi veya henüz yüklenmedi: okul bilgisini tazele
+    if (_loadedInstId != instId) {
+      _hasFetched = false;
+    }
     _loadedInstId = instId;
-    if (logoUrl.value == null) {
+    if (!_hasFetched && _loading == null) {
       _loading = _fetch(instId).whenComplete(() => _loading = null);
       return _loading!;
     }
-    return Future.value();
+    return _loading ?? Future.value();
+  }
+
+  static void _applySchoolDoc(Map<String, dynamic>? d) {
+    if (d == null) return;
+    final sName = (d['schoolName'] ?? d['name'] ?? d['institutionName'] ?? d['title'])
+        ?.toString()
+        .trim();
+    if (sName != null && sName.isNotEmpty) {
+      schoolName.value = sName;
+    }
+    final url = (d['logoUrl'] ?? d['logo'] ?? d['photoUrl'])?.toString();
+    if (url != null && url.isNotEmpty) {
+      logoUrl.value = url;
+    }
+    _hasFetched = true;
   }
 
   static Future<void> _fetch(String instId) async {
@@ -66,24 +90,16 @@ class SchoolLogoService {
           .get();
       if (_loadedInstId != instId) return;
       if (snap.docs.isNotEmpty) {
-        final d = snap.docs.first.data();
-        final url = (d['logoUrl'] ?? d['logo'] ?? d['photoUrl'])?.toString();
-        if (url != null && url.isNotEmpty) {
-          logoUrl.value = url;
-          return;
-        }
+        _applySchoolDoc(snap.docs.first.data());
+        return;
       }
 
       // 2. Doküman ID'si doğrudan kurum kodu olan okul dokümanı
       final byId = await FirebaseFirestore.instance.collection('schools').doc(instId).get();
       if (_loadedInstId != instId) return;
       if (byId.exists) {
-        final d = byId.data();
-        final url = (d?['logoUrl'] ?? d?['logo'] ?? d?['photoUrl'])?.toString();
-        if (url != null && url.isNotEmpty) {
-          logoUrl.value = url;
-          return;
-        }
+        _applySchoolDoc(byId.data());
+        return;
       }
 
       // 3. Kullanıcı dokümanındaki schoolId üzerinden sorgu
@@ -93,30 +109,32 @@ class SchoolLogoService {
         final sDoc = await FirebaseFirestore.instance.collection('schools').doc(sid).get();
         if (_loadedInstId != instId) return;
         if (sDoc.exists) {
-          final d = sDoc.data();
-          final url = (d?['logoUrl'] ?? d?['logo'] ?? d?['photoUrl'])?.toString();
-          if (url != null && url.isNotEmpty) {
-            logoUrl.value = url;
-            return;
-          }
+          _applySchoolDoc(sDoc.data());
+          return;
         }
       }
     } catch (e) {
-      debugPrint('[SchoolLogoService] logo yüklenemedi: $e');
+      debugPrint('[SchoolLogoService] logo/isim yüklenemedi: $e');
     }
   }
 
-  /// Okul Bilgileri ekranında logo kaydedilince çağrılır.
-  static void update(String institutionId, String? url) {
+  /// Okul Bilgileri ekranında logo veya okul adı kaydedilince çağrılır.
+  static void update(String institutionId, String? url, {String? name}) {
     _loadedInstId = institutionId.toUpperCase();
+    _hasFetched = true;
     logoUrl.value = (url != null && url.isNotEmpty) ? url : null;
+    if (name != null && name.trim().isNotEmpty) {
+      schoolName.value = name.trim();
+    }
   }
 
   /// Çıkış yapılırken çağrılır.
   static void clear() {
     _loadedInstId = null;
+    _hasFetched = false;
     _loading = null;
     logoUrl.value = null;
+    schoolName.value = null;
   }
 }
 
@@ -177,7 +195,7 @@ class _SchoolLogoImageState extends State<SchoolLogoImage> {
       return EduKnLogo(iconSize: widget.height * 0.85, type: EduKnLogoType.iconOnly);
     }
     return buildWebImage(
-      'assets/images/google_auth_full_logo_light.png',
+      EduKnBrand.fullLogoAsset,
       width: widget.width,
       height: widget.height,
       fit: BoxFit.contain,

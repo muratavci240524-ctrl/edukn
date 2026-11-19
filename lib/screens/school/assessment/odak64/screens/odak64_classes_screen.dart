@@ -2,6 +2,7 @@ import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/material.dart';
 
 import '../models/odak_models.dart';
+import '../repository/odak_repository.dart' show OdakExamData;
 import '../services/odak_engine.dart';
 import '../services/odak_pdf_service.dart';
 import '../services/odak_excel_service.dart';
@@ -16,6 +17,7 @@ class Odak64ClassesScreen extends StatelessWidget {
   final List<String> subjects;
   final String examName;
   final String? schoolTypeName;
+  final OdakExamData? examData;
   final String title;
   final String heading;
   final String brand;
@@ -27,6 +29,7 @@ class Odak64ClassesScreen extends StatelessWidget {
     required this.subjects,
     required this.examName,
     this.schoolTypeName,
+    this.examData,
     this.title = 'ODAK-64 • Sınıflar',
     this.heading = 'Oluşturulan Sınıflar',
     this.brand = 'ODAK-64',
@@ -145,7 +148,8 @@ class Odak64ClassesScreen extends StatelessWidget {
                       subjects: subjects,
                       examName: examName,
                       schoolName: schoolTypeName,
- brand: brand,
+                      examData: examData,
+                      brand: brand,
                     ),
                 ],
               ),

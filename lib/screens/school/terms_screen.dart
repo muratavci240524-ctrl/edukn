@@ -643,9 +643,68 @@ class _TermsScreenState extends State<TermsScreen> {
             .where('isActive', isEqualTo: true)
             .get();
 
-        // Her bir veriyi hedef döneme kopyala
+        // Hedef dönemde zaten mevcut olan kayıtları kontrol et (mükerrer şube/ders oluşmasını önle)
+        final existingTargetSnap = await FirebaseFirestore.instance
+            .collection(dataType)
+            .where('institutionId', isEqualTo: _institutionId)
+            .where('termId', isEqualTo: targetTermId)
+            .get();
+        final existingKeys = <String>{};
+        for (final tDoc in existingTargetSnap.docs) {
+          final tData = tDoc.data();
+          if (tData['isActive'] == false) continue;
+          final stId = (tData['schoolTypeId'] ?? '').toString().trim();
+          if (dataType == 'classes') {
+            final cName = (tData['className'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            if (cName.isNotEmpty) existingKeys.add('${stId}__$cName');
+          } else if (dataType == 'lessons') {
+            final lName = (tData['lessonName'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            if (lName.isNotEmpty) existingKeys.add('${stId}__$lName');
+          } else if (dataType == 'classrooms') {
+            final rName = (tData['classroomName'] ?? tData['name'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            if (rName.isNotEmpty) existingKeys.add('${stId}__$rName');
+          }
+        }
+
+        // Her bir veriyi hedef döneme kopyala (hedef dönemde aynı isimde şube/ders varsa atla)
         for (final doc in sourceData.docs) {
           final data = Map<String, dynamic>.from(doc.data());
+          final stId = (data['schoolTypeId'] ?? '').toString().trim();
+          if (dataType == 'classes') {
+            final cName = (data['className'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            if (cName.isNotEmpty && !existingKeys.add('${stId}__$cName')) {
+              continue;
+            }
+          } else if (dataType == 'lessons') {
+            final lName = (data['lessonName'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            if (lName.isNotEmpty && !existingKeys.add('${stId}__$lName')) {
+              continue;
+            }
+          } else if (dataType == 'classrooms') {
+            final rName = (data['classroomName'] ?? data['name'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            if (rName.isNotEmpty && !existingKeys.add('${stId}__$rName')) {
+              continue;
+            }
+          }
+
           data.remove('id');
           data['termId'] = targetTermId;
           data['createdAt'] = FieldValue.serverTimestamp();
@@ -655,6 +714,11 @@ class _TermsScreenState extends State<TermsScreen> {
           copiedCount++;
         }
       }
+
+      await TermService().deduplicateAndCleanClasses(
+        institutionId: _institutionId,
+        termId: targetTermId,
+      );
 
       Navigator.pop(context); // Loading dialog kapat
 

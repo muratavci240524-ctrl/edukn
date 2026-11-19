@@ -2671,7 +2671,75 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                                             color: Color(0xFF4F46E5),
                                           )
                                         : null,
-                                    onTap: () {
+                                    onTap: () async {
+                                      if (isAssignedElsewhere && !isSelected) {
+                                        final otherNames = <String>[];
+                                        for (final e in _matrix.entries) {
+                                          if (e.value.dayOfWeek == day &&
+                                              e.value.teacherId == tId &&
+                                              e.value.locationId != loc.id) {
+                                            otherNames.add(e.value.locationName ?? 'başka bir yer');
+                                          }
+                                        }
+                                        final ok = await showDialog<bool>(
+                                          context: ctx,
+                                          builder: (dCtx) => AlertDialog(
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(16),
+                                            ),
+                                            title: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.warning_amber_rounded,
+                                                  color: Colors.orange.shade700,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                const Expanded(
+                                                  child: Text(
+                                                    'Aynı Gün Çift Nöbet',
+                                                    style: TextStyle(
+                                                      fontSize: 17,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            content: Text(
+                                              '$tName, ${_getDayName(day)} günü zaten '
+                                              '"${otherNames.join(', ')}" nöbet yerinde görevli.\n\n'
+                                              'Bu öğretmeni "${loc.name}" için de eklerseniz aynı gün birden '
+                                              'fazla yerde nöbetçi olur. Mevcut nöbeti silinmez.\n\n'
+                                              'Yine de eklemek istiyor musunuz?',
+                                              style: const TextStyle(fontSize: 13.5, height: 1.4),
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(dCtx, false),
+                                                child: const Text('Vazgeç'),
+                                              ),
+                                              ElevatedButton(
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: Colors.orange.shade700,
+                                                  foregroundColor: Colors.white,
+                                                ),
+                                                onPressed: () => Navigator.pop(dCtx, true),
+                                                child: const Text('Kabul Et ve Ekle'),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                        if (ok != true) return;
+                                        if (ctx.mounted) Navigator.pop(ctx);
+                                        _saveItem(
+                                          loc.id,
+                                          day,
+                                          tId,
+                                          tName,
+                                          keepOtherDuties: true,
+                                        );
+                                        return;
+                                      }
                                       Navigator.pop(ctx);
                                       _saveItem(
                                         loc.id,
@@ -2700,8 +2768,9 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     String locId,
     int day,
     String tid,
-    String tName,
-  ) async {
+    String tName, {
+    bool keepOtherDuties = false,
+  }) async {
     final key = '${locId}_$day';
     final current = _matrix[key];
     final weekStr = _selectedWeekStart.toIso8601String();
@@ -2713,7 +2782,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         otherLocationsWithSameTeacher.add(entry.value.locationId);
       }
     }
-    for (final otherLocId in otherLocationsWithSameTeacher) {
+    for (final otherLocId in (keepOtherDuties ? <String>[] : otherLocationsWithSameTeacher)) {
       _removeItem(otherLocId, day);
     }
 
@@ -2833,6 +2902,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
       }
 
       // Aynı öğretmenin BU HAFTAKI bu günde başka bir yerde kalmış olası eski kaydı varsa sil
+      if (!keepOtherDuties) {
       try {
         final sameDaySnap = await FirebaseFirestore.instance
             .collection('dutyScheduleItems')
@@ -2848,6 +2918,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           }
         }
       } catch (silentError) { debugPrint('[duty_program_detail_screen] hata yutuldu: $silentError'); }
+      }
     } catch (e) {
       debugPrint('Error saving duty item: $e');
     }

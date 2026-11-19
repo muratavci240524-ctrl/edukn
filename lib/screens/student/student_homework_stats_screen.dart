@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -12,12 +12,14 @@ class StudentHomeworkStatsScreen extends StatefulWidget {
   final String institutionId;
   final String studentId;
   final String classId;
+  final String studentName;
 
   const StudentHomeworkStatsScreen({
     Key? key,
     required this.institutionId,
     required this.studentId,
     required this.classId,
+    this.studentName = '',
   }) : super(key: key);
 
   @override
@@ -58,8 +60,7 @@ class _StudentHomeworkStatsScreenState
       final lessonMap = <String, String>{};
       for (final doc in lSnap.docs) {
         final d = doc.data();
-        lessonMap[doc.id] =
-            (d['name'] ?? d['lessonName'] ?? 'Ders').toString();
+        lessonMap[doc.id] = (d['name'] ?? d['lessonName'] ?? 'Ders').toString();
       }
 
       // 2. Fetch homeworks for this class
@@ -81,14 +82,16 @@ class _StudentHomeworkStatsScreenState
               ? (d['assignedDate'] as Timestamp).toDate()
               : (d['createdAt'] as Timestamp).toDate();
           final dueDate = (d['dueDate'] as Timestamp).toDate();
-          items.add(_HwItem(
-            id: doc.id,
-            title: (d['title'] ?? 'Ödev').toString(),
-            lessonId: (d['lessonId'] ?? '').toString(),
-            assignedDate: assignedDate,
-            dueDate: dueDate,
-            status: _hwStatus(statusVal),
-          ));
+          items.add(
+            _HwItem(
+              id: doc.id,
+              title: (d['title'] ?? 'Ödev').toString(),
+              lessonId: (d['lessonId'] ?? '').toString(),
+              assignedDate: assignedDate,
+              dueDate: dueDate,
+              status: _hwStatus(statusVal),
+            ),
+          );
         }
       }
 
@@ -160,7 +163,9 @@ class _StudentHomeworkStatsScreenState
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: EduknAppBar(
+        institutionId: widget.institutionId,
         title: 'Ödev İstatistiklerim',
+        subtitle: widget.studentName.isNotEmpty ? widget.studentName : null,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Colors.indigo),
@@ -221,7 +226,7 @@ class _StudentHomeworkStatsScreenState
                           color: Colors.indigo.withValues(alpha: 0.25),
                           blurRadius: 8,
                           offset: const Offset(0, 4),
-                        )
+                        ),
                       ]
                     : [],
               ),
@@ -229,8 +234,7 @@ class _StudentHomeworkStatsScreenState
                 opt,
                 style: TextStyle(
                   color: selected ? Colors.white : Colors.grey.shade700,
-                  fontWeight:
-                      selected ? FontWeight.bold : FontWeight.w500,
+                  fontWeight: selected ? FontWeight.bold : FontWeight.w500,
                   fontSize: 13,
                 ),
               ),
@@ -269,7 +273,11 @@ class _StudentHomeworkStatsScreenState
         ),
         child: Column(
           children: [
-            Icon(Icons.assignment_outlined, size: 56, color: Colors.grey.shade300),
+            Icon(
+              Icons.assignment_outlined,
+              size: 56,
+              color: Colors.grey.shade300,
+            ),
             const SizedBox(height: 12),
             Text(
               'Bu dönem için ödev bulunamadı.',
@@ -285,9 +293,24 @@ class _StudentHomeworkStatsScreenState
     return isMobile
         ? Column(
             children: [
-              _buildPieCard(total, done, missing, notDone, notBrought, pending, completionRate),
+              _buildPieCard(
+                total,
+                done,
+                missing,
+                notDone,
+                notBrought,
+                pending,
+                completionRate,
+              ),
               const SizedBox(height: 16),
-              _buildStatCards(total, done, missing, notDone, notBrought, pending),
+              _buildStatCards(
+                total,
+                done,
+                missing,
+                notDone,
+                notBrought,
+                pending,
+              ),
             ],
           )
         : Row(
@@ -295,34 +318,58 @@ class _StudentHomeworkStatsScreenState
             children: [
               SizedBox(
                 width: 280,
-                child: _buildPieCard(total, done, missing, notDone, notBrought, pending, completionRate),
+                child: _buildPieCard(
+                  total,
+                  done,
+                  missing,
+                  notDone,
+                  notBrought,
+                  pending,
+                  completionRate,
+                ),
               ),
               const SizedBox(width: 20),
               Expanded(
-                child: _buildStatCards(total, done, missing, notDone, notBrought, pending),
+                child: _buildStatCards(
+                  total,
+                  done,
+                  missing,
+                  notDone,
+                  notBrought,
+                  pending,
+                ),
               ),
             ],
           );
   }
 
-  Widget _buildPieCard(int total, int done, int missing, int notDone,
-      int notBrought, int pending, double completionRate) {
+  Widget _buildPieCard(
+    int total,
+    int done,
+    int missing,
+    int notDone,
+    int notBrought,
+    int pending,
+    double completionRate,
+  ) {
     final sections = <PieChartSectionData>[];
     void addSection(int count, Color color, String title, int index) {
       if (count == 0) return;
       final isHovered = _hoveredPieIndex == index;
-      sections.add(PieChartSectionData(
-        value: count.toDouble(),
-        color: color,
-        radius: isHovered ? 60 : 52,
-        title: count > 0 ? '$count' : '',
-        titleStyle: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: 13,
+      sections.add(
+        PieChartSectionData(
+          value: count.toDouble(),
+          color: color,
+          radius: isHovered ? 60 : 52,
+          title: count > 0 ? '$count' : '',
+          titleStyle: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+          ),
+          badgeWidget: null,
         ),
-        badgeWidget: null,
-      ));
+      );
     }
 
     addSection(done, const Color(0xFF10B981), 'Yapıldı', 0);
@@ -369,7 +416,7 @@ class _StudentHomeworkStatsScreenState
                               color: Colors.grey.shade200,
                               title: '',
                               radius: 52,
-                            )
+                            ),
                           ]
                         : sections,
                     centerSpaceRadius: 52,
@@ -453,7 +500,13 @@ class _StudentHomeworkStatsScreenState
   }
 
   Widget _buildStatCards(
-      int total, int done, int missing, int notDone, int notBrought, int pending) {
+    int total,
+    int done,
+    int missing,
+    int notDone,
+    int notBrought,
+    int pending,
+  ) {
     final cards = [
       _StatCardData(
         label: 'Toplam Ödev',
@@ -618,7 +671,7 @@ class _StudentHomeworkStatsScreenState
                       color: Colors.indigo.withValues(alpha: 0.25),
                       blurRadius: 8,
                       offset: const Offset(0, 3),
-                    )
+                    ),
                   ]
                 : [],
           ),
@@ -650,8 +703,11 @@ class _StudentHomeworkStatsScreenState
         ),
         child: Column(
           children: [
-            Icon(Icons.assignment_late_outlined,
-                size: 48, color: Colors.grey.shade300),
+            Icon(
+              Icons.assignment_late_outlined,
+              size: 48,
+              color: Colors.grey.shade300,
+            ),
             const SizedBox(height: 12),
             Text(
               'Seçili filtrelere göre ödev bulunamadı.',
@@ -718,12 +774,7 @@ class _StudentHomeworkStatsScreenState
             offset: const Offset(0, 4),
           ),
         ],
-        border: Border(
-          left: BorderSide(
-            color: statusConfig.color,
-            width: 4,
-          ),
-        ),
+        border: Border(left: BorderSide(color: statusConfig.color, width: 4)),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -737,7 +788,11 @@ class _StudentHomeworkStatsScreenState
                 color: statusConfig.color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(statusConfig.icon, color: statusConfig.color, size: 20),
+              child: Icon(
+                statusConfig.icon,
+                color: statusConfig.color,
+                size: 20,
+              ),
             ),
             const SizedBox(width: 14),
             // Center: info
@@ -765,16 +820,23 @@ class _StudentHomeworkStatsScreenState
                     spacing: 8,
                     runSpacing: 4,
                     children: [
-                      _infoChip(Icons.book_outlined, lessonLabel,
-                          Colors.indigo.shade400),
-                      _infoChip(Icons.calendar_today_outlined,
-                          'Verildi: ${fmt.format(item.assignedDate)}',
-                          Colors.grey.shade500),
-                      _infoChip(Icons.event_outlined,
-                          'Son: ${fmt.format(item.dueDate)}',
-                          item.dueDate.isBefore(DateTime.now())
-                              ? Colors.red.shade400
-                              : Colors.grey.shade500),
+                      _infoChip(
+                        Icons.book_outlined,
+                        lessonLabel,
+                        Colors.indigo.shade400,
+                      ),
+                      _infoChip(
+                        Icons.calendar_today_outlined,
+                        'Verildi: ${fmt.format(item.assignedDate)}',
+                        Colors.grey.shade500,
+                      ),
+                      _infoChip(
+                        Icons.event_outlined,
+                        'Son: ${fmt.format(item.dueDate)}',
+                        item.dueDate.isBefore(DateTime.now())
+                            ? Colors.red.shade400
+                            : Colors.grey.shade500,
+                      ),
                     ],
                   ),
                 ],
@@ -783,8 +845,7 @@ class _StudentHomeworkStatsScreenState
             const SizedBox(width: 12),
             // Right: status badge
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 color: statusConfig.color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(20),
@@ -812,7 +873,11 @@ class _StudentHomeworkStatsScreenState
         const SizedBox(width: 3),
         Text(
           label,
-          style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500),
+          style: TextStyle(
+            fontSize: 11,
+            color: color,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
     );
@@ -821,15 +886,35 @@ class _StudentHomeworkStatsScreenState
   _StatusConfig _statusConfig(_HwStatus status) {
     switch (status) {
       case _HwStatus.completed:
-        return _StatusConfig('Yapıldı', Icons.check_circle_rounded, const Color(0xFF10B981));
+        return _StatusConfig(
+          'Yapıldı',
+          Icons.check_circle_rounded,
+          const Color(0xFF10B981),
+        );
       case _HwStatus.missing:
-        return _StatusConfig('Eksik', Icons.warning_amber_rounded, const Color(0xFFF59E0B));
+        return _StatusConfig(
+          'Eksik',
+          Icons.warning_amber_rounded,
+          const Color(0xFFF59E0B),
+        );
       case _HwStatus.notCompleted:
-        return _StatusConfig('Yapılmadı', Icons.cancel_rounded, const Color(0xFFEF4444));
+        return _StatusConfig(
+          'Yapılmadı',
+          Icons.cancel_rounded,
+          const Color(0xFFEF4444),
+        );
       case _HwStatus.notBrought:
-        return _StatusConfig('Getirilmedi', Icons.backpack_rounded, const Color(0xFF8B5CF6));
+        return _StatusConfig(
+          'Getirilmedi',
+          Icons.backpack_rounded,
+          const Color(0xFF8B5CF6),
+        );
       case _HwStatus.pending:
-        return _StatusConfig('Beklemede', Icons.hourglass_empty_rounded, const Color(0xFF94A3B8));
+        return _StatusConfig(
+          'Beklemede',
+          Icons.hourglass_empty_rounded,
+          const Color(0xFF94A3B8),
+        );
     }
   }
 }

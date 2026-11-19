@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../firebase_options.dart';
@@ -8,6 +9,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../widgets/edukn_logo.dart';
 import '../../widgets/web_image_renderer.dart';
@@ -18,6 +20,7 @@ import '../../services/notification_service.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
 import '../../services/crypto_service.dart';
+import '../../services/qr_web_login_service.dart';
 import 'school_types/school_type_detail_screen.dart';
 import '../../services/splash/splash_service.dart';
 
@@ -47,12 +50,17 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
   /// Auth hesabı oluşturur veya mevcut hesabın şifresini günceller.
   /// [oldPasswords] bilinen eski şifreleri içerir (Firestore'dan okunan).
-  Future<String?> _registerOrUpdateAuthUser(String email, String password, {List<String>? oldPasswords}) async {
+  Future<String?> _registerOrUpdateAuthUser(
+    String email,
+    String password, {
+    List<String>? oldPasswords,
+  }) async {
     try {
       final apiKey = DefaultFirebaseOptions.currentPlatform.apiKey;
 
       // 1. Hesap oluşturmayı dene
-      final signUpUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$apiKey';
+      final signUpUrl =
+          'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$apiKey';
       final signUpResponse = await http.post(
         Uri.parse(signUpUrl),
         headers: {'Content-Type': 'application/json'},
@@ -70,7 +78,8 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       }
 
       final error = json.decode(signUpResponse.body);
-      final msg = (error['error'] != null ? error['error']['message'] : '').toString();
+      final msg = (error['error'] != null ? error['error']['message'] : '')
+          .toString();
 
       if (msg == 'EMAIL_EXISTS') {
         // 2. Hesap zaten var — şifre güncelleme gerekiyorsa dene
@@ -92,7 +101,8 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
         for (final tryPass in passwordsToTry) {
           try {
-            final signInUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$apiKey';
+            final signInUrl =
+                'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$apiKey';
             final signInResponse = await http.post(
               Uri.parse(signInUrl),
               headers: {'Content-Type': 'application/json'},
@@ -110,7 +120,8 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
               // Eski şifre farklıysa güncelle
               if (tryPass != password) {
                 final idToken = signInData['idToken'] as String;
-                final updateUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:update?key=$apiKey';
+                final updateUrl =
+                    'https://identitytoolkit.googleapis.com/v1/accounts:update?key=$apiKey';
                 await http.post(
                   Uri.parse(updateUrl),
                   headers: {'Content-Type': 'application/json'},
@@ -125,7 +136,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
               // NOT: signOut YAPMA — REST API SDK auth state'i etkilemez
               return signInData['localId'] as String;
             }
-          } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
+          } catch (silentError) {
+            debugPrint('[school_login_screen] hata yutuldu: $silentError');
+          }
         }
         debugPrint('ℹ️ Mevcut hesap, şifre değiştirilmedi: $email');
       } else {
@@ -162,6 +175,12 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         final currentUri = Uri.base;
         final currentPath = currentUri.path;
 
+        if (currentPath == '/admin-login' ||
+            currentPath == '/admin-dashboard') {
+          SplashService.hide();
+          return;
+        }
+
         if (currentPath.startsWith('/yoklama-al-')) {
           if (!mounted) return;
           // Login ekranı değil, yoklama ekranına yönlendir
@@ -185,20 +204,22 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       User? user = FirebaseAuth.instance.currentUser;
       if (user == null && kIsWeb) {
         try {
-          user = await FirebaseAuth.instance
-              .authStateChanges()
-              .first
-              .timeout(const Duration(milliseconds: 600), onTimeout: () => null);
-        } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
+          user = await FirebaseAuth.instance.authStateChanges().first.timeout(
+            const Duration(milliseconds: 600),
+            onTimeout: () => null,
+          );
+        } catch (silentError) {
+          debugPrint('[school_login_screen] hata yutuldu: $silentError');
+        }
         user ??= FirebaseAuth.instance.currentUser;
       }
-      
+
       if (user != null) {
         debugPrint('✅ Mevcut oturum bulundu: ${user.email}');
         // Token'ı yenile (geçerliliği kontrol et)
         await user.reload();
         if (!mounted) return;
-        
+
         // Süper Admin yönlendirmesi
         if (user.email?.toLowerCase() == 'superadmin@edukn.com') {
           Navigator.pushReplacementNamed(context, '/admin-dashboard');
@@ -211,7 +232,8 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         final role = userData?['role']?.toString().toLowerCase().trim() ?? '';
         final instId = (userData?['institutionId'] ?? '').toString();
 
-        bool isStudentOrParent = role == 'student' ||
+        bool isStudentOrParent =
+            role == 'student' ||
             role == 'ogrenci' ||
             role == 'öğrenci' ||
             role == 'parent' ||
@@ -220,42 +242,83 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             activePortal == 'student';
 
         if (isStudentOrParent) {
-          if (mounted) Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => ParentMainScreen(institutionId: instId)),
-          );
+          if (mounted)
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ParentMainScreen(institutionId: instId),
+              ),
+            );
           return;
         }
 
         // Öğretmen ise doğrudan Öğretmen Paneline yönlendir (ara ekran atlamalarını engelle)
-        bool isTeacher = (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) &&
+        bool isTeacher =
+            (role.contains('ogretmen') ||
+                role.contains('teacher') ||
+                role.contains('öğretmen')) &&
             !(role.contains('genel_mudur') ||
-              role.contains('genel müdür') ||
-              role.contains('genel mudur') ||
-              role.contains('mudur') ||
-              role.contains('müdür') ||
-              role.contains('admin') ||
-              role.contains('hr') ||
-              role.contains('muhasebe') ||
-              role.contains('satin_alma') ||
-              role.contains('depo') ||
-              role.contains('destek_hizmetleri') ||
-              role.contains('personel') ||
-              role.contains('staff') ||
-              role.contains('kurucu') ||
-              role.contains('yönetici') ||
-              role.contains('yonetici'));
+                role.contains('genel müdür') ||
+                role.contains('genel mudur') ||
+                role.contains('mudur') ||
+                role.contains('müdür') ||
+                role.contains('admin') ||
+                role.contains('hr') ||
+                role.contains('muhasebe') ||
+                role.contains('satin_alma') ||
+                role.contains('depo') ||
+                role.contains('destek_hizmetleri') ||
+                role.contains('personel') ||
+                role.contains('staff') ||
+                role.contains('kurucu') ||
+                role.contains('yönetici') ||
+                role.contains('yonetici'));
 
-        if (isTeacher || (activePortal == 'teacher' && (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')))) {
-          if (mounted) Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => TeacherMainScreen(institutionId: instId)),
-          );
+        if (isTeacher ||
+            (activePortal == 'teacher' &&
+                (role.contains('ogretmen') ||
+                    role.contains('teacher') ||
+                    role.contains('öğretmen')))) {
+          if (mounted)
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => TeacherMainScreen(institutionId: instId),
+              ),
+            );
           return;
         }
-        
+
+        final dedicatedTarget =
+            UserPermissionService.getDedicatedSingleScreenTarget(userData);
+        if (dedicatedTarget == 'health') {
+          await prefs.setString('active_portal', 'health');
+          if (mounted)
+            Navigator.pushReplacementNamed(context, '/health-portal');
+          return;
+        }
+        if (dedicatedTarget == 'warehouse') {
+          await prefs.setString('active_portal', 'warehouse');
+          if (mounted)
+            Navigator.pushReplacementNamed(context, '/warehouse-portal');
+          return;
+        }
+        if (dedicatedTarget == 'purchasing') {
+          await prefs.setString('active_portal', 'purchasing');
+          if (mounted)
+            Navigator.pushReplacementNamed(context, '/purchasing-portal');
+          return;
+        }
+        if (dedicatedTarget == 'security') {
+          await prefs.setString('active_portal', 'security');
+          if (mounted)
+            Navigator.pushReplacementNamed(context, '/security-portal');
+          return;
+        }
+
         // Direkt dashboard'a git
-        if (mounted) Navigator.pushReplacementNamed(context, '/school-dashboard');
+        if (mounted)
+          Navigator.pushReplacementNamed(context, '/school-dashboard');
         return;
       }
     } catch (e) {
@@ -263,7 +326,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       debugPrint('⚠️ Oturum geçersiz, giriş ekranı gösteriliyor: $e');
       try {
         await FirebaseAuth.instance.signOut();
-      } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
+      } catch (silentError) {
+        debugPrint('[school_login_screen] hata yutuldu: $silentError');
+      }
     }
     if (mounted) {
       setState(() => _checkingSession = false);
@@ -293,11 +358,17 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     final inputUserLower = inputUser.toLowerCase();
     final username = inputUser;
     final password = _passwordController.text.trim();
-    final inputInstitutionId = _institutionController.text.trim().replaceAll(' ', '');
+    final inputInstitutionId = _institutionController.text.trim().replaceAll(
+      ' ',
+      '',
+    );
     final institutionId = inputInstitutionId.toUpperCase();
-    final instIdsToTry = UserPermissionService.getInstitutionIdVariants(inputInstitutionId);
+    final instIdsToTry = UserPermissionService.getInstitutionIdVariants(
+      inputInstitutionId,
+    );
     if (!instIdsToTry.contains(institutionId)) instIdsToTry.add(institutionId);
-    if (!instIdsToTry.contains(inputInstitutionId)) instIdsToTry.add(inputInstitutionId);
+    if (!instIdsToTry.contains(inputInstitutionId))
+      instIdsToTry.add(inputInstitutionId);
 
     try {
       debugPrint('🔍 Giriş denemesi: User=$inputUser, Inst=$institutionId');
@@ -305,7 +376,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       // ── Önceki oturumu temizle (Çıkış sonrası kalan kalıntıları engelle) ──
       try {
         await FirebaseAuth.instance.signOut();
-      } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
+      } catch (silentError) {
+        debugPrint('[school_login_screen] hata yutuldu: $silentError');
+      }
       UserPermissionService.clearCache();
 
       final List<String> candidateEmails = [];
@@ -318,7 +391,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       // ── ADIM 0: Sanal e-posta ekle ──
       if (inputUser.contains('@')) candidateEmails.add(inputUser);
       candidateEmails.add('$inputUserLower@$institutionId.edukn'.toLowerCase());
-      candidateEmails.add('$inputUserLower@${institutionId.toLowerCase()}.edukn');
+      candidateEmails.add(
+        '$inputUserLower@${institutionId.toLowerCase()}.edukn',
+      );
 
       // ── ADIM 1: Okul bilgilerini yükle ──
       Map<String, dynamic>? schoolData;
@@ -332,7 +407,8 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
               .get();
           if (sQuery.docs.isNotEmpty) {
             schoolData = sQuery.docs.first.data();
-            if (schoolData['isActive'] != true) throw 'Bu okul şu an pasif durumda!';
+            if (schoolData['isActive'] != true)
+              throw 'Bu okul şu an pasif durumda!';
             break;
           }
         } catch (e) {
@@ -343,18 +419,24 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       if (schoolData != null) {
         final adminEmail = schoolData['adminEmail']?.toString().trim();
         final contactEmail = schoolData['email']?.toString().trim();
-        final adminUser = (schoolData['adminUsername'] ?? '').toString().trim().toLowerCase();
+        final adminUser = (schoolData['adminUsername'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
         final adminPass = schoolData['adminPassword']?.toString();
 
-        if (adminEmail != null && adminEmail.isNotEmpty) candidateEmails.add(adminEmail);
-        if (contactEmail != null && contactEmail.isNotEmpty) candidateEmails.add(contactEmail);
+        if (adminEmail != null && adminEmail.isNotEmpty)
+          candidateEmails.add(adminEmail);
+        if (contactEmail != null && contactEmail.isNotEmpty)
+          candidateEmails.add(contactEmail);
 
         if (inputUserLower == adminUser) {
           isAdminLogin = true;
           adminSyncEmail = (adminEmail != null && adminEmail.isNotEmpty)
               ? adminEmail
               : '$inputUserLower@$institutionId.edukn'.toLowerCase();
-          if (adminPass != null && adminPass.isNotEmpty) knownOldPasswords.add(adminPass);
+          if (adminPass != null && adminPass.isNotEmpty)
+            knownOldPasswords.add(adminPass);
         }
       }
 
@@ -402,7 +484,10 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
           // E) TC'ye göre
           if (uQuery.docs.isEmpty) {
-            final encryptedTc = CryptoService.encrypt(inputUser, institutionId: instId);
+            final encryptedTc = CryptoService.encrypt(
+              inputUser,
+              institutionId: instId,
+            );
             uQuery = await FirebaseFirestore.instance
                 .collection('users')
                 .where('institutionId', isEqualTo: instId)
@@ -428,19 +513,27 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         final corpEmail = foundUserData['corporateEmail']?.toString().trim();
         final persEmail = foundUserData['personalEmail']?.toString().trim();
         final dbEmail = foundUserData['email']?.toString().trim();
-        final uName = (foundUserData['username'] ?? inputUserLower).toString().trim().toLowerCase();
+        final uName = (foundUserData['username'] ?? inputUserLower)
+            .toString()
+            .trim()
+            .toLowerCase();
 
-        if (corpEmail != null && corpEmail.isNotEmpty) candidateEmails.insert(0, corpEmail);
-        if (persEmail != null && persEmail.isNotEmpty) candidateEmails.insert(0, persEmail);
-        if (dbEmail != null && dbEmail.isNotEmpty) candidateEmails.insert(0, dbEmail);
+        if (corpEmail != null && corpEmail.isNotEmpty)
+          candidateEmails.insert(0, corpEmail);
+        if (persEmail != null && persEmail.isNotEmpty)
+          candidateEmails.insert(0, persEmail);
+        if (dbEmail != null && dbEmail.isNotEmpty)
+          candidateEmails.insert(0, dbEmail);
         candidateEmails.add('$uName@$institutionId.edukn'.toLowerCase());
         candidateEmails.add('$uName@${institutionId.toLowerCase()}.edukn');
 
         // Bilinen eski şifreleri topla
         final defPass = foundUserData['defaultPassword']?.toString();
         final storedPass = foundUserData['password']?.toString();
-        if (defPass != null && defPass.isNotEmpty) knownOldPasswords.add(defPass);
-        if (storedPass != null && storedPass.isNotEmpty) knownOldPasswords.add(storedPass);
+        if (defPass != null && defPass.isNotEmpty)
+          knownOldPasswords.add(defPass);
+        if (storedPass != null && storedPass.isNotEmpty)
+          knownOldPasswords.add(storedPass);
       } else if (!isAdminLogin) {
         // ── ADIM 2b: Öğrenci/Veli ara ──
         DocumentSnapshot? matchedStudentDoc;
@@ -471,7 +564,10 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                   .limit(1)
                   .get();
             }
-            if (sQuery.docs.isNotEmpty) { matchedStudentDoc = sQuery.docs.first; break; }
+            if (sQuery.docs.isNotEmpty) {
+              matchedStudentDoc = sQuery.docs.first;
+              break;
+            }
 
             var pQuery = await FirebaseFirestore.instance
                 .collection('parents')
@@ -487,7 +583,10 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                   .limit(1)
                   .get();
             }
-            if (pQuery.docs.isNotEmpty) { matchedParentDoc = pQuery.docs.first; break; }
+            if (pQuery.docs.isNotEmpty) {
+              matchedParentDoc = pQuery.docs.first;
+              break;
+            }
           } catch (e) {
             debugPrint('⚠️ student/parent sorgu hatası: $e');
           }
@@ -498,29 +597,43 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           final docData = targetDoc.data() as Map<String, dynamic>;
           final storedPassword = docData['password']?.toString();
           final isStudent = matchedStudentDoc != null;
-          final realUsername = docData['username']?.toString() ?? inputUserLower;
-          final targetEmail = (docData['email'] ?? '$realUsername@$institutionId.edukn').toString().toLowerCase();
+          final realUsername =
+              docData['username']?.toString() ?? inputUserLower;
+          final targetEmail =
+              (docData['email'] ?? '$realUsername@$institutionId.edukn')
+                  .toString()
+                  .toLowerCase();
 
           candidateEmails.add(targetEmail);
-          candidateEmails.add('$realUsername@$institutionId.edukn'.toLowerCase());
+          candidateEmails.add(
+            '$realUsername@$institutionId.edukn'.toLowerCase(),
+          );
           if (storedPassword != null) knownOldPasswords.add(storedPassword);
 
           // Öğrenci/veli için auth hesabı oluştur (sadece yeni hesap — mevcut hesaba dokunma)
-          if (storedPassword == password || storedPassword == null || storedPassword.isEmpty) {
-            final newUid = await _registerOrUpdateAuthUser(targetEmail, password);
+          if (storedPassword == password ||
+              storedPassword == null ||
+              storedPassword.isEmpty) {
+            final newUid = await _registerOrUpdateAuthUser(
+              targetEmail,
+              password,
+            );
             if (newUid != null) {
-              await FirebaseFirestore.instance.collection('users').doc(newUid).set({
-                'uid': newUid,
-                'institutionId': institutionId,
-                'username': realUsername,
-                'email': targetEmail,
-                'role': isStudent ? 'student' : 'parent',
-                'name': docData['name']?.toString() ?? '',
-                'surname': docData['surname']?.toString() ?? '',
-                'tcNo': docData['tcNo']?.toString() ?? '',
-                'isActive': true,
-                'updatedAt': FieldValue.serverTimestamp(),
-              }, SetOptions(merge: true));
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(newUid)
+                  .set({
+                    'uid': newUid,
+                    'institutionId': institutionId,
+                    'username': realUsername,
+                    'email': targetEmail,
+                    'role': isStudent ? 'student' : 'parent',
+                    'name': docData['name']?.toString() ?? '',
+                    'surname': docData['surname']?.toString() ?? '',
+                    'tcNo': docData['tcNo']?.toString() ?? '',
+                    'isActive': true,
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  }, SetOptions(merge: true));
             }
           }
         }
@@ -528,12 +641,16 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
       // ── ADIM 3: Firebase Auth ile Giriş Yap ──
       final uniqueEmails = candidateEmails.toSet().toList();
-      final passwordsToTry = <String>[password, if (tempPass != null && tempPass.isNotEmpty) tempPass];
+      final passwordsToTry = <String>[
+        password,
+        if (tempPass != null && tempPass.isNotEmpty) tempPass,
+      ];
 
       debugPrint('📧 Aday e-postalar: $uniqueEmails');
 
       UserCredential? userCredential;
       String? successEmail;
+      String usedPassword = password;
       bool loginSuccess = false;
       bool rateLimited = false;
 
@@ -548,6 +665,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                 .timeout(const Duration(seconds: 15));
             debugPrint('✅ Giriş başarılı: $tryEmail');
             successEmail = tryEmail;
+            usedPassword = tryPass;
             loginSuccess = true;
           } on FirebaseAuthException catch (authErr) {
             debugPrint('⚠️ Başarısız: $tryEmail [${authErr.code}]');
@@ -569,35 +687,49 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
       // ── ADIM 4: Giriş başarısızsa → Senkronize et ve tekrar dene ──
       // Rate limit durumunda Firebase'e ek istek göndermekten kaçın
-      if (!loginSuccess && !rateLimited && (foundUserData != null || isAdminLogin)) {
+      if (!loginSuccess &&
+          !rateLimited &&
+          (foundUserData != null || isAdminLogin)) {
         debugPrint('🔄 Giriş başarısız, Auth senkronizasyonu deneniyor...');
-        
+
         // Senkronize edilecek birincil e-posta
         String? syncEmail;
         if (isAdminLogin) {
           syncEmail = adminSyncEmail;
         } else if (foundUserData != null) {
           final dbEmail = foundUserData['email']?.toString().trim();
-          final uName = (foundUserData['username'] ?? inputUserLower).toString().trim().toLowerCase();
+          final uName = (foundUserData['username'] ?? inputUserLower)
+              .toString()
+              .trim()
+              .toLowerCase();
           syncEmail = (dbEmail != null && dbEmail.isNotEmpty)
               ? dbEmail
               : '$uName@$institutionId.edukn'.toLowerCase();
         }
 
         if (syncEmail != null) {
-          await _registerOrUpdateAuthUser(syncEmail, password, oldPasswords: knownOldPasswords);
+          await _registerOrUpdateAuthUser(
+            syncEmail,
+            password,
+            oldPasswords: knownOldPasswords,
+          );
 
           // Tekrar giriş dene
           for (final tryEmail in uniqueEmails) {
             if (loginSuccess) break;
             try {
               userCredential = await FirebaseAuth.instance
-                  .signInWithEmailAndPassword(email: tryEmail, password: password)
+                  .signInWithEmailAndPassword(
+                    email: tryEmail,
+                    password: password,
+                  )
                   .timeout(const Duration(seconds: 10));
               successEmail = tryEmail;
               loginSuccess = true;
               debugPrint('✅ Senkronizasyon sonrası giriş başarılı: $tryEmail');
-            } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
+            } catch (silentError) {
+              debugPrint('[school_login_screen] hata yutuldu: $silentError');
+            }
           }
         }
       }
@@ -612,6 +744,15 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
       final uid = userCredential?.user?.uid;
       if (uid == null) throw 'Kullanıcı kimliği alınamadı.';
+
+      if (successEmail != null && successEmail.isNotEmpty) {
+        await QrWebLoginService.saveLocalAuthCredentials(
+          email: successEmail,
+          password: usedPassword,
+          institutionId: institutionId,
+          username: inputUserLower,
+        );
+      }
 
       // Temp şifre kullanıldıysa temizle ve authUserId'yi orijinal dokümana bağla
       if (foundUserData != null) {
@@ -632,7 +773,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                 .collection('users')
                 .doc(foundUserData['id'])
                 .set(updates, SetOptions(merge: true));
-            debugPrint('✅ Orijinal kullanıcı dokümanı authUserId ile bağlandı: ${foundUserData['id']}');
+            debugPrint(
+              '✅ Orijinal kullanıcı dokümanı authUserId ile bağlandı: ${foundUserData['id']}',
+            );
           }
         } catch (e) {
           debugPrint('⚠️ Orijinal doküman güncelleme hatası: $e');
@@ -641,18 +784,24 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         // 2. Eğer daha önce oluşturulmuş bir klon / mükerrer /users/{uid} varsa temizle (Asla mükerrer hesap olmasın!)
         if (foundUserData['id'] != uid) {
           try {
-            final oldMirror = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+            final oldMirror = await FirebaseFirestore.instance
+                .collection('users')
+                .doc(uid)
+                .get();
             if (oldMirror.exists) {
               await oldMirror.reference.delete();
               debugPrint('🧹 Mükerrer /users/$uid dokümanı temizlendi.');
             }
-          } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
+          } catch (silentError) {
+            debugPrint('[school_login_screen] hata yutuldu: $silentError');
+          }
         }
       }
 
       // 🔔 FCM Token kaydet ve Bildirim İznini İste (Standart - iOS & Android)
       try {
-        await NotificationService().initialize(uid: uid, forcePermissionPrompt: true)
+        await NotificationService()
+            .initialize(uid: uid, forcePermissionPrompt: true)
             .timeout(const Duration(seconds: 4));
       } catch (e) {
         debugPrint('⚠️ FCM init hatası (kritik değil): $e');
@@ -664,13 +813,18 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         userData = foundUserData;
       } else {
         try {
-          final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get()
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(uid)
+              .get()
               .timeout(const Duration(seconds: 10));
           if (userDoc.exists) {
             userData = userDoc.data();
             userData?['id'] = userDoc.id;
           }
-        } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
+        } catch (silentError) {
+          debugPrint('[school_login_screen] hata yutuldu: $silentError');
+        }
 
         if (userData == null && successEmail != null) {
           for (final instId in instIdsToTry) {
@@ -686,15 +840,21 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                 userData = fallbackQuery.docs.first.data();
                 userData['id'] = fallbackQuery.docs.first.id;
               }
-            } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
+            } catch (silentError) {
+              debugPrint('[school_login_screen] hata yutuldu: $silentError');
+            }
           }
         }
       }
 
-      final isAdminUser = schoolData != null &&
-          (schoolData['adminUsername']?.toString().trim().toLowerCase() == inputUserLower ||
-           schoolData['adminEmail']?.toString().trim().toLowerCase() == successEmail?.toLowerCase() ||
-           schoolData['email']?.toString().trim().toLowerCase() == successEmail?.toLowerCase());
+      final isAdminUser =
+          schoolData != null &&
+          (schoolData['adminUsername']?.toString().trim().toLowerCase() ==
+                  inputUserLower ||
+              schoolData['adminEmail']?.toString().trim().toLowerCase() ==
+                  successEmail?.toLowerCase() ||
+              schoolData['email']?.toString().trim().toLowerCase() ==
+                  successEmail?.toLowerCase());
 
       if (userData == null && !isAdminUser) {
         await FirebaseAuth.instance.signOut();
@@ -712,12 +872,20 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         // userData'da institutionId eksikse ekle
         userData['institutionId'] ??= institutionId;
         UserPermissionService.setCachedUserData(userData);
-        debugPrint('📌 Kullanıcı cache hazırlandı: ${userData['fullName'] ?? userData['username']} / $institutionId');
+        debugPrint(
+          '📌 Kullanıcı cache hazırlandı: ${userData['fullName'] ?? userData['username']} / $institutionId',
+        );
       }
 
       // ── Rol şablonunu yükle (yetkilendirme sistemi için) ──
-      final userRole = (userData?['role'] ?? (isAdminLogin ? 'genel_mudur' : 'ogretmen')).toString().toLowerCase();
-      await UserPermissionService.loadAndCacheRoleTemplate(institutionId, userRole);
+      final userRole =
+          (userData?['role'] ?? (isAdminLogin ? 'genel_mudur' : 'ogretmen'))
+              .toString()
+              .toLowerCase();
+      await UserPermissionService.loadAndCacheRoleTemplate(
+        institutionId,
+        userRole,
+      );
 
       // ── ADIM 6: Yönlendirme ──
       if (mounted) {
@@ -726,7 +894,8 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         } else {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('active_portal', 'manager');
-          if (mounted) Navigator.pushReplacementNamed(context, '/school-dashboard');
+          if (mounted)
+            Navigator.pushReplacementNamed(context, '/school-dashboard');
         }
       }
     } catch (e) {
@@ -745,14 +914,23 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     String institutionId,
   ) async {
     final role = userData['role']?.toString().toLowerCase().trim() ?? '';
-    final tcNo = (userData['tcNo'] ?? userData['tcKimlik'] ?? '').toString().trim();
+    final tcNo = (userData['tcNo'] ?? userData['tcKimlik'] ?? '')
+        .toString()
+        .trim();
 
     // 1. Öğrenci kontrolü — Öğrenci hesabı ise SORMADAN doğrudan Veli/Öğrenci portalına yönlendir!
-    bool isStudentRole = role == 'student' || role == 'ogrenci' || role == 'öğrenci';
+    bool isStudentRole =
+        role == 'student' || role == 'ogrenci' || role == 'öğrenci';
     if (isStudentRole) {
       // Öğrencinin kendi kaydını students koleksiyonundan bul ve kaydet
       final prefs = await SharedPreferences.getInstance();
-      final studentNo = (userData['studentNumber'] ?? userData['studentNo'] ?? userData['number'] ?? '').toString().trim();
+      final studentNo =
+          (userData['studentNumber'] ??
+                  userData['studentNo'] ??
+                  userData['number'] ??
+                  '')
+              .toString()
+              .trim();
       final username = (userData['username'] ?? '').toString().trim();
       try {
         QuerySnapshot<Map<String, dynamic>>? stSnap;
@@ -776,10 +954,24 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           final sData = stSnap.docs.first.data();
           final sId = stSnap.docs.first.id;
           await prefs.setString('selected_student_id', sId);
-          await prefs.setString('selected_student_name', sData['fullName'] ?? '${sData['name'] ?? ''} ${sData['surname'] ?? ''}'.trim());
-          await prefs.setString('selected_student_class', sData['className'] ?? '');
-          await prefs.setString('selected_student_no', sData['studentNo']?.toString() ?? sData['studentNumber']?.toString() ?? '');
-          _navigateToPortal('parent', userData, institutionId, [{'id': sId, ...sData}]);
+          await prefs.setString(
+            'selected_student_name',
+            sData['fullName'] ??
+                '${sData['name'] ?? ''} ${sData['surname'] ?? ''}'.trim(),
+          );
+          await prefs.setString(
+            'selected_student_class',
+            sData['className'] ?? '',
+          );
+          await prefs.setString(
+            'selected_student_no',
+            sData['studentNo']?.toString() ??
+                sData['studentNumber']?.toString() ??
+                '',
+          );
+          _navigateToPortal('parent', userData, institutionId, [
+            {'id': sId, ...sData},
+          ]);
           return;
         }
       } catch (e) {
@@ -801,7 +993,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             .get();
         if (studentsQuery.docs.isNotEmpty) {
           hasParentRole = true;
-          students = studentsQuery.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+          students = studentsQuery.docs
+              .map((doc) => {...doc.data(), 'id': doc.id})
+              .toList();
         }
       } catch (e) {
         debugPrint('❌ Redirection parent check error: $e');
@@ -809,7 +1003,8 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     }
 
     // 3. Yönetici ve Öğretmen Rolü Kontrolü
-    bool isManager = role.contains('genel_mudur') ||
+    bool isManager =
+        role.contains('genel_mudur') ||
         role.contains('genel müdür') ||
         role.contains('genel mudur') ||
         role.contains('mudur') ||
@@ -827,9 +1022,60 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         role.contains('yonetici') ||
         role == 'super_admin';
 
-    bool isTeacher = (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) && !isManager;
+    bool isTeacher =
+        (role.contains('ogretmen') ||
+            role.contains('teacher') ||
+            role.contains('öğretmen')) &&
+        !isManager;
+
+    final dedicatedTarget =
+        UserPermissionService.getDedicatedSingleScreenTarget(userData);
+    if (dedicatedTarget != null) {
+      isManager = false;
+      isTeacher = false;
+    } else if (!isManager &&
+        !isTeacher &&
+        UserPermissionService.hasAnyMainModuleAccess(userData)) {
+      isManager = true;
+    }
 
     final eligiblePortals = <Map<String, dynamic>>[];
+
+    if (dedicatedTarget == 'health') {
+      eligiblePortals.add({
+        'id': 'health',
+        'title': 'Sağlık (Revir) Portalı',
+        'subtitle': 'Açık revir sevk dosyaları, müdahale ve ilaç takibi',
+        'icon': Icons.medical_services_rounded,
+        'color': const Color(0xFFDC2626),
+      });
+    } else if (dedicatedTarget == 'warehouse') {
+      eligiblePortals.add({
+        'id': 'warehouse',
+        'title': 'Depo Yönetim Portalı',
+        'subtitle':
+            'Depo stok giriş-çıkış, mal kabul ve malzeme teslimat yönetimi',
+        'icon': Icons.inventory_2_rounded,
+        'color': const Color(0xFF0D9488),
+      });
+    } else if (dedicatedTarget == 'purchasing') {
+      eligiblePortals.add({
+        'id': 'purchasing',
+        'title': 'Satın Alma Portalı',
+        'subtitle':
+            'Tedarikçi teklif toplama, karşılaştırma ve sipariş yönetimi',
+        'icon': Icons.request_quote_rounded,
+        'color': const Color(0xFF4F46E5),
+      });
+    } else if (dedicatedTarget == 'security') {
+      eligiblePortals.add({
+        'id': 'security',
+        'title': 'Güvenlik Kapı Portalı',
+        'subtitle': 'Öğrenci kapı çıkış onayı ve misafir giriş-çıkış yönetimi',
+        'icon': Icons.shield_rounded,
+        'color': const Color(0xFF0284C7),
+      });
+    }
 
     // 1. Yönetici / Personel Portalı
     if (isManager) {
@@ -871,7 +1117,12 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           _checkingSession = false;
           _isLoading = false;
         });
-        _showPortalSelectionDialog(eligiblePortals, userData, institutionId, students);
+        _showPortalSelectionDialog(
+          eligiblePortals,
+          userData,
+          institutionId,
+          students,
+        );
       }
     } else if (eligiblePortals.length == 1) {
       final portal = eligiblePortals.first['id'];
@@ -894,7 +1145,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         return WillPopScope(
           onWillPop: () async => false,
           child: Dialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(28),
+            ),
             backgroundColor: Colors.white,
             elevation: 16,
             child: Container(
@@ -942,13 +1195,21 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                       child: InkWell(
                         onTap: () {
                           Navigator.pop(context); // Close dialog
-                          _navigateToPortal(portal['id'], userData, institutionId, students);
+                          _navigateToPortal(
+                            portal['id'],
+                            userData,
+                            institutionId,
+                            students,
+                          );
                         },
                         borderRadius: BorderRadius.circular(20),
                         child: Container(
                           padding: const EdgeInsets.all(18),
                           decoration: BoxDecoration(
-                            border: Border.all(color: color.withValues(alpha: 0.2), width: 1.5),
+                            border: Border.all(
+                              color: color.withValues(alpha: 0.2),
+                              width: 1.5,
+                            ),
                             borderRadius: BorderRadius.circular(20),
                             color: color.withValues(alpha: 0.02),
                           ),
@@ -960,7 +1221,11 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                                   color: color.withValues(alpha: 0.1),
                                   shape: BoxShape.circle,
                                 ),
-                                child: Icon(portal['icon'] as IconData, color: color, size: 24),
+                                child: Icon(
+                                  portal['icon'] as IconData,
+                                  color: color,
+                                  size: 24,
+                                ),
                               ),
                               const SizedBox(width: 16),
                               Expanded(
@@ -1034,15 +1299,58 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('active_portal', portalId);
 
+    if (portalId == 'health') {
+      if (mounted) Navigator.pushReplacementNamed(context, '/health-portal');
+      return;
+    } else if (portalId == 'warehouse') {
+      if (mounted) Navigator.pushReplacementNamed(context, '/warehouse-portal');
+      return;
+    } else if (portalId == 'purchasing') {
+      if (mounted)
+        Navigator.pushReplacementNamed(context, '/purchasing-portal');
+      return;
+    } else if (portalId == 'security') {
+      if (mounted) Navigator.pushReplacementNamed(context, '/security-portal');
+      return;
+    }
+
     if (portalId == 'manager') {
+      final dedicatedTarget =
+          UserPermissionService.getDedicatedSingleScreenTarget(userData);
+      if (dedicatedTarget == 'health') {
+        await prefs.setString('active_portal', 'health');
+        if (mounted) Navigator.pushReplacementNamed(context, '/health-portal');
+        return;
+      } else if (dedicatedTarget == 'warehouse') {
+        await prefs.setString('active_portal', 'warehouse');
+        if (mounted)
+          Navigator.pushReplacementNamed(context, '/warehouse-portal');
+        return;
+      } else if (dedicatedTarget == 'purchasing') {
+        await prefs.setString('active_portal', 'purchasing');
+        if (mounted)
+          Navigator.pushReplacementNamed(context, '/purchasing-portal');
+        return;
+      } else if (dedicatedTarget == 'security') {
+        await prefs.setString('active_portal', 'security');
+        if (mounted)
+          Navigator.pushReplacementNamed(context, '/security-portal');
+        return;
+      }
       if (!UserPermissionService.hasAnyMainModuleAccess(userData)) {
         final userSchoolTypes = userData['schoolTypes'] as List<dynamic>? ?? [];
         if (userSchoolTypes.length == 1) {
           final schoolTypeId = userSchoolTypes.first.toString();
           try {
-            final stDoc = await FirebaseFirestore.instance.collection('schoolTypes').doc(schoolTypeId).get();
+            final stDoc = await FirebaseFirestore.instance
+                .collection('schoolTypes')
+                .doc(schoolTypeId)
+                .get();
             if (stDoc.exists) {
-              final stName = stDoc.data()?['name'] ?? stDoc.data()?['schoolTypeName'] ?? 'Okul Türü';
+              final stName =
+                  stDoc.data()?['name'] ??
+                  stDoc.data()?['schoolTypeName'] ??
+                  'Okul Türü';
               if (mounted) {
                 Navigator.pushReplacement(
                   context,
@@ -1058,10 +1366,12 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
               }
             }
           } catch (e) {
-            debugPrint('Error fetching school type details on login redirect: $e');
+            debugPrint(
+              'Error fetching school type details on login redirect: $e',
+            );
           }
         }
-        
+
         if (mounted) {
           Navigator.pushReplacementNamed(context, '/school-types');
           return;
@@ -1069,10 +1379,14 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       }
       if (mounted) Navigator.pushReplacementNamed(context, '/school-dashboard');
     } else if (portalId == 'teacher') {
-      if (mounted) Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => TeacherMainScreen(institutionId: institutionId)),
-      );
+      if (mounted)
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) =>
+                TeacherMainScreen(institutionId: institutionId),
+          ),
+        );
     } else if (portalId == 'parent' || portalId == 'student') {
       final tcNo = (userData['tcNo'] ?? userData['tcKimlik'] ?? '').toString();
 
@@ -1092,39 +1406,50 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
       // Birden fazla çocuk varsa -> Hangi öğrenciye girmek istediğini sor!
       if (students.length > 1) {
-        if (mounted) Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ParentStudentSelectionScreen(
-              institutionId: institutionId,
-              parentTcNo: tcNo,
-              students: students,
+        if (mounted)
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ParentStudentSelectionScreen(
+                institutionId: institutionId,
+                parentTcNo: tcNo,
+                students: students,
+              ),
             ),
-          ),
-        );
+          );
       } else {
         if (students.length == 1) {
           await prefs.setString('selected_student_id', students[0]['id']);
-          await prefs.setString('selected_student_name', students[0]['fullName'] ?? '');
+          await prefs.setString(
+            'selected_student_name',
+            students[0]['fullName'] ?? '',
+          );
         }
-        if (mounted) Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ParentMainScreen(institutionId: institutionId),
-          ),
-        );
+        if (mounted)
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) =>
+                  ParentMainScreen(institutionId: institutionId),
+            ),
+          );
       }
     }
   }
 
   void _forgotPassword() {
-    final resetInstitutionController = TextEditingController(text: _institutionController.text.trim());
-    final resetUsernameController = TextEditingController(text: _usernameController.text.trim());
+    final resetInstitutionController = TextEditingController(
+      text: _institutionController.text.trim(),
+    );
+    final resetUsernameController = TextEditingController(
+      text: _usernameController.text.trim(),
+    );
     final resetCodeController = TextEditingController();
     final newPasswordController = TextEditingController();
     final confirmPasswordController = TextEditingController();
 
-    int currentStep = 1; // 1: Bilgi Girişi, 2: Kod Girişi, 3: Yeni Şifre, 4: Başarı
+    int currentStep =
+        1; // 1: Bilgi Girişi, 2: Kod Girişi, 3: Yeni Şifre, 4: Başarı
     bool isLoading = false;
     String? errorMessage;
     String? foundEmail;
@@ -1136,7 +1461,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           return Container(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom,
+            ),
             decoration: const BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
@@ -1169,7 +1496,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: Icon(
-                          currentStep == 4 ? Icons.check_circle_outline : Icons.lock_reset_rounded,
+                          currentStep == 4
+                              ? Icons.check_circle_outline
+                              : Icons.lock_reset_rounded,
                           color: const Color(0xFF4C59BC),
                           size: 24,
                         ),
@@ -1178,9 +1507,10 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                       Text(
                         currentStep == 4 ? 'İşlem Başarılı' : 'Şifre Sıfırlama',
                         style: GoogleFonts.inter(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF1E2661)),
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF1E2661),
+                        ),
                       ),
                     ],
                   ),
@@ -1198,7 +1528,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                               height: 4,
                               margin: const EdgeInsets.symmetric(horizontal: 2),
                               decoration: BoxDecoration(
-                                color: isActive ? const Color(0xFF4C59BC) : Colors.grey.shade200,
+                                color: isActive
+                                    ? const Color(0xFF4C59BC)
+                                    : Colors.grey.shade200,
                                 borderRadius: BorderRadius.circular(2),
                               ),
                             ),
@@ -1211,7 +1543,10 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                     Container(
                       width: double.infinity,
                       margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.red.shade50,
                         borderRadius: BorderRadius.circular(12),
@@ -1219,7 +1554,11 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                       ),
                       child: Text(
                         errorMessage!,
-                        style: GoogleFonts.inter(color: Colors.red.shade800, fontSize: 13, fontWeight: FontWeight.w500),
+                        style: GoogleFonts.inter(
+                          color: Colors.red.shade800,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
 
@@ -1227,29 +1566,51 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                   if (currentStep == 1) ...[
                     Text(
                       'Hesabınızı bulmak için Kurum ID ve kullanıcı adınızı girin.',
-                      style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade600, height: 1.5),
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                        height: 1.5,
+                      ),
                     ),
                     const SizedBox(height: 24),
-                    _buildResetField('Kurum ID', resetInstitutionController, Icons.business_rounded, 'Kurum ID girin'),
+                    _buildResetField(
+                      'Kurum ID',
+                      resetInstitutionController,
+                      Icons.business_rounded,
+                      'Kurum ID girin',
+                    ),
                     const SizedBox(height: 16),
-                    _buildResetField('Kullanıcı Adı', resetUsernameController, Icons.person_outline_rounded, 'Kullanıcı adınız'),
+                    _buildResetField(
+                      'Kullanıcı Adı',
+                      resetUsernameController,
+                      Icons.person_outline_rounded,
+                      'Kullanıcı adınız',
+                    ),
                     const SizedBox(height: 32),
                     _buildResetButton(
                       isLoading: isLoading,
                       text: 'Kod Gönder',
                       onPressed: () async {
-                        if (resetInstitutionController.text.isEmpty || resetUsernameController.text.isEmpty) {
-                          setDialogState(() => errorMessage = 'Lütfen tüm alanları doldurun.');
+                        if (resetInstitutionController.text.isEmpty ||
+                            resetUsernameController.text.isEmpty) {
+                          setDialogState(
+                            () =>
+                                errorMessage = 'Lütfen tüm alanları doldurun.',
+                          );
                           return;
                         }
-                        setDialogState(() { isLoading = true; errorMessage = null; });
+                        setDialogState(() {
+                          isLoading = true;
+                          errorMessage = null;
+                        });
                         try {
                           final result = await FirebaseFunctions.instance
                               .httpsCallable('sendPasswordResetCode')
                               .call({
-                            'institutionId': resetInstitutionController.text.trim(),
-                            'username': resetUsernameController.text.trim(),
-                          });
+                                'institutionId': resetInstitutionController.text
+                                    .trim(),
+                                'username': resetUsernameController.text.trim(),
+                              });
                           setDialogState(() {
                             currentStep = 2;
                             foundEmail = result.data['email'];
@@ -1258,7 +1619,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                         } catch (e) {
                           setDialogState(() {
                             isLoading = false;
-                            errorMessage = e.toString().contains('not-found') ? 'Hesap bulunamadı.' : 'Bir hata oluştu.';
+                            errorMessage = e.toString().contains('not-found')
+                                ? 'Hesap bulunamadı.'
+                                : 'Bir hata oluştu.';
                           });
                         }
                       },
@@ -1270,7 +1633,11 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                     Text(
                       '${foundEmail?.replaceRange(2, foundEmail!.indexOf('@'), '****')} adresine gönderilen 6 haneli kodu girin.',
                       textAlign: TextAlign.center,
-                      style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade600, height: 1.5),
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                        height: 1.5,
+                      ),
                     ),
                     const SizedBox(height: 32),
                     Row(
@@ -1283,9 +1650,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                             color: Colors.transparent,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: resetCodeController.text.length == index 
-                                ? const Color(0xFF4C59BC) 
-                                : Colors.grey.shade200,
+                              color: resetCodeController.text.length == index
+                                  ? const Color(0xFF4C59BC)
+                                  : Colors.grey.shade200,
                               width: 2,
                             ),
                           ),
@@ -1297,12 +1664,12 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                               maxLength: 1,
                               cursorColor: const Color(0xFF4C59BC),
                               style: GoogleFonts.inter(
-                                fontSize: 22, 
-                                fontWeight: FontWeight.w800, 
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
                                 color: const Color(0xFF1E2661),
                               ),
                               decoration: const InputDecoration(
-                                counterText: "", 
+                                counterText: "",
                                 border: InputBorder.none,
                                 enabledBorder: InputBorder.none,
                                 focusedBorder: InputBorder.none,
@@ -1317,14 +1684,21 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                                   }
                                   String currentCode = resetCodeController.text;
                                   if (currentCode.length > index) {
-                                    currentCode = currentCode.replaceRange(index, index + 1, value);
+                                    currentCode = currentCode.replaceRange(
+                                      index,
+                                      index + 1,
+                                      value,
+                                    );
                                   } else {
                                     currentCode += value;
                                   }
                                   resetCodeController.text = currentCode;
-                                  
+
                                   if (currentCode.length == 6) {
-                                    setDialogState(() { currentStep = 3; errorMessage = null; });
+                                    setDialogState(() {
+                                      currentStep = 3;
+                                      errorMessage = null;
+                                    });
                                   }
                                 } else {
                                   if (index > 0) {
@@ -1332,7 +1706,8 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                                   }
                                   String currentCode = resetCodeController.text;
                                   if (currentCode.length > index) {
-                                    resetCodeController.text = currentCode.substring(0, index);
+                                    resetCodeController.text = currentCode
+                                        .substring(0, index);
                                   }
                                 }
                                 setDialogState(() {});
@@ -1345,7 +1720,13 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                     const SizedBox(height: 40),
                     TextButton(
                       onPressed: () => setDialogState(() => currentStep = 1),
-                      child: Text('Yanlış Bilgi? Geri Dön', style: GoogleFonts.inter(color: const Color(0xFF4C59BC), fontWeight: FontWeight.w600)),
+                      child: Text(
+                        'Yanlış Bilgi? Geri Dön',
+                        style: GoogleFonts.inter(
+                          color: const Color(0xFF4C59BC),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
                   ],
 
@@ -1353,39 +1734,68 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                   if (currentStep == 3) ...[
                     Text(
                       'Lütfen hesabınız için yeni ve güvenli bir şifre belirleyin.',
-                      style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade600, height: 1.5),
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                        height: 1.5,
+                      ),
                     ),
                     const SizedBox(height: 24),
-                    _buildResetField('Yeni Şifre', newPasswordController, Icons.lock_outline, 'En az 6 karakter', isPassword: true),
+                    _buildResetField(
+                      'Yeni Şifre',
+                      newPasswordController,
+                      Icons.lock_outline,
+                      'En az 6 karakter',
+                      isPassword: true,
+                    ),
                     const SizedBox(height: 16),
-                    _buildResetField('Şifre Tekrar', confirmPasswordController, Icons.lock_outline, 'Tekrar yazın', isPassword: true),
+                    _buildResetField(
+                      'Şifre Tekrar',
+                      confirmPasswordController,
+                      Icons.lock_outline,
+                      'Tekrar yazın',
+                      isPassword: true,
+                    ),
                     const SizedBox(height: 32),
                     _buildResetButton(
                       isLoading: isLoading,
                       text: 'Şifreyi Güncelle',
                       onPressed: () async {
                         if (newPasswordController.text.length < 6) {
-                          setDialogState(() => errorMessage = 'Şifre en az 6 karakter olmalı.');
+                          setDialogState(
+                            () =>
+                                errorMessage = 'Şifre en az 6 karakter olmalı.',
+                          );
                           return;
                         }
-                        if (newPasswordController.text != confirmPasswordController.text) {
-                          setDialogState(() => errorMessage = 'Şifreler uyuşmuyor.');
+                        if (newPasswordController.text !=
+                            confirmPasswordController.text) {
+                          setDialogState(
+                            () => errorMessage = 'Şifreler uyuşmuyor.',
+                          );
                           return;
                         }
-                        setDialogState(() { isLoading = true; errorMessage = null; });
+                        setDialogState(() {
+                          isLoading = true;
+                          errorMessage = null;
+                        });
                         try {
                           await FirebaseFunctions.instance
                               .httpsCallable('verifyCodeAndResetPassword')
                               .call({
-                            'email': foundEmail,
-                            'code': resetCodeController.text.trim(),
-                            'newPassword': newPasswordController.text,
+                                'email': foundEmail,
+                                'code': resetCodeController.text.trim(),
+                                'newPassword': newPasswordController.text,
+                              });
+                          setDialogState(() {
+                            currentStep = 4;
+                            isLoading = false;
                           });
-                          setDialogState(() { currentStep = 4; isLoading = false; });
                         } catch (e) {
                           setDialogState(() {
                             isLoading = false;
-                            errorMessage = 'İşlem başarısız. Kodun süresi dolmuş olabilir.';
+                            errorMessage =
+                                'İşlem başarısız. Kodun süresi dolmuş olabilir.';
                           });
                         }
                       },
@@ -1395,11 +1805,18 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                   // ─── ADIM 4: BAŞARI ────────────────────────────────
                   if (currentStep == 4) ...[
                     const SizedBox(height: 20),
-                    Icon(Icons.check_circle_rounded, size: 80, color: Colors.green.shade500),
+                    Icon(
+                      Icons.check_circle_rounded,
+                      size: 80,
+                      color: Colors.green.shade500,
+                    ),
                     const SizedBox(height: 20),
                     Text(
                       'Şifreniz Güncellendi!',
-                      style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: GoogleFonts.inter(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Text(
@@ -1421,11 +1838,25 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     );
   }
 
-  Widget _buildResetField(String label, TextEditingController controller, IconData icon, String hint, {bool isNumeric = false, bool isPassword = false}) {
+  Widget _buildResetField(
+    String label,
+    TextEditingController controller,
+    IconData icon,
+    String hint, {
+    bool isNumeric = false,
+    bool isPassword = false,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF1E2661))),
+        Text(
+          label,
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF1E2661),
+          ),
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
@@ -1439,16 +1870,16 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             fillColor: Colors.white,
             contentPadding: const EdgeInsets.all(18),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16), 
-              borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5)
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16), 
-              borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5)
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16), 
-              borderSide: const BorderSide(color: Color(0xFF4C59BC), width: 2)
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Color(0xFF4C59BC), width: 2),
             ),
           ),
         ),
@@ -1456,7 +1887,11 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     );
   }
 
-  Widget _buildResetButton({required String text, required VoidCallback onPressed, bool isLoading = false}) {
+  Widget _buildResetButton({
+    required String text,
+    required VoidCallback onPressed,
+    bool isLoading = false,
+  }) {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
@@ -1465,12 +1900,27 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           backgroundColor: const Color(0xFF4C59BC),
           foregroundColor: Colors.white,
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           padding: const EdgeInsets.symmetric(vertical: 18),
         ),
         child: isLoading
-            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white))
-            : Text(text, style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16)),
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: Colors.white,
+                ),
+              )
+            : Text(
+                text,
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
       ),
     );
   }
@@ -1486,27 +1936,32 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     try {
       User? user;
 
-        // Web ve Native ortak Google Girişi (Popup engelleyicilere takılmaz, GIS kullanır)
-        final GoogleSignIn googleSignIn = GoogleSignIn();
-        final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
-        
-        if (googleUser == null) {
-          if (mounted) setState(() => _isLoading = false);
-          return;
-        }
-        
-        final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-        final AuthCredential credential = GoogleAuthProvider.credential(
-          accessToken: googleAuth.accessToken,
-          idToken: googleAuth.idToken,
-        );
-        
-        final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
-        user = userCredential.user;
+      // Web ve Native ortak Google Girişi (Popup engelleyicilere takılmaz, GIS kullanır)
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+
+      if (googleUser == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final userCredential = await FirebaseAuth.instance.signInWithCredential(
+        credential,
+      );
+      user = userCredential.user;
 
       if (user != null && user.email != null) {
         final googleEmail = user.email!.trim().toLowerCase();
-        debugPrint('🔍 Google ile giriş yapan mail: $googleEmail. Sistemde aranıyor...');
+        debugPrint(
+          '🔍 Google ile giriş yapan mail: $googleEmail. Sistemde aranıyor...',
+        );
 
         // 1. users, students ve parents koleksiyonlarında e-posta arama
         final searchResults = await Future.wait([
@@ -1553,14 +2008,18 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           throw 'Bu Google hesabı ($googleEmail) ile kayıtlı bir kullanıcı bulunamadı. Lütfen okul yönetiminiz ile iletişime geçin.';
         }
 
-        final docData = Map<String, dynamic>.from(matchedDoc.data() as Map<String, dynamic>);
+        final docData = Map<String, dynamic>.from(
+          matchedDoc.data() as Map<String, dynamic>,
+        );
         docData['id'] = matchedDoc.id;
         if (docData['isActive'] == false) {
           await FirebaseAuth.instance.signOut();
           throw 'Hesabınız pasif durumda!';
         }
 
-        final instId = (docData['institutionId'] ?? _institutionController.text.trim()).toString();
+        final instId =
+            (docData['institutionId'] ?? _institutionController.text.trim())
+                .toString();
 
         // 1. Orijinal users/students/parents dokümanını güncelle (ASLA YENİ KLON DOKÜMAN OLUŞTURMA!)
         try {
@@ -1583,8 +2042,13 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           // Rol şablonunu yükle (Google giriş için de)
           UserPermissionService.setInstitutionIdCache(instId);
           UserPermissionService.setCachedUserData(docData);
-          final googleRole = (docData['role'] ?? 'ogretmen').toString().toLowerCase();
-          await UserPermissionService.loadAndCacheRoleTemplate(instId, googleRole);
+          final googleRole = (docData['role'] ?? 'ogretmen')
+              .toString()
+              .toLowerCase();
+          await UserPermissionService.loadAndCacheRoleTemplate(
+            instId,
+            googleRole,
+          );
           await _routeUserAfterLoadingData(docData, instId);
         }
       }
@@ -1593,7 +2057,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       final errorMessage = errorMsg.contains('popup_closed')
           ? 'Giriş penceresi kapatıldı. Lütfen tekrar deneyin.'
           : errorMsg.contains('permission-denied')
-          ? 'Google hesabınız (${ FirebaseAuth.instance.currentUser?.email ?? ''}) ile eşleşen bir kullanıcı bulunamadı veya yetki sorunu var. Lütfen yöneticinize başvurun.'
+          ? 'Google hesabınız (${FirebaseAuth.instance.currentUser?.email ?? ''}) ile eşleşen bir kullanıcı bulunamadı veya yetki sorunu var. Lütfen yöneticinize başvurun.'
           : errorMsg.contains('bulunamadı') || errorMsg.contains('pasif')
           ? errorMsg
           : 'Google ile giriş yapılamadı. Lütfen tekrar deneyin.';
@@ -1620,35 +2084,349 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
   }
 
   void _showQrLoginDialog() {
+    QrLoginChallenge challenge = QrWebLoginService.createChallenge();
+    StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? sub;
+    bool isHandlingApproval = false;
+    String statusText = 'Oturum Bekleniyor...';
+    Color statusColor = const Color(0xFF4F46E5);
+
+    void startListening(StateSetter setModalState) {
+      sub?.cancel();
+      sub = QrWebLoginService.watchChallenge(challenge).listen(
+        (snapshot) async {
+          if (isHandlingApproval || !snapshot.exists) return;
+          final data = snapshot.data();
+          if (data == null) return;
+          final status = data['status']?.toString() ?? '';
+          final payloadEnc = data['payloadEnc']?.toString() ?? '';
+          if (status == 'approved' && payloadEnc.isNotEmpty) {
+            isHandlingApproval = true;
+            final approvedName = data['approvedByName']?.toString() ?? '';
+            setModalState(() {
+              statusText = approvedName.isNotEmpty
+                  ? '$approvedName onayladı, giriş yapılıyor...'
+                  : 'Onaylandı, giriş yapılıyor...';
+              statusColor = const Color(0xFF10B981);
+            });
+            try {
+              final payload = QrWebLoginService.decryptPayload(
+                payloadEnc,
+                challenge.sessionKey,
+              );
+              if (payload == null) {
+                throw 'Oturum verisi çözümlenemedi.';
+              }
+              await sub?.cancel();
+              if (mounted && Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+              await _loginWithQrPayload(payload, challenge);
+            } catch (e) {
+              isHandlingApproval = false;
+              setModalState(() {
+                statusText = 'Oturum doğrulanamadı, lütfen kodu yenileyin.';
+                statusColor = const Color(0xFFEF4444);
+              });
+            }
+          }
+        },
+        onError: (err) {
+          debugPrint('⚠️ QR login stream hatası: $err');
+        },
+      );
+    }
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: Center(child: Text('QR Kod ile Giriş Yap', style: GoogleFonts.inter(fontWeight: FontWeight.bold))),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Mobil uygulamadan "QR Giriş" özelliğini açarak bu kodu taratın.', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: Colors.grey)),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.indigo.shade50, width: 2),
-                boxShadow: [BoxShadow(color: Colors.indigo.shade100.withValues(alpha: 0.3), blurRadius: 40)],
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        bool listenerInitialized = false;
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            if (!listenerInitialized) {
+              listenerInitialized = true;
+              startListening(setModalState);
+            }
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(28),
               ),
-              child: Image.network('https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=edukn_login_session_demo_12345', width: 200, height: 200),
+              backgroundColor: Colors.white,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 28, 28, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'QR Kod ile Giriş Yap',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Mobil uygulamada sağ üstteki profil menüsünden "Web\'de QR ile Oturum Aç" seçeneğine dokunarak bu kodu taratın.',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          color: const Color(0xFF64748B),
+                          height: 1.45,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: Colors.indigo.shade50,
+                            width: 2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.indigo.shade100.withValues(
+                                alpha: 0.35,
+                              ),
+                              blurRadius: 40,
+                            ),
+                          ],
+                        ),
+                        child: QrImageView(
+                          data: challenge.qrData,
+                          version: QrVersions.auto,
+                          size: 210,
+                          backgroundColor: Colors.white,
+                          eyeStyle: const QrEyeStyle(
+                            eyeShape: QrEyeShape.square,
+                            color: Color(0xFF0F172A),
+                          ),
+                          dataModuleStyle: const QrDataModuleStyle(
+                            dataModuleShape: QrDataModuleShape.square,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        statusText,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: statusColor,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          minHeight: 3,
+                          color: statusColor,
+                          backgroundColor: statusColor.withValues(alpha: 0.14),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          TextButton.icon(
+                            onPressed: isHandlingApproval
+                                ? null
+                                : () {
+                                    setModalState(() {
+                                      challenge =
+                                          QrWebLoginService.createChallenge();
+                                      statusText = 'Oturum Bekleniyor...';
+                                      statusColor = const Color(0xFF4F46E5);
+                                    });
+                                    startListening(setModalState);
+                                  },
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
+                            label: Text(
+                              'Kodu Yenile',
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              sub?.cancel();
+                              Navigator.pop(dialogContext);
+                            },
+                            child: Text(
+                              'Kapat',
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      sub?.cancel();
+    });
+  }
+
+  Future<void> _loginWithQrPayload(
+    Map<String, dynamic> payload,
+    QrLoginChallenge challenge,
+  ) async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    try {
+      final email = (payload['email'] ?? '').toString().trim();
+      final password = (payload['password'] ?? '').toString();
+      final payloadInstId = (payload['institutionId'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+      final userDocId = (payload['userDocId'] ?? '').toString().trim();
+      final activePortal = (payload['activePortal'] ?? '').toString().trim();
+      final selectedStudentId =
+          (payload['selectedStudentId'] ?? '').toString().trim();
+      final selectedStudentName =
+          (payload['selectedStudentName'] ?? '').toString().trim();
+
+      if (email.isEmpty || password.isEmpty) {
+        throw 'QR oturum bilgileri eksik veya geçersiz.';
+      }
+
+      if (FirebaseAuth.instance.currentUser != null) {
+        await FirebaseAuth.instance.signOut();
+      }
+
+      final userCred = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: password)
+          .timeout(const Duration(seconds: 15));
+
+      final uid = userCred.user?.uid;
+      if (uid == null) {
+        throw 'Kullanıcı kimliği doğrulanamadı.';
+      }
+
+      // Geçici QR oturum dokümanını temizle
+      await QrWebLoginService.cleanupChallenge(challenge);
+
+      // Kullanıcı dokümanını yükle
+      Map<String, dynamic>? userData;
+      if (userDocId.isNotEmpty) {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userDocId)
+            .get();
+        if (doc.exists && doc.data() != null) {
+          userData = Map<String, dynamic>.from(doc.data()!);
+          userData['id'] = doc.id;
+        }
+      }
+      userData ??= await UserPermissionService.loadUserData();
+
+      final institutionId = (payloadInstId.isNotEmpty
+              ? payloadInstId
+              : (userData?['institutionId'] ?? '').toString().trim())
+          .toUpperCase();
+
+      await QrWebLoginService.saveLocalAuthCredentials(
+        email: email,
+        password: password,
+        institutionId: institutionId,
+        username: (userData?['username'] ?? '').toString(),
+      );
+
+      if (institutionId.isNotEmpty) {
+        UserPermissionService.setInstitutionIdCache(institutionId);
+      }
+
+      if (userData != null) {
+        if (institutionId.isNotEmpty) {
+          userData['institutionId'] ??= institutionId;
+        }
+        UserPermissionService.setCachedUserData(userData);
+      }
+
+      final userRole =
+          (userData?['role'] ?? payload['role'] ?? 'genel_mudur')
+              .toString()
+              .toLowerCase();
+      if (institutionId.isNotEmpty) {
+        await UserPermissionService.loadAndCacheRoleTemplate(
+          institutionId,
+          userRole,
+        );
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      if (selectedStudentId.isNotEmpty) {
+        await prefs.setString('selected_student_id_$uid', selectedStudentId);
+        await prefs.setString('selected_student_id', selectedStudentId);
+        if (selectedStudentName.isNotEmpty) {
+          await prefs.setString('selected_student_name', selectedStudentName);
+        }
+      }
+
+      if (!mounted) return;
+
+      if (userData == null) {
+        await prefs.setString('active_portal', 'manager');
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/school-dashboard');
+        }
+        return;
+      }
+
+      // Mobilde seçili öğrenciyle Veli/Öğrenci portalındaysa doğrudan o öğrenciye gir
+      if ((activePortal == 'parent' || activePortal == 'student') &&
+          selectedStudentId.isNotEmpty) {
+        await prefs.setString('active_portal', activePortal);
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) =>
+                  ParentMainScreen(institutionId: institutionId),
             ),
-            const SizedBox(height: 24),
-            const Text('Oturum Bekleniyor...', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.indigo)),
-            const SizedBox(height: 8),
-            const LinearProgressIndicator(minHeight: 2),
-          ],
-        ),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Kapat'))],
-      ),
-    );
+          );
+        }
+        return;
+      }
+
+      // Mobilde açık olan spesifik bir portal varsa doğrudan o portala yönlendir
+      if (activePortal.isNotEmpty) {
+        await _navigateToPortal(activePortal, userData, institutionId, []);
+        return;
+      }
+
+      await _routeUserAfterLoadingData(userData, institutionId);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('QR ile giriş yapılamadı: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   // ─── BUILD ────────────────────────────────────────────────────────────────
@@ -1664,7 +2442,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     }
 
     final size = MediaQuery.of(context).size;
-    
+
     // Hem split-screen (>1150px) hem de tek sütunlu tam ekran (<1150px) modlarını
     // en esnek ve estetik şekilde yöneten, duyarlı (responsive) _buildWebLayout metodunu kullanıyoruz.
     return _buildWebLayout(size);
@@ -1674,18 +2452,42 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
   Widget _buildWebLayout(Size size) {
     // Total content height estimate for left panel
-    const double contentHeight = 40 + 36 + 6 + 13 + 40 // header
-        + 16 + 52 + 16 // kurum id
-        + 16 + 52 + 16 // kullanıcı adı
-        + 16 + 52 + 18 // şifre
-        + 24 + 24 + 52 + 24 // kvkk + button
-        + 20 + 16 + 52 + 16 // divider + social
-        + 32 + 16; // footer gap + footer text
+    const double contentHeight =
+        40 +
+        36 +
+        6 +
+        13 +
+        40 // header
+        +
+        16 +
+        52 +
+        16 // kurum id
+        +
+        16 +
+        52 +
+        16 // kullanıcı adı
+        +
+        16 +
+        52 +
+        18 // şifre
+        +
+        24 +
+        24 +
+        52 +
+        24 // kvkk + button
+        +
+        20 +
+        16 +
+        52 +
+        16 // divider + social
+        +
+        32 +
+        16; // footer gap + footer text
     // ≈ 700px; if screen height < contentHeight + 80(vertical padding), scroll opens
 
     // Ekran genişliği 1150px ve üzeri olduğunda sağ paneli (split-screen) gösteriyoruz.
     final bool showRightPanel = size.width >= 1150;
-    
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: Stack(
@@ -1694,8 +2496,8 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           if (!showRightPanel) ...[
             Positioned.fill(
               child: Image.asset(
-                'assets/images/login_bg.png', 
-                fit: BoxFit.cover, 
+                'assets/images/login_bg.png',
+                fit: BoxFit.cover,
                 filterQuality: FilterQuality.high,
               ),
             ),
@@ -1735,198 +2537,509 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                             constraints: BoxConstraints(minHeight: size.height),
                             child: Container(
                               color: Colors.transparent,
-                              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 32,
+                                vertical: 40,
+                              ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
-                          // ── GROUP 1: Logo + Başlık (Hem web hem mobilde ortalanmış üst kısım) ──
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const SizedBox(width: double.infinity), // Yatayda Center etmek için
-                              GestureDetector(
-                                onLongPress: () => Navigator.pushNamed(context, '/admin-login'),
-                                child: buildWebImage(
-                                  'assets/images/google_auth_full_logo_light.png',
-                                  width: 280,
-                                  height: 80,
-                                  fit: BoxFit.contain,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Eğitim Yönetim Sistemine Hoş Geldiniz', 
-                                textAlign: TextAlign.center, 
-                                style: GoogleFonts.inter(
-                                  fontSize: 12, 
-                                  color: Colors.grey.shade600, 
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
+                                  // ── GROUP 1: Logo + Başlık (Hem web hem mobilde ortalanmış üst kısım) ──
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const SizedBox(
+                                        width: double.infinity,
+                                      ), // Yatayda Center etmek için
+                                      GestureDetector(
+                                        onLongPress: () => Navigator.pushNamed(
+                                          context,
+                                          '/admin-login',
+                                        ),
+                                        child: buildWebImage(
+                                          EduKnBrand.fullLogoAsset,
+                                          width: 280,
+                                          height: 80,
+                                          fit: BoxFit.contain,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'Eğitim Yönetim Sistemine Hoş Geldiniz',
+                                        textAlign: TextAlign.center,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
 
-                      // ── GROUP 2: Form ──
-                      Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildLabel('Kurum ID'),
-                            _buildInputField(controller: _institutionController, hint: 'Kurum numarası', icon: Icons.business_rounded),
-                            const SizedBox(height: 16),
-                            _buildLabel('Kullanıcı Adı'),
-                            _buildInputField(controller: _usernameController, hint: 'Kullanıcı adı', icon: Icons.person_outline_rounded),
-                            const SizedBox(height: 16),
-                            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                              _buildLabel('Şifre'),
-                              GestureDetector(
-                                onTap: _forgotPassword,
-                                child: Text('Şifremi Unuttum', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4C59BC))),
-                              ),
-                            ]),
-                            _buildInputField(controller: _passwordController, hint: '••••••••', icon: Icons.lock_outline_rounded, isPassword: true),
-                            const SizedBox(height: 18),
-                            _buildKvkkRow(),
-                            const SizedBox(height: 24),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 52,
-                              child: ElevatedButton(
-                                onPressed: _isLoading ? null : _login,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF4C59BC),
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                                child: _isLoading
-                                    ? const SizedBox(width: 24, height: 24, child: EduKnLoader(size: 24))
-                                    : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                                        Text('Giriş Yap', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700)),
-                                        const SizedBox(width: 8),
-                                        const Icon(Icons.login_rounded, size: 18),
-                                      ]),
+                                  // ── GROUP 2: Form ──
+                                  Form(
+                                    key: _formKey,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        _buildLabel('Kurum ID'),
+                                        _buildInputField(
+                                          controller: _institutionController,
+                                          hint: 'Kurum numarası',
+                                          icon: Icons.business_rounded,
+                                        ),
+                                        const SizedBox(height: 16),
+                                        _buildLabel('Kullanıcı Adı'),
+                                        _buildInputField(
+                                          controller: _usernameController,
+                                          hint: 'Kullanıcı adı',
+                                          icon: Icons.person_outline_rounded,
+                                        ),
+                                        const SizedBox(height: 16),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            _buildLabel('Şifre'),
+                                            GestureDetector(
+                                              onTap: _forgotPassword,
+                                              child: Text(
+                                                'Şifremi Unuttum',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: const Color(
+                                                    0xFF4C59BC,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        _buildInputField(
+                                          controller: _passwordController,
+                                          hint: '••••••••',
+                                          icon: Icons.lock_outline_rounded,
+                                          isPassword: true,
+                                        ),
+                                        const SizedBox(height: 18),
+                                        _buildKvkkRow(),
+                                        const SizedBox(height: 24),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          height: 52,
+                                          child: ElevatedButton(
+                                            onPressed: _isLoading
+                                                ? null
+                                                : _login,
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: const Color(
+                                                0xFF4C59BC,
+                                              ),
+                                              foregroundColor: Colors.white,
+                                              elevation: 0,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                            ),
+                                            child: _isLoading
+                                                ? const SizedBox(
+                                                    width: 24,
+                                                    height: 24,
+                                                    child: EduKnLoader(
+                                                      size: 24,
+                                                    ),
+                                                  )
+                                                : Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      Text(
+                                                        'Giriş Yap',
+                                                        style:
+                                                            GoogleFonts.inter(
+                                                              fontSize: 15,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w700,
+                                                            ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      const Icon(
+                                                        Icons.login_rounded,
+                                                        size: 18,
+                                                      ),
+                                                    ],
+                                                  ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 24),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Divider(
+                                                color: Colors.grey.shade200,
+                                              ),
+                                            ),
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                  ),
+                                              child: Text(
+                                                'Veya şununla devam et',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 10,
+                                                  color: Colors.grey.shade400,
+                                                ),
+                                              ),
+                                            ),
+                                            Expanded(
+                                              child: Divider(
+                                                color: Colors.grey.shade200,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 16),
+                                        Row(
+                                          children: [
+                                            _buildSocialButton(
+                                              icon:
+                                                  'https://cdn-icons-png.flaticon.com/512/2991/2991148.png',
+                                              label: 'Google',
+                                              onTap: _loginWithGmail,
+                                            ),
+                                            const SizedBox(width: 12),
+                                            _buildSocialButton(
+                                              icon: 'qr_code',
+                                              label: 'QR Kod',
+                                              onTap: _showQrLoginDialog,
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  // ── GROUP 3: Footer ──
+                                  Center(
+                                    child: Text(
+                                      '© 2026 ${EduKnBrand.brandName}. Tüm hakları saklıdır.',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade400,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 24),
-                            Row(children: [
-                              Expanded(child: Divider(color: Colors.grey.shade200)),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                                child: Text('Veya şununla devam et', style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
-                              ),
-                              Expanded(child: Divider(color: Colors.grey.shade200)),
-                            ]),
-                            const SizedBox(height: 16),
-                            Row(children: [
-                              _buildSocialButton(icon: 'https://cdn-icons-png.flaticon.com/512/2991/2991148.png', label: 'Google', onTap: _loginWithGmail),
-                              const SizedBox(width: 12),
-                              _buildSocialButton(icon: 'qr_code', label: 'QR Kod', onTap: _showQrLoginDialog),
-                            ]),
-                          ],
+                          ),
                         ),
                       ),
-
-                      // ── GROUP 3: Footer ──
-                      Center(child: Text('© 2026 eduKN. Tüm hakları saklıdır.', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400))),
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  ),
 
-          // ── RIGHT PANEL ────────────────────────────────────────────────────
-          if (showRightPanel)
-            Expanded(
-              child: SizedBox(
-              height: size.height, // Always full viewport height
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Image.asset('assets/images/login_bg.png', fit: BoxFit.cover),
-                  Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xDD1E2661), Color(0xDD3B47B5), Color(0xAA2E3E8C)],
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 48),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              // ── RIGHT PANEL ────────────────────────────────────────────────────
+              if (showRightPanel)
+                Expanded(
+                  child: SizedBox(
+                    height: size.height, // Always full viewport height
+                    child: Stack(
+                      fit: StackFit.expand,
                       children: [
-                        // Top: Badge
+                        Image.asset(
+                          'assets/images/login_bg.png',
+                          fit: BoxFit.cover,
+                        ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
-                          ),
-                          child: Text('Eğitim Yönetim Sistemi', style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.9), fontSize: 12, fontWeight: FontWeight.w600)),
-                        ),
-
-                        // Center: Title + Stats
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text('Eğitimi\nDijitalleştirin.', style: GoogleFonts.inter(color: Colors.white, fontSize: 48, fontWeight: FontWeight.w900, height: 1.1, letterSpacing: -1.5)),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Öğrenci kayıttan bordro yönetimine,\nokul türü yönetiminden rehberlik\nraporlarına kadar tüm süreçler tek platformda.',
-                              style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.75), fontSize: 14, height: 1.6),
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color(0xDD1E2661),
+                                Color(0xDD3B47B5),
+                                Color(0xAA2E3E8C),
+                              ],
                             ),
-                            const SizedBox(height: 20),
-                            Row(children: [
-                              _buildStatBadge('Modüller', '9+'),
-                              const SizedBox(width: 24),
-                              _buildStatBadge('Kullanıcılar', '∞'),
-                              const SizedBox(width: 24),
-                              _buildStatBadge('Destek', '7/24'),
-                            ]),
-                          ],
+                          ),
                         ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 60,
+                            vertical: 48,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              // Top: Badge
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 7,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.14),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.25),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.auto_awesome_rounded,
+                                      size: 14,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.92,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 7),
+                                    Text(
+                                      'Yeni Nesil Bütünleşik Eğitim & Kampüs Ekosistemi',
+                                      style: GoogleFonts.inter(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.92,
+                                        ),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
 
-                        // Bottom: KVKK
-                        Row(children: [
-                          Icon(Icons.verified_rounded, color: Colors.white.withValues(alpha: 0.6), size: 15),
-                          const SizedBox(width: 8),
-                          Text('Güvenli & KVKK Uyumlu Platform', style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.6), fontSize: 11, fontWeight: FontWeight.w500)),
-                        ]),
+                              // Center: Title + Description + Feature Cards
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 640,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'Okulunuzun Tüm\nSüreçleri Tek Merkezde.',
+                                      style: GoogleFonts.inter(
+                                        color: Colors.white,
+                                        fontSize: 44,
+                                        fontWeight: FontWeight.w900,
+                                        height: 1.12,
+                                        letterSpacing: -1.3,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'Akademik planlama, ölçme-değerlendirme ve kişiye özel soru bankasından 360° rehberlik portfolyosuna; kurumsal iletişim, okul mağazası ve akıllı kantin cüzdanından finansal yönetime kadar idareci, öğretmen, öğrenci ve velileri tek ekosistemde buluşturun.',
+                                      style: GoogleFonts.inter(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.82,
+                                        ),
+                                        fontSize: 14.5,
+                                        height: 1.65,
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 20),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        _buildFeaturePill(
+                                          Icons.analytics_outlined,
+                                          'Ölçme & Fokus Kitap',
+                                        ),
+                                        _buildFeaturePill(
+                                          Icons.psychology_outlined,
+                                          '360° Rehberlik & Portfolyo',
+                                        ),
+                                        _buildFeaturePill(
+                                          Icons.storefront_outlined,
+                                          'Okul Mağazası & Akıllı Kantin',
+                                        ),
+                                        _buildFeaturePill(
+                                          Icons.forum_outlined,
+                                          'Kurumsal İletişim & Yoklama',
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 28),
+                                    Wrap(
+                                      spacing: 14,
+                                      runSpacing: 14,
+                                      children: [
+                                        _buildStatBadge(
+                                          icon: Icons.layers_rounded,
+                                          value: 'Uçtan Uca',
+                                          label: 'Akademik & İdari Süreç',
+                                          detail:
+                                              'Kayıt, Ders, Sınav, Finans & Operasyon',
+                                        ),
+                                        _buildStatBadge(
+                                          icon: Icons.hub_rounded,
+                                          value: '4 Portal',
+                                          label: 'Bütünleşik Erişim',
+                                          detail:
+                                              'Yönetim, Öğretmen, Öğrenci ve Veli',
+                                        ),
+                                        _buildStatBadge(
+                                          icon: Icons.insights_rounded,
+                                          value: '360° Analiz',
+                                          label: 'Veriye Dayalı Takip',
+                                          detail:
+                                              'Anlık Karne, Gelişim & Başarı Raporları',
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              // Bottom: KVKK & Security
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.verified_user_rounded,
+                                    color: Colors.white.withValues(alpha: 0.7),
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Bulut Tabanlı • Rol Bazlı Yetkilendirme • KVKK Uyumlu Güvenli Altyapı',
+                                    style: GoogleFonts.inter(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.7,
+                                      ),
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                ],
-              ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFeaturePill(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.white.withValues(alpha: 0.9)),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: GoogleFonts.inter(
+              color: Colors.white.withValues(alpha: 0.92),
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
       ),
-          ],
-        ),
     );
   }
 
-  Widget _buildStatBadge(String label, String value) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(value, style: GoogleFonts.inter(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900)),
-      const SizedBox(height: 2),
-      Text(label, style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.6), fontSize: 12, fontWeight: FontWeight.w500)),
-    ]);
+  Widget _buildStatBadge({
+    required IconData icon,
+    required String value,
+    required String label,
+    required String detail,
+  }) {
+    return Container(
+      width: 196,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, size: 16, color: Colors.white),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    color: Colors.white,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(
+              color: Colors.white.withValues(alpha: 0.92),
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            detail,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(
+              color: Colors.white.withValues(alpha: 0.68),
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // ─── MOBILE: Single-column ────────────────────────────────────────────────
@@ -1937,14 +3050,24 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          Positioned.fill(child: Image.asset('assets/images/login_bg.png', fit: BoxFit.cover, filterQuality: FilterQuality.high)),
+          Positioned.fill(
+            child: Image.asset(
+              'assets/images/login_bg.png',
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.high,
+            ),
+          ),
           Positioned.fill(
             child: Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Colors.white.withValues(alpha: 0.85), Colors.white.withValues(alpha: 0.4), Colors.white.withValues(alpha: 0.85)],
+                  colors: [
+                    Colors.white.withValues(alpha: 0.85),
+                    Colors.white.withValues(alpha: 0.4),
+                    Colors.white.withValues(alpha: 0.85),
+                  ],
                 ),
               ),
             ),
@@ -1955,30 +3078,50 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                 return SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
                   child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 40,
+                      ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           GestureDetector(
-                            onLongPress: () => Navigator.pushNamed(context, '/admin-login'),
+                            onLongPress: () =>
+                                Navigator.pushNamed(context, '/admin-login'),
                             child: buildWebImage(
-                              'assets/images/google_auth_full_logo_light.png',
+                              EduKnBrand.fullLogoAsset,
                               width: 280,
                               height: 80,
                               fit: BoxFit.contain,
                             ),
                           ),
                           const SizedBox(height: 4),
-                          Text('Eğitim Yönetim Sistemine Hoş Geldiniz', textAlign: TextAlign.center, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+                          Text(
+                            'Eğitim Yönetim Sistemine Hoş Geldiniz',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                           const SizedBox(height: 24),
                           Container(
                             constraints: const BoxConstraints(maxWidth: 420),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(24),
-                              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 40, offset: const Offset(0, 20))],
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.04),
+                                  blurRadius: 40,
+                                  offset: const Offset(0, 20),
+                                ),
+                              ],
                             ),
                             child: Padding(
                               padding: const EdgeInsets.all(24),
@@ -1988,19 +3131,58 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Center(child: Text('Kurumunuza Giriş Yapın', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: const Color(0xFF1E2661)))),
+                                    Center(
+                                      child: Text(
+                                        'Kurumunuza Giriş Yapın',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                          color: const Color(0xFF1E2661),
+                                        ),
+                                      ),
+                                    ),
                                     const SizedBox(height: 20),
                                     _buildLabel('Kurum ID'),
-                                    _buildInputField(controller: _institutionController, hint: 'Kurum numarası', icon: Icons.business_rounded, isMobile: true),
+                                    _buildInputField(
+                                      controller: _institutionController,
+                                      hint: 'Kurum numarası',
+                                      icon: Icons.business_rounded,
+                                      isMobile: true,
+                                    ),
                                     const SizedBox(height: 12),
                                     _buildLabel('Kullanıcı Adı'),
-                                    _buildInputField(controller: _usernameController, hint: 'Kullanıcı adı', icon: Icons.person_outline_rounded, isMobile: true),
+                                    _buildInputField(
+                                      controller: _usernameController,
+                                      hint: 'Kullanıcı adı',
+                                      icon: Icons.person_outline_rounded,
+                                      isMobile: true,
+                                    ),
                                     const SizedBox(height: 12),
-                                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                                      _buildLabel('Şifre'),
-                                      GestureDetector(onTap: _forgotPassword, child: Text('Şifremi Unuttum', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4C59BC)))),
-                                    ]),
-                                    _buildInputField(controller: _passwordController, hint: '••••••••', icon: Icons.lock_outline_rounded, isPassword: true, isMobile: true),
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        _buildLabel('Şifre'),
+                                        GestureDetector(
+                                          onTap: _forgotPassword,
+                                          child: Text(
+                                            'Şifremi Unuttum',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                              color: const Color(0xFF4C59BC),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    _buildInputField(
+                                      controller: _passwordController,
+                                      hint: '••••••••',
+                                      icon: Icons.lock_outline_rounded,
+                                      isPassword: true,
+                                      isMobile: true,
+                                    ),
                                     const SizedBox(height: 16),
                                     _buildKvkkRow(),
                                     const SizedBox(height: 24),
@@ -2009,28 +3191,89 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                                       height: 50,
                                       child: ElevatedButton(
                                         onPressed: _isLoading ? null : _login,
-                                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4C59BC), foregroundColor: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(
+                                            0xFF4C59BC,
+                                          ),
+                                          foregroundColor: Colors.white,
+                                          elevation: 0,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
+                                          ),
+                                        ),
                                         child: _isLoading
-                                            ? const SizedBox(width: 24, height: 24, child: EduKnLoader(size: 24))
-                                            : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                                                Text('Giriş Yap', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700)),
-                                                const SizedBox(width: 8),
-                                                const Icon(Icons.login_rounded, size: 18),
-                                              ]),
+                                            ? const SizedBox(
+                                                width: 24,
+                                                height: 24,
+                                                child: EduKnLoader(size: 24),
+                                              )
+                                            : Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                children: [
+                                                  Text(
+                                                    'Giriş Yap',
+                                                    style: GoogleFonts.inter(
+                                                      fontSize: 15,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  const Icon(
+                                                    Icons.login_rounded,
+                                                    size: 18,
+                                                  ),
+                                                ],
+                                              ),
                                       ),
                                     ),
                                     const SizedBox(height: 20),
-                                    Row(children: [
-                                      Expanded(child: Divider(color: Colors.grey.shade300)),
-                                      Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Text('Veya', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500))),
-                                      Expanded(child: Divider(color: Colors.grey.shade300)),
-                                    ]),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Divider(
+                                            color: Colors.grey.shade300,
+                                          ),
+                                        ),
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                          ),
+                                          child: Text(
+                                            'Veya',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 11,
+                                              color: Colors.grey.shade500,
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: Divider(
+                                            color: Colors.grey.shade300,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                     const SizedBox(height: 16),
-                                    Row(children: [
-                                      _buildSocialButton(icon: 'https://cdn-icons-png.flaticon.com/512/2991/2991148.png', label: 'Google', onTap: _loginWithGmail),
-                                      const SizedBox(width: 12),
-                                      _buildSocialButton(icon: 'qr_code', label: 'QR Kod', onTap: _showQrLoginDialog),
-                                    ]),
+                                    Row(
+                                      children: [
+                                        _buildSocialButton(
+                                          icon:
+                                              'https://cdn-icons-png.flaticon.com/512/2991/2991148.png',
+                                          label: 'Google',
+                                          onTap: _loginWithGmail,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        _buildSocialButton(
+                                          icon: 'qr_code',
+                                          label: 'QR Kod',
+                                          onTap: _showQrLoginDialog,
+                                        ),
+                                      ],
+                                    ),
                                   ],
                                 ),
                               ),
@@ -2063,7 +3306,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
               value: _kvkkAccepted,
               onChanged: (val) => setState(() => _kvkkAccepted = val ?? false),
               activeColor: const Color(0xFF4C59BC),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
+              ),
             ),
           ),
           const SizedBox(width: 10),
@@ -2072,9 +3317,19 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
               onTap: _showKvkkDialog,
               child: RichText(
                 text: TextSpan(
-                  style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade600),
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                  ),
                   children: [
-                    TextSpan(text: 'KVKK Metnini', style: TextStyle(decoration: TextDecoration.underline, color: Colors.grey.shade800, fontWeight: FontWeight.w600)),
+                    TextSpan(
+                      text: 'KVKK Metnini',
+                      style: TextStyle(
+                        decoration: TextDecoration.underline,
+                        color: Colors.grey.shade800,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const TextSpan(text: ' okudum ve kabul ediyorum.'),
                   ],
                 ),
@@ -2089,7 +3344,14 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
   Widget _buildLabel(String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: Text(text, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+      child: Text(
+        text,
+        style: GoogleFonts.inter(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey.shade700,
+        ),
+      ),
     );
   }
 
@@ -2103,30 +3365,60 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     return TextFormField(
       controller: controller,
       obscureText: isPassword && _obscurePassword,
-      style: GoogleFonts.inter(fontSize: 13, color: Colors.indigo.shade900, fontWeight: FontWeight.w500),
+      style: GoogleFonts.inter(
+        fontSize: 13,
+        color: Colors.indigo.shade900,
+        fontWeight: FontWeight.w500,
+      ),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
         prefixIcon: Icon(icon, size: 18, color: Colors.grey.shade400),
         suffixIcon: isPassword
             ? IconButton(
-                icon: Icon(_obscurePassword ? Icons.visibility_off_rounded : Icons.visibility_rounded, size: 18, color: Colors.grey.shade400),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_off_rounded
+                      : Icons.visibility_rounded,
+                  size: 18,
+                  color: Colors.grey.shade400,
+                ),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               )
             : null,
         filled: true,
         fillColor: Colors.grey.shade50,
-        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: isMobile ? 14 : 18),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF4C59BC), width: 1.5)),
-        errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.redAccent, width: 1.2)),
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: isMobile ? 14 : 18,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF4C59BC), width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.redAccent, width: 1.2),
+        ),
       ),
       validator: (v) => v == null || v.isEmpty ? 'Gerekli' : null,
     );
   }
 
-  Widget _buildSocialButton({required String icon, required String label, required VoidCallback onTap}) {
+  Widget _buildSocialButton({
+    required String icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
     final isQr = icon == 'qr_code';
     return Expanded(
       child: Material(
@@ -2136,12 +3428,32 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           borderRadius: BorderRadius.circular(16),
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(16)),
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              if (isQr) Icon(Icons.qr_code_2_rounded, color: Colors.indigo.shade700, size: 22) else Image.network(icon, width: 22, height: 22),
-              const SizedBox(width: 8),
-              Text(label, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E2661))),
-            ]),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade200),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (isQr)
+                  Icon(
+                    Icons.qr_code_2_rounded,
+                    color: Colors.indigo.shade700,
+                    size: 22,
+                  )
+                else
+                  Image.network(icon, width: 22, height: 22),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF1E2661),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

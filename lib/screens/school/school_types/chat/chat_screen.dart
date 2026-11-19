@@ -80,16 +80,33 @@ class _ChatScreenState extends State<ChatScreen>
     try {
       final userData = await UserPermissionService.loadUserData();
       final role = (userData?['role'] ?? '').toString().toLowerCase();
-      final type = (userData?['type'] ?? userData?['userType'] ?? '').toString().toLowerCase();
+      final type = (userData?['type'] ?? userData?['userType'] ?? '')
+          .toString()
+          .toLowerCase();
 
-      final isTeacher = type == 'teacher' || role == 'ogretmen' || role == 'öğretmen' || role == 'teacher';
-      final isManagerOrAdmin = role == 'admin' || role == 'genel_mudur' || role == 'genel müdür' || role == 'mudur' || role == 'müdür' || role == 'manager';
+      final isTeacher =
+          type == 'teacher' ||
+          role == 'ogretmen' ||
+          role == 'öğretmen' ||
+          role == 'teacher';
+      final isManagerOrAdmin =
+          role == 'admin' ||
+          role == 'genel_mudur' ||
+          role == 'genel müdür' ||
+          role == 'mudur' ||
+          role == 'müdür' ||
+          role == 'manager';
 
-      final hasCustomSettingsPerm = UserPermissionService.hasModuleAccess('haberlesme_ayarlar', userData);
+      final hasCustomSettingsPerm = UserPermissionService.hasModuleAccess(
+        'haberlesme_ayarlar',
+        userData,
+      );
 
       if (mounted) {
         setState(() {
-          _currentUserRole = isManagerOrAdmin ? 'manager' : (isTeacher ? 'teacher' : 'staff');
+          _currentUserRole = isManagerOrAdmin
+              ? 'manager'
+              : (isTeacher ? 'teacher' : 'staff');
           // Teachers cannot see settings unless explicit permission is assigned
           _canSeeSettings = isManagerOrAdmin || hasCustomSettingsPerm;
         });
@@ -101,8 +118,9 @@ class _ChatScreenState extends State<ChatScreen>
 
   void _listenForIncomingCalls() {
     _incomingCallSubscription?.cancel();
-    _incomingCallSubscription =
-        CallService().listenForIncomingCalls().listen((incomingCalls) {
+    _incomingCallSubscription = CallService().listenForIncomingCalls().listen((
+      incomingCalls,
+    ) {
       if (incomingCalls.isNotEmpty && mounted) {
         final activeCall = incomingCalls.first;
         CallScreenDialog.showCall(
@@ -165,7 +183,10 @@ class _ChatScreenState extends State<ChatScreen>
     );
   }
 
-  void _promptAndSendBulkMessage(List<String> recipients, Map<String, String> recipientNames) {
+  void _promptAndSendBulkMessage(
+    List<String> recipients,
+    Map<String, String> recipientNames,
+  ) {
     final TextEditingController messageController = TextEditingController();
 
     showDialog(
@@ -174,7 +195,11 @@ class _ChatScreenState extends State<ChatScreen>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
           'Toplu Mesaj İçeriği (${recipients.length} Alıcı)',
-          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo),
+          style: GoogleFonts.inter(
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+            color: Colors.indigo,
+          ),
         ),
         content: TextField(
           controller: messageController,
@@ -192,23 +217,36 @@ class _ChatScreenState extends State<ChatScreen>
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.indigo,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
             icon: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
-            label: Text('Gönder', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white)),
+            label: Text(
+              'Gönder',
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
             onPressed: () async {
               final text = messageController.text.trim();
               if (text.isEmpty) return;
 
               Navigator.pop(context);
 
-              final currentUid = _chatService.currentUserId ?? FirebaseAuth.instance.currentUser?.uid ?? '';
+              final currentUid =
+                  _chatService.currentUserId ??
+                  FirebaseAuth.instance.currentUser?.uid ??
+                  '';
               int sentCount = 0;
 
               for (var targetId in recipients) {
                 try {
                   List<String> participantIds = [currentUid, targetId];
-                  final conversationId = await _chatService.createConversation(participantIds);
+                  final conversationId = await _chatService.createConversation(
+                    participantIds,
+                  );
 
                   final message = ChatMessage(
                     id: 'msg_${DateTime.now().millisecondsSinceEpoch}_$sentCount',
@@ -226,12 +264,15 @@ class _ChatScreenState extends State<ChatScreen>
               }
 
               if (mounted) {
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Toplu mesaj $sentCount alıcıya başarıyla gönderildi!'),
-                    backgroundColor: const Color(0xFF008069),
-                  ),
-                );
+                if (mounted)
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Toplu mesaj $sentCount alıcıya başarıyla gönderildi!',
+                      ),
+                      backgroundColor: const Color(0xFF008069),
+                    ),
+                  );
                 _loadConversations();
               }
             },
@@ -361,7 +402,11 @@ class _ChatScreenState extends State<ChatScreen>
                       color: Colors.amber.shade50,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.star_rounded, color: Colors.amber, size: 24),
+                    child: const Icon(
+                      Icons.star_rounded,
+                      color: Colors.amber,
+                      size: 24,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Text(
@@ -380,14 +425,20 @@ class _ChatScreenState extends State<ChatScreen>
                   future: _fetchStarredMessagesFromFirestore(),
                   builder: (context, snapshot) {
                     final messages = snapshot.data ?? globalStarredMessages;
-                    if (snapshot.connectionState == ConnectionState.waiting && messages.isEmpty) {
-                      return const Center(child: CircularProgressIndicator(color: Colors.amber));
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        messages.isEmpty) {
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.amber),
+                      );
                     }
                     if (messages.isEmpty) {
                       return Center(
                         child: Text(
                           'Henüz yıldızlı mesajınız bulunmuyor.',
-                          style: GoogleFonts.inter(color: Colors.blueGrey, fontSize: 14),
+                          style: GoogleFonts.inter(
+                            color: Colors.blueGrey,
+                            fontSize: 14,
+                          ),
                         ),
                       );
                     }
@@ -397,22 +448,43 @@ class _ChatScreenState extends State<ChatScreen>
                       itemBuilder: (context, index) {
                         final msg = messages[index];
                         return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 4,
+                          ),
                           leading: CircleAvatar(
                             backgroundColor: Colors.amber.shade50,
-                            child: const Icon(Icons.star_rounded, color: Colors.amber, size: 22),
+                            child: const Icon(
+                              Icons.star_rounded,
+                              color: Colors.amber,
+                              size: 22,
+                            ),
                           ),
                           title: Text(
-                            msg.content.isNotEmpty ? msg.content : '[Medya Mesajı]',
-                            style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14),
+                            msg.content.isNotEmpty
+                                ? msg.content
+                                : '[Medya Mesajı]',
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
                           subtitle: Text(
-                            DateFormat('dd.MM.yyyy HH:mm').format(msg.timestamp),
-                            style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade600),
+                            DateFormat(
+                              'dd.MM.yyyy HH:mm',
+                            ).format(msg.timestamp),
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
                           ),
-                          trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.indigo),
+                          trailing: const Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            size: 14,
+                            color: Colors.indigo,
+                          ),
                           onTap: () {
                             Navigator.pop(context);
                             _navigateToMessage(msg);
@@ -530,7 +602,11 @@ class _ChatScreenState extends State<ChatScreen>
                       color: Colors.blueGrey.shade50,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.archive_rounded, color: Colors.blueGrey, size: 24),
+                    child: const Icon(
+                      Icons.archive_rounded,
+                      color: Colors.blueGrey,
+                      size: 24,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Text(
@@ -549,7 +625,10 @@ class _ChatScreenState extends State<ChatScreen>
                     ? Center(
                         child: Text(
                           'Arşivlenmiş sohbetiniz bulunmuyor.',
-                          style: GoogleFonts.inter(color: Colors.blueGrey, fontSize: 14),
+                          style: GoogleFonts.inter(
+                            color: Colors.blueGrey,
+                            fontSize: 14,
+                          ),
                         ),
                       )
                     : ListView.separated(
@@ -558,27 +637,42 @@ class _ChatScreenState extends State<ChatScreen>
                         itemBuilder: (context, index) {
                           final c = archived[index];
                           return ListTile(
-                            contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 4,
+                              horizontal: 4,
+                            ),
                             leading: CircleAvatar(
-                              backgroundImage: (c.chatImage != null && c.chatImage!.isNotEmpty)
+                              backgroundImage:
+                                  (c.chatImage != null &&
+                                      c.chatImage!.isNotEmpty)
                                   ? NetworkImage(c.chatImage!)
                                   : null,
-                              child: (c.chatImage == null || c.chatImage!.isEmpty)
+                              child:
+                                  (c.chatImage == null || c.chatImage!.isEmpty)
                                   ? const Icon(Icons.person)
                                   : null,
                             ),
                             title: Text(
                               c.chatName ?? 'Sohbet',
-                              style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 15),
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 15,
+                              ),
                             ),
                             subtitle: Text(
                               c.lastMessage?.content ?? '',
-                              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             trailing: IconButton(
-                              icon: const Icon(Icons.unarchive_rounded, color: Colors.indigo),
+                              icon: const Icon(
+                                Icons.unarchive_rounded,
+                                color: Colors.indigo,
+                              ),
                               tooltip: 'Arşivden Çıkar',
                               onPressed: () {
                                 _handleArchiveConversation(c);
@@ -621,7 +715,8 @@ class _ChatScreenState extends State<ChatScreen>
 
       _filteredConversations = _conversations.where((c) {
         if (c.isArchived) return false;
-        if (c.lastMessage == null || c.lastMessage!.content.trim().isEmpty) return false;
+        if (c.lastMessage == null || c.lastMessage!.content.trim().isEmpty)
+          return false;
 
         // Category Filter Chips (Tümü, Okunmamış, Favoriler, Gruplar)
         if (_activeCategoryFilter == 'Okunmamış') {
@@ -680,8 +775,12 @@ class _ChatScreenState extends State<ChatScreen>
                     cat,
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                      color: isSelected ? const Color(0xFF008069) : const Color(0xFF54656F),
+                      fontWeight: isSelected
+                          ? FontWeight.bold
+                          : FontWeight.w500,
+                      color: isSelected
+                          ? const Color(0xFF008069)
+                          : const Color(0xFF54656F),
                     ),
                   ),
                   selected: isSelected,
@@ -690,7 +789,9 @@ class _ChatScreenState extends State<ChatScreen>
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                     side: BorderSide(
-                      color: isSelected ? const Color(0xFF25D366) : Colors.transparent,
+                      color: isSelected
+                          ? const Color(0xFF25D366)
+                          : Colors.transparent,
                       width: 1,
                     ),
                   ),
@@ -771,10 +872,14 @@ class _ChatScreenState extends State<ChatScreen>
         final title = data['title'] as String?;
 
         String displayRole = title ?? 'Personel';
-        if (displayRole == 'mudur_yardimcisi') displayRole = 'Müdür Yardımcısı';
-        else if (displayRole == 'mudur') displayRole = 'Müdür';
-        else if (displayRole == 'genel_mudur') displayRole = 'Genel Müdür';
-        else if (displayRole == 'admin') displayRole = 'Yönetici';
+        if (displayRole == 'mudur_yardimcisi')
+          displayRole = 'Müdür Yardımcısı';
+        else if (displayRole == 'mudur')
+          displayRole = 'Müdür';
+        else if (displayRole == 'genel_mudur')
+          displayRole = 'Genel Müdür';
+        else if (displayRole == 'admin')
+          displayRole = 'Yönetici';
 
         if (branch != null && branch.isNotEmpty) {
           displayRole = branch;
@@ -893,9 +998,10 @@ class _ChatScreenState extends State<ChatScreen>
 
     // Update filtered list (stream handles it automatically mostly)
 
-    if (mounted) ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$successCount sohbete iletildi.')));
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$successCount sohbete iletildi.')),
+      );
   }
 
   @override
@@ -908,117 +1014,122 @@ class _ChatScreenState extends State<ChatScreen>
           // DESKTOP / TABLET LAYOUT
           return Scaffold(
             appBar: EduknAppBar(
+              institutionId: widget.institutionId,
               title: 'Mesajlar',
               subtitle: widget.schoolTypeName,
             ),
             body: Row(
               children: [
-              // Left Panel
-              Container(
-                width: 380,
-                decoration: const BoxDecoration(
-                  border: Border(
-                    right: BorderSide(color: Color(0xFFE0E0E0), width: 1),
+                // Left Panel
+                Container(
+                  width: 380,
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      right: BorderSide(color: Color(0xFFE0E0E0), width: 1),
+                    ),
+                    color: Colors.white,
                   ),
-                  color: Colors.white,
-                ),
-                child: Column(
-                  children: [
-                    _buildUserProfileHeader(),
-                    // Search Bar
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
-                      child: Container(
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF0F2F5),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            const SizedBox(width: 12),
-                            const Icon(
-                              Icons.search,
-                              color: Color(0xFF54656F),
-                              size: 20,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TextField(
-                                controller: _searchController,
-                                onChanged: _onSearchChanged,
-                                decoration: const InputDecoration(
-                                  hintText: 'Aratın veya yeni sohbet başlatın',
-                                  hintStyle: TextStyle(
-                                    color: Color(0xFF54656F),
-                                    fontSize: 14,
-                                  ),
-                                  border: InputBorder.none,
-                                  enabledBorder: InputBorder.none,
-                                  focusedBorder: InputBorder.none,
-                                  errorBorder: InputBorder.none,
-                                  disabledBorder: InputBorder.none,
-                                  isDense: true,
-                                  contentPadding: EdgeInsets.zero,
-                                  hoverColor: Colors.transparent,
-                                ),
-                                style: const TextStyle(fontSize: 14),
+                  child: Column(
+                    children: [
+                      _buildUserProfileHeader(),
+                      // Search Bar
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+                        child: Container(
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0F2F5),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              const SizedBox(width: 12),
+                              const Icon(
+                                Icons.search,
+                                color: Color(0xFF54656F),
+                                size: 20,
                               ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: TextField(
+                                  controller: _searchController,
+                                  onChanged: _onSearchChanged,
+                                  decoration: const InputDecoration(
+                                    hintText:
+                                        'Aratın veya yeni sohbet başlatın',
+                                    hintStyle: TextStyle(
+                                      color: Color(0xFF54656F),
+                                      fontSize: 14,
+                                    ),
+                                    border: InputBorder.none,
+                                    enabledBorder: InputBorder.none,
+                                    focusedBorder: InputBorder.none,
+                                    errorBorder: InputBorder.none,
+                                    disabledBorder: InputBorder.none,
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    hoverColor: Colors.transparent,
+                                  ),
+                                  style: const TextStyle(fontSize: 14),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // WhatsApp Web Category Filter Chips (Tümü, Okunmamış, Favoriler, Gruplar)
+                      _buildWhatsAppCategoryFilterPills(),
+                      const Divider(height: 1, color: Color(0xFFE9EDEF)),
+                      TabBar(
+                        controller: _tabController,
+                        labelColor: Colors.indigo,
+                        unselectedLabelColor: const Color(0xFF54656F),
+                        indicatorColor: Colors.indigo,
+                        labelStyle: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                        indicatorSize: TabBarIndicatorSize.tab,
+                        tabs: const [
+                          Tab(text: 'Sohbetler'),
+                          Tab(text: 'Kişiler'),
+                        ],
+                      ),
+                      const Divider(height: 1, color: Color(0xFFE0E0E0)),
+                      Expanded(
+                        child: TabBarView(
+                          controller: _tabController,
+                          children: [
+                            ChatListWidget(
+                              conversations: _filteredConversations,
+                              selectedConversationId: _selectedConversation?.id,
+                              onConversationSelected: (c) {
+                                setState(() => _selectedConversation = c);
+                              },
+                              onArchive: _handleArchiveConversation,
+                              contacts: _contacts,
+                              currentUserRole: _currentUserRole,
                             ),
+                            _buildContactsList(),
                           ],
                         ),
                       ),
-                    ),
-                    // WhatsApp Web Category Filter Chips (Tümü, Okunmamış, Favoriler, Gruplar)
-                    _buildWhatsAppCategoryFilterPills(),
-                    const Divider(height: 1, color: Color(0xFFE9EDEF)),
-                    TabBar(
-                      controller: _tabController,
-                      labelColor: Colors.indigo,
-                      unselectedLabelColor: const Color(0xFF54656F),
-                      indicatorColor: Colors.indigo,
-                      labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-                      indicatorSize: TabBarIndicatorSize.tab,
-                      tabs: const [
-                        Tab(text: 'Sohbetler'),
-                        Tab(text: 'Kişiler'),
-                      ],
-                    ),
-                    const Divider(height: 1, color: Color(0xFFE0E0E0)),
-                    Expanded(
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: [
-                          ChatListWidget(
-                            conversations: _filteredConversations,
-                            selectedConversationId: _selectedConversation?.id,
-                            onConversationSelected: (c) {
-                              setState(() => _selectedConversation = c);
-                            },
-                            onArchive: _handleArchiveConversation,
-                            contacts: _contacts,
-                            currentUserRole: _currentUserRole,
-                          ),
-                          _buildContactsList(),
-                        ],
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              // Right Panel
-              Expanded(
-                child: _selectedConversation != null
-                    ? ChatDetailWidget(
-                        key: ValueKey(_selectedConversation!.id),
-                        conversation: _selectedConversation!,
-                        contacts: _contacts,
-                        onForwardMessages: _handleForwardMessages,
-                      )
-                    : _buildEmptyState(),
-              ),
-            ],
-          ));
+                // Right Panel
+                Expanded(
+                  child: _selectedConversation != null
+                      ? ChatDetailWidget(
+                          key: ValueKey(_selectedConversation!.id),
+                          conversation: _selectedConversation!,
+                          contacts: _contacts,
+                          onForwardMessages: _handleForwardMessages,
+                        )
+                      : _buildEmptyState(),
+                ),
+              ],
+            ),
+          );
         } else {
           // MOBILE LAYOUT
           return GestureDetector(
@@ -1034,6 +1145,7 @@ class _ChatScreenState extends State<ChatScreen>
             },
             child: Scaffold(
               appBar: EduknAppBar(
+                institutionId: widget.institutionId,
                 title: 'Mesajlar',
                 subtitle: widget.schoolTypeName,
                 actions: [
@@ -1112,9 +1224,19 @@ class _ChatScreenState extends State<ChatScreen>
                         height: 40,
                         child: Row(
                           children: [
-                            const Icon(Icons.group_add_rounded, color: Colors.indigo, size: 18),
+                            const Icon(
+                              Icons.group_add_rounded,
+                              color: Colors.indigo,
+                              size: 18,
+                            ),
                             const SizedBox(width: 10),
-                            Text('Yeni Grup', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500)),
+                            Text(
+                              'Yeni Grup',
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -1123,9 +1245,19 @@ class _ChatScreenState extends State<ChatScreen>
                         height: 40,
                         child: Row(
                           children: [
-                            const Icon(Icons.send_rounded, color: Colors.indigo, size: 18),
+                            const Icon(
+                              Icons.send_rounded,
+                              color: Colors.indigo,
+                              size: 18,
+                            ),
                             const SizedBox(width: 10),
-                            Text('Toplu Mesaj Gönder', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500)),
+                            Text(
+                              'Toplu Mesaj Gönder',
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -1134,9 +1266,19 @@ class _ChatScreenState extends State<ChatScreen>
                         height: 40,
                         child: Row(
                           children: [
-                            const Icon(Icons.star_rounded, color: Colors.amber, size: 18),
+                            const Icon(
+                              Icons.star_rounded,
+                              color: Colors.amber,
+                              size: 18,
+                            ),
                             const SizedBox(width: 10),
-                            Text('Yıldızlı Mesajlar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500)),
+                            Text(
+                              'Yıldızlı Mesajlar',
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -1145,9 +1287,19 @@ class _ChatScreenState extends State<ChatScreen>
                         height: 40,
                         child: Row(
                           children: [
-                            const Icon(Icons.archive_rounded, color: Colors.blueGrey, size: 18),
+                            const Icon(
+                              Icons.archive_rounded,
+                              color: Colors.blueGrey,
+                              size: 18,
+                            ),
                             const SizedBox(width: 10),
-                            Text('Arşivlenmiş Sohbetler', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500)),
+                            Text(
+                              'Arşivlenmiş Sohbetler',
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -1157,16 +1309,26 @@ class _ChatScreenState extends State<ChatScreen>
                           height: 40,
                           child: Row(
                             children: [
-                              const Icon(Icons.settings_suggest_rounded, color: Colors.indigo, size: 18),
+                              const Icon(
+                                Icons.settings_suggest_rounded,
+                                color: Colors.indigo,
+                                size: 18,
+                              ),
                               const SizedBox(width: 10),
-                              Text('Ayarlar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500)),
+                              Text(
+                                'Ayarlar',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                             ],
                           ),
                         ),
                     ],
                   ),
                 ],
-        bottom: _isSearching
+                bottom: _isSearching
                     ? null
                     : TabBar(
                         controller: _tabController,
@@ -1187,7 +1349,7 @@ class _ChatScreenState extends State<ChatScreen>
                           Tab(text: 'KİŞİLER'),
                         ],
                       ),
-      ),
+              ),
               body: TabBarView(
                 controller: _tabController,
                 children: [
@@ -1337,7 +1499,11 @@ class _ChatScreenState extends State<ChatScreen>
               const CircleAvatar(
                 radius: 18,
                 backgroundColor: Colors.indigo,
-                child: Icon(Icons.person_rounded, color: Colors.white, size: 20),
+                child: Icon(
+                  Icons.person_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 12),
               Text(
@@ -1360,7 +1526,8 @@ class _ChatScreenState extends State<ChatScreen>
                   color: const Color(0xFF54656F),
                   splashRadius: 20,
                 ),
-              if (!_currentUserRole.toLowerCase().contains('student') && !_currentUserRole.toLowerCase().contains('parent'))
+              if (!_currentUserRole.toLowerCase().contains('student') &&
+                  !_currentUserRole.toLowerCase().contains('parent'))
                 IconButton(
                   icon: const Icon(Icons.broadcast_on_personal, size: 20),
                   tooltip: 'Toplu Mesaj',
@@ -1390,9 +1557,19 @@ class _ChatScreenState extends State<ChatScreen>
                       height: 40,
                       child: Row(
                         children: [
-                          const Icon(Icons.group_add_rounded, color: Colors.indigo, size: 18),
+                          const Icon(
+                            Icons.group_add_rounded,
+                            color: Colors.indigo,
+                            size: 18,
+                          ),
                           const SizedBox(width: 10),
-                          Text('Yeni Grup', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500)),
+                          Text(
+                            'Yeni Grup',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -1401,9 +1578,19 @@ class _ChatScreenState extends State<ChatScreen>
                       height: 40,
                       child: Row(
                         children: [
-                          const Icon(Icons.star_rounded, color: Colors.amber, size: 18),
+                          const Icon(
+                            Icons.star_rounded,
+                            color: Colors.amber,
+                            size: 18,
+                          ),
                           const SizedBox(width: 10),
-                          Text('Yıldızlı Mesajlar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500)),
+                          Text(
+                            'Yıldızlı Mesajlar',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -1412,9 +1599,19 @@ class _ChatScreenState extends State<ChatScreen>
                       height: 40,
                       child: Row(
                         children: [
-                          const Icon(Icons.archive_rounded, color: Colors.blueGrey, size: 18),
+                          const Icon(
+                            Icons.archive_rounded,
+                            color: Colors.blueGrey,
+                            size: 18,
+                          ),
                           const SizedBox(width: 10),
-                          Text('Arşivlenmiş Sohbetler', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500)),
+                          Text(
+                            'Arşivlenmiş Sohbetler',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -1424,9 +1621,19 @@ class _ChatScreenState extends State<ChatScreen>
                         height: 40,
                         child: Row(
                           children: [
-                            const Icon(Icons.settings_suggest_rounded, color: Colors.indigo, size: 18),
+                            const Icon(
+                              Icons.settings_suggest_rounded,
+                              color: Colors.indigo,
+                              size: 18,
+                            ),
                             const SizedBox(width: 10),
-                            Text('Ayarlar', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500)),
+                            Text(
+                              'Ayarlar',
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -1438,7 +1645,9 @@ class _ChatScreenState extends State<ChatScreen>
         ],
       ),
     );
-  }  void _showSettingsDialog() {
+  }
+
+  void _showSettingsDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(

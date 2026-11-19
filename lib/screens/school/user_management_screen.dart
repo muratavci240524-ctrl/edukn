@@ -7,8 +7,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import '../../constants/app_modules.dart';
-import '../../constants/school_type_modules.dart';
+import '../../widgets/granular_permission_tree.dart';
 import '../../firebase_options.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/role_permission_service.dart';
@@ -201,6 +200,8 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: false,
+      constraints: const BoxConstraints(maxWidth: 1020),
       backgroundColor: Colors.transparent,
       builder: (context) => _UserFormSheet(
         institutionId: institutionId!,
@@ -270,6 +271,8 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: false,
+      constraints: const BoxConstraints(maxWidth: 1020),
       backgroundColor: Colors.transparent,
       builder: (context) => _UserFormSheet(
         institutionId: institutionId!,
@@ -279,7 +282,6 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         onCreateAuth: _createAuthUser,
         availableRoles: userRoles,
       ),
-
     );
   }
 
@@ -320,6 +322,10 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       case 'veli':
       case 'parent':
         return 'VELİ';
+      case 'saglik_personeli':
+        return 'SAĞLIK PERSONELİ';
+      case 'guvenlik':
+        return 'GÜVENLİK GÖREVLİSİ';
       case 'rehber_ogretmen':
         return 'REHBER ÖĞRETMEN';
       case 'admin':
@@ -602,6 +608,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         userData['fullName'] ?? '',
       );
       await prefs.setBool('is_impersonating', true);
+      await prefs.remove('active_portal');
 
       // Kaydedilen değerleri kontrol et
       final savedEmail = prefs.getString('impersonated_user_email');
@@ -1058,7 +1065,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     const managementRoles = ['genel_mudur', 'mudur', 'mudur_yardimcisi', 'admin', 'hr', 'muhasebe', 'satin_alma', 'depo', 'destek_hizmetleri'];
     const teacherRoles = ['ogretmen', 'teacher', 'rehber_ogretmen'];
     const studentParentRoles = ['ogrenci', 'student', 'veli', 'parent'];
-    const staffRoles = ['personel', 'staff'];
+    const staffRoles = ['personel', 'staff', 'saglik_personeli', 'guvenlik'];
 
     final filteredUsers = allUsers.where((doc) {
       final data = CryptoService.decryptMap(doc.data() as Map<String, dynamic>);
@@ -1452,54 +1459,86 @@ class _UserFormSheetState extends State<_UserFormSheet> {
   // Okul türü bazlı modül yetkileri (ödev, karne vb.)
   final Map<String, Map<String, dynamic>> _schoolTypeModulePermissions = {};
 
+  // Öğretmen arayüzü modül yetkileri (kişiye özel override)
+  final Map<String, Map<String, dynamic>> _teacherModulePermissions = {};
 
   List<Map<String, dynamic>> _schoolTypes = []; // Okulun tüm okul türleri
   bool _isSaving = false;
   bool _isLoadingSchoolTypes = true;
 
-  Future<void> _applyRoleTemplate(String roleKey) async {
-    // 1. Varsayılan yetkileri al
+  Map<String, dynamic> _clonePermNode(Map raw) {
+    final valMap = Map<String, dynamic>.from(raw);
+    if (valMap['subModules'] is Map) {
+      final subs = <String, dynamic>{};
+      (valMap['subModules'] as Map).forEach((sk, sv) {
+        subs[sk.toString()] = sv is Map ? Map<String, dynamic>.from(sv) : sv;
+      });
+      valMap['subModules'] = subs;
+    } else {
+      valMap['subModules'] = <String, dynamic>{};
+    }
+    return valMap;
+  }
+
+  Future<void> _applyRoleTemplate(
+    String roleKey, {
+    bool applyApp = true,
+    bool applySchoolType = true,
+    bool applyTeacher = true,
+  }) async {
     final defaultAppPerms = RolePermissionService.getDefaultPermissions(roleKey);
-    
-    // 2. Kuruma özel şablonu yükle (varsa)
-    final template = await RolePermissionService().loadRoleTemplate(widget.institutionId, roleKey);
-    
+    final defaultStPerms =
+        RolePermissionService.getDefaultSchoolTypePermissions(roleKey);
+    final defaultTpPerms =
+        RolePermissionService.getDefaultTeacherPermissions(roleKey);
+
+    final template = await RolePermissionService().loadRoleTemplate(
+      widget.institutionId,
+      roleKey,
+    );
+
     if (mounted) {
       setState(() {
-        // App modülleri için yetkileri uygula
-        final appPermsData = template?['appPermissions'];
-        final appPerms = appPermsData != null 
-            ? Map<String, dynamic>.from(appPermsData) 
-            : defaultAppPerms;
-
-        appPerms.forEach((key, value) {
-          if (value is Map) {
-            final valMap = Map<String, dynamic>.from(value);
-            if (valMap.containsKey('subModules') && valMap['subModules'] is Map) {
-              valMap['subModules'] = Map<String, dynamic>.from(valMap['subModules']);
+        if (applyApp) {
+          _modulePermissions.clear();
+          final appPermsData = template?['appPermissions'];
+          final appPerms = appPermsData != null
+              ? Map<String, dynamic>.from(appPermsData)
+              : defaultAppPerms;
+          appPerms.forEach((key, value) {
+            if (value is Map) {
+              _modulePermissions[key] = _clonePermNode(value);
             }
-            _modulePermissions[key] = valMap;
-          }
-        });
-        
-        // Okul türü bazlı modül yetkileri
-        final schoolTypePermsData = template?['schoolTypePermissions'];
-        final schoolTypePerms = schoolTypePermsData != null 
-            ? Map<String, dynamic>.from(schoolTypePermsData) 
-            : RolePermissionService.getDefaultSchoolTypePermissions(roleKey);
+          });
+        }
 
-        schoolTypePerms.forEach((key, value) {
-          if (value is Map) {
-            final valMap = Map<String, dynamic>.from(value);
-            if (valMap.containsKey('subModules') && valMap['subModules'] is Map) {
-              valMap['subModules'] = Map<String, dynamic>.from(valMap['subModules']);
+        if (applySchoolType) {
+          _schoolTypeModulePermissions.clear();
+          final schoolTypePermsData = template?['schoolTypePermissions'];
+          final schoolTypePerms = schoolTypePermsData != null
+              ? Map<String, dynamic>.from(schoolTypePermsData)
+              : defaultStPerms;
+          schoolTypePerms.forEach((key, value) {
+            if (value is Map) {
+              _schoolTypeModulePermissions[key] = _clonePermNode(value);
             }
-            _schoolTypeModulePermissions[key] = valMap;
-          }
-        });
+          });
+        }
+
+        if (applyTeacher) {
+          _teacherModulePermissions.clear();
+          final teacherPermsData = template?['teacherPermissions'];
+          final teacherPerms = teacherPermsData != null
+              ? Map<String, dynamic>.from(teacherPermsData)
+              : defaultTpPerms;
+          teacherPerms.forEach((key, value) {
+            if (value is Map) {
+              _teacherModulePermissions[key] = _clonePermNode(value);
+            }
+          });
+        }
       });
     }
-
   }
 
   Future<void> _checkDuplicateAndPullData(String tc) async {
@@ -1598,255 +1637,67 @@ class _UserFormSheetState extends State<_UserFormSheet> {
 
       // Kişisel modül yetkileri
       final modulePermsData = widget.userData!['modulePermissions'];
-      final hasPersonalPerms = modulePermsData != null && modulePermsData is Map && (modulePermsData).isNotEmpty;
+      final hasPersonalPerms =
+          modulePermsData is Map && modulePermsData.isNotEmpty;
 
       if (hasPersonalPerms) {
-        // Kişisel izinler VARSA → direkt onları yükle (şablona düşme)
         final modulePerms = Map<String, dynamic>.from(modulePermsData);
         modulePerms.forEach((moduleKey, perms) {
           if (perms is Map) {
-            final pMap = Map<String, dynamic>.from(perms);
-            if (pMap.containsKey('subModules') && pMap['subModules'] is Map) {
-              pMap['subModules'] = Map<String, dynamic>.from(pMap['subModules']);
-            }
-            _modulePermissions[moduleKey] = pMap;
+            _modulePermissions[moduleKey] = _clonePermNode(perms);
           }
         });
-      } else {
-        // Kişisel izinler YOKSA → rol şablonunu varsayılan olarak uygula
-        _applyRoleTemplate(_selectedRole);
       }
 
       // Okul türü modül yetkilerini yükle
-      final schoolTypeModulePermsData = widget.userData!['schoolTypeModulePermissions'];
-      if (schoolTypeModulePermsData != null && schoolTypeModulePermsData is Map) {
-        final schoolTypeModulePerms = Map<String, dynamic>.from(schoolTypeModulePermsData);
+      final schoolTypeModulePermsData =
+          widget.userData!['schoolTypeModulePermissions'];
+      final hasPersonalStPerms =
+          schoolTypeModulePermsData is Map &&
+          schoolTypeModulePermsData.isNotEmpty;
+      if (hasPersonalStPerms) {
+        final schoolTypeModulePerms = Map<String, dynamic>.from(
+          schoolTypeModulePermsData,
+        );
         schoolTypeModulePerms.forEach((moduleKey, perms) {
           if (perms is Map) {
-            final pMap = Map<String, dynamic>.from(perms);
-            if (pMap.containsKey('subModules') && pMap['subModules'] is Map) {
-              pMap['subModules'] = Map<String, dynamic>.from(pMap['subModules']);
-            }
-            _schoolTypeModulePermissions[moduleKey] = pMap;
+            _schoolTypeModulePermissions[moduleKey] = _clonePermNode(perms);
           }
         });
+      }
+
+      // Öğretmen arayüzü modül yetkilerini yükle
+      final teacherModulePermsData =
+          widget.userData!['teacherModulePermissions'];
+      final hasPersonalTeacherPerms =
+          teacherModulePermsData is Map && teacherModulePermsData.isNotEmpty;
+      if (hasPersonalTeacherPerms) {
+        final teacherModulePerms = Map<String, dynamic>.from(
+          teacherModulePermsData,
+        );
+        teacherModulePerms.forEach((moduleKey, perms) {
+          if (perms is Map) {
+            _teacherModulePermissions[moduleKey] = _clonePermNode(perms);
+          }
+        });
+      }
+
+      // Kayıtta eksik kalan kapsamlar varsa rol şablonundan tamamla
+      if (!hasPersonalPerms ||
+          !hasPersonalStPerms ||
+          !hasPersonalTeacherPerms) {
+        _applyRoleTemplate(
+          _selectedRole,
+          applyApp: !hasPersonalPerms,
+          applySchoolType: !hasPersonalStPerms,
+          applyTeacher: !hasPersonalTeacherPerms,
+        );
       }
     } else {
       // Yeni kullanıcı - varsayılan şablonu uygula
       _applyRoleTemplate(_selectedRole);
     }
   }
-
-  Widget _buildSubPermissionTile(
-    String modKey,
-    String subKey,
-    String subName,
-    Map<String, dynamic> subPerms,
-    Color color,
-  ) {
-    final p = subPerms[subKey];
-    final isEnabled = (p is Map && p['enabled'] == true);
-    final level = (p is Map ? p['level'] : 'viewer');
-
-    return Container(
-      padding: EdgeInsets.only(left: 36, right: 12, top: 4, bottom: 4),
-      child: Row(
-        children: [
-          // Checkbox
-          InkWell(
-            onTap: () {
-              setState(() {
-                if (subPerms[subKey] == null) {
-                  subPerms[subKey] = {'enabled': true, 'level': 'viewer'};
-                } else {
-                  subPerms[subKey]['enabled'] = !isEnabled;
-                }
-              });
-            },
-            child: Container(
-              width: 18,
-              height: 18,
-              decoration: BoxDecoration(
-                color: isEnabled ? color : Colors.transparent,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: isEnabled ? color : Colors.grey.shade400,
-                  width: 1.5,
-                ),
-              ),
-              child: isEnabled ? Icon(Icons.check, color: Colors.white, size: 12) : null,
-            ),
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              subName,
-              style: TextStyle(
-                fontSize: 13,
-                color: isEnabled ? Colors.black87 : Colors.grey.shade500,
-              ),
-            ),
-          ),
-          if (isEnabled)
-            InkWell(
-              onTap: () {
-                setState(() {
-                  subPerms[subKey]['level'] = level == 'viewer' ? 'editor' : 'viewer';
-                });
-              },
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: level == 'editor' ? color.withValues(alpha: 0.1) : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  level == 'editor' ? Icons.edit : Icons.visibility,
-                  size: 14,
-                  color: color,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPermissionTile(
-    String key,
-    dynamic info,
-    bool isEnabled,
-    String level,
-    Map<String, Map<String, dynamic>> targetMap,
-  ) {
-    final hasSubModules = info.subModules.isNotEmpty;
-    if (targetMap[key] == null) {
-      targetMap[key] = {'enabled': false, 'level': 'viewer'};
-    }
-    if (targetMap[key]!['subModules'] == null) {
-      targetMap[key]!['subModules'] = <String, dynamic>{};
-    }
-    final subPerms = targetMap[key]!['subModules'] as Map<String, dynamic>;
-
-    return Column(
-      children: [
-        Container(
-          margin: EdgeInsets.only(bottom: 4),
-          decoration: BoxDecoration(
-            color: isEnabled ? info.color.withOpacity(0.05) : Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isEnabled ? info.color.withOpacity(0.3) : Colors.grey.shade300,
-            ),
-          ),
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            child: Row(
-              children: [
-                // Checkbox
-                InkWell(
-                  onTap: () {
-                    setState(() {
-                      final newVal = !isEnabled;
-                      targetMap[key]!['enabled'] = newVal;
-                      
-                      // Ana başlık değişince tüm alt başlıklara yay (Cascading)
-                      if (hasSubModules) {
-                        info.subModules.forEach((sk, _) {
-                          if (subPerms[sk] == null) {
-                            subPerms[sk] = {'enabled': newVal, 'level': level};
-                          } else {
-                            subPerms[sk]['enabled'] = newVal;
-                          }
-                        });
-                      }
-                    });
-                  },
-                  child: Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: isEnabled ? info.color : Colors.transparent,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: isEnabled ? info.color : Colors.grey.shade400,
-                        width: 2,
-                      ),
-                    ),
-                    child: isEnabled ? Icon(Icons.check, color: Colors.white, size: 16) : null,
-                  ),
-                ),
-                SizedBox(width: 12),
-                Icon(info.icon, color: isEnabled ? info.color : Colors.grey.shade400, size: 20),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    info.name,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: isEnabled ? FontWeight.w600 : FontWeight.normal,
-                      color: isEnabled ? Colors.black87 : Colors.grey.shade600,
-                    ),
-                  ),
-                ),
-                if (isEnabled)
-                  InkWell(
-                    onTap: () {
-                      setState(() {
-                        final newLevel = level == 'viewer' ? 'editor' : 'viewer';
-                        targetMap[key]!['level'] = newLevel;
-                        // Ana başlık seviyesi değişince tüm alt başlıklara yay (Cascading)
-                        if (hasSubModules) {
-                          info.subModules.forEach((sk, _) {
-                            if (subPerms[sk] != null) {
-                              subPerms[sk]['level'] = newLevel;
-                            } else {
-                              subPerms[sk] = {'enabled': true, 'level': newLevel};
-                            }
-                          });
-                        }
-                      });
-                    },
-                    borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: level == 'editor' ? info.color : info.color.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            level == 'editor' ? Icons.edit : Icons.visibility,
-                            size: 14,
-                            color: level == 'editor' ? Colors.white : info.color,
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            level == 'editor' ? 'Düzenleyen' : 'Görüntüleyen',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: level == 'editor' ? Colors.white : info.color,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        if (isEnabled && hasSubModules)
-          ...info.subModules.entries.map((e) => _buildSubPermissionTile(key, e.key, e.value, subPerms, info.color)).toList(),
-        const SizedBox(height: 8),
-      ],
-    );
-  }
-
-
 
   Future<void> _loadSchoolTypes() async {
     try {
@@ -1883,73 +1734,6 @@ class _UserFormSheetState extends State<_UserFormSheet> {
       }
       setState(() => _isLoadingSchoolTypes = false);
     }
-  }
-
-  // Mini İstatistik Widget'ı
-  Widget _buildMiniStat(IconData icon, String text, Color color) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withValues(alpha: 0.1)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: color),
-          SizedBox(width: 4),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Okul türü seçim butonu (Görüntüle/Düzenle)
-  Widget _buildTypeActionBtn({
-    required String label,
-    required bool isActive,
-    required Color activeColor,
-    VoidCallback? onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: AnimatedContainer(
-        duration: Duration(milliseconds: 200),
-        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: isActive ? activeColor : Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isActive ? activeColor : Colors.grey.shade300,
-            width: 1,
-          ),
-          boxShadow: isActive ? [
-            BoxShadow(
-              color: activeColor.withValues(alpha: 0.3),
-              blurRadius: 4,
-              offset: Offset(0, 2),
-            )
-          ] : [],
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            color: isActive ? Colors.white : Colors.grey.shade600,
-          ),
-        ),
-      ),
-    );
   }
 
   @override
@@ -2032,6 +1816,15 @@ class _UserFormSheetState extends State<_UserFormSheet> {
         };
       });
 
+      // Öğretmen arayüzü modül yetkilerini de kaydet
+      Map<String, dynamic> activeTeacherModules = {};
+      _teacherModulePermissions.forEach((key, value) {
+        activeTeacherModules[key] = {
+          'enabled': value['enabled'] ?? false,
+          'level': value['level'] ?? 'viewer',
+          if (value.containsKey('subModules')) 'subModules': value['subModules'],
+        };
+      });
 
       Map<String, dynamic> userData = {
         'institutionId': widget.institutionId,
@@ -2045,7 +1838,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
         'schoolTypes': _selectedSchoolTypes.toList(),
         'isActive': true,
         'updatedAt': FieldValue.serverTimestamp(),
-        'type': (_selectedRole == 'ogretmen' || _selectedRole == 'mudur' || _selectedRole == 'mudur_yardimcisi' || _selectedRole == 'hr' || _selectedRole == 'muhasebe' || _selectedRole == 'satin_alma' || _selectedRole == 'depo' || _selectedRole == 'destek_hizmetleri' || _selectedRole == 'personel') ? 'staff' : null,
+        'type': (_selectedRole == 'ogretmen' || _selectedRole == 'rehber_ogretmen' || _selectedRole == 'mudur' || _selectedRole == 'mudur_yardimcisi' || _selectedRole == 'hr' || _selectedRole == 'muhasebe' || _selectedRole == 'satin_alma' || _selectedRole == 'depo' || _selectedRole == 'destek_hizmetleri' || _selectedRole == 'saglik_personeli' || _selectedRole == 'guvenlik' || _selectedRole == 'personel') ? 'staff' : null,
       };
 
       // Opsiyonel alanları ekle
@@ -2056,6 +1849,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
       userData['schoolTypePermissions'] = _schoolTypePermissions;
       userData['modulePermissions'] = activeModules;
       userData['schoolTypeModulePermissions'] = activeSchoolTypeModules;
+      userData['teacherModulePermissions'] = activeTeacherModules;
 
 
       if (isEdit) {
@@ -2230,445 +2024,124 @@ class _UserFormSheetState extends State<_UserFormSheet> {
     }
   }
 
-  // Okul türleri modülü için özel widget
-  Widget _buildSchoolTypesModule(
-    dynamic moduleInfo,
-    bool isEnabled,
-    String level,
-  ) {
-    return Container(
-      margin: EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: isEnabled
-            ? moduleInfo.color.withOpacity(0.05)
-            : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isEnabled
-              ? moduleInfo.color.withOpacity(0.3)
-              : Colors.grey.shade300,
-        ),
-      ),
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Ana modül satırı
-            Row(
-              children: [
-                // Checkbox
-                InkWell(
-                  onTap: () {
-                    setState(() {
-                      _modulePermissions['okul_turleri']!['enabled'] =
-                          !isEnabled;
-                      if (!isEnabled) {
-                        _modulePermissions['okul_turleri']!['level'] = 'viewer';
-                      }
-                      // Modül kapatıldığında okul türü yetkilerini temizle
-                      if (isEnabled) {
-                        _schoolTypePermissions.clear();
-                        _selectedSchoolTypes.clear();
-                      }
-                    });
-                  },
-                  child: Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: isEnabled ? moduleInfo.color : Colors.transparent,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: isEnabled
-                            ? moduleInfo.color
-                            : Colors.grey.shade400,
-                        width: 2,
-                      ),
-                    ),
-                    child: isEnabled
-                        ? Icon(Icons.check, color: Colors.white, size: 16)
-                        : null,
-                  ),
-                ),
-                SizedBox(width: 12),
-
-                // Icon ve Modül Adı
-                Icon(moduleInfo.icon, color: moduleInfo.color, size: 20),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    moduleInfo.name,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: isEnabled ? Colors.black87 : Colors.grey.shade600,
-                    ),
-                  ),
-                ),
-
-                // Yetki Seviyesi Badge
-                if (isEnabled)
-                  InkWell(
-                    onTap: () {
-                      setState(() {
-                        _modulePermissions['okul_turleri']!['level'] =
-                            level == 'viewer' ? 'editor' : 'viewer';
-                      });
-                    },
-                    borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: level == 'editor'
-                            ? moduleInfo.color
-                            : moduleInfo.color.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            level == 'editor' ? Icons.edit : Icons.visibility,
-                            size: 12,
-                            color: level == 'editor'
-                                ? Colors.white
-                                : moduleInfo.color,
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            level == 'editor' ? 'Düzenleyen' : 'Görüntüleyen',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: level == 'editor'
-                                  ? Colors.white
-                                  : moduleInfo.color,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-
-            // Okul türleri listesi (sadece modül aktifse göster)
-            if (isEnabled) ...[
-              SizedBox(height: 12),
-              Container(
-                padding: EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Okul Türü Yetkileri',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey.shade700,
-                          ),
-                        ),
-                        if (_schoolTypes.isNotEmpty)
-                          Container(
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: moduleInfo.color.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${_selectedSchoolTypes.length} / ${_schoolTypes.length}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: moduleInfo.color,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    if (_selectedSchoolTypes.isNotEmpty) ...[
-                      SizedBox(height: 8),
-                      Row(
-                        children: [
-                          _buildMiniStat(
-                            Icons.visibility_outlined, 
-                            '${_schoolTypePermissions.values.where((v) => v == 'viewer').length} Görüntüle',
-                            Colors.blue
-                          ),
-                          SizedBox(width: 12),
-                          _buildMiniStat(
-                            Icons.edit_outlined, 
-                            '${_schoolTypePermissions.values.where((v) => v == 'editor').length} Düzenle',
-                            Colors.orange
-                          ),
-                        ],
-                      ),
-                    ],
-                    SizedBox(height: 8),
-                    if (_isLoadingSchoolTypes)
-                      Center(child: CircularProgressIndicator(strokeWidth: 2))
-                    else if (_schoolTypes.isEmpty)
-                      Container(
-                        padding: EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.warning_amber,
-                              color: Colors.orange,
-                              size: 16,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              'Henüz okul türü tanımlanmamış',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.orange.shade900,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    else
-                      Column(
-                        children: _schoolTypes.where((st) {
-                          // Eğer sadece görüntüleme yetkisi varsa, sadece seçili olanları göster
-                          if (level == 'viewer') {
-                            return _selectedSchoolTypes.contains(st['id']);
-                          }
-                          return true;
-                        }).map((schoolType) {
-                          final stId = schoolType['id'];
-                          final stName =
-                              schoolType['schoolTypeName'] ?? 'İsimsiz';
-                          final isSelected = _selectedSchoolTypes.contains(
-                            stId,
-                          );
-                          final stLevel =
-                              _schoolTypePermissions[stId] ?? 'viewer';
-
-                          return Container(
-                            margin: EdgeInsets.only(bottom: 6),
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? Colors.white
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: isSelected
-                                    ? moduleInfo.color.withOpacity(0.3)
-                                    : Colors.transparent,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                // Checkbox
-                                InkWell(
-                                  onTap: level == 'viewer' ? null : () {
-                                    setState(() {
-                                      if (isSelected) {
-                                        _selectedSchoolTypes.remove(stId);
-                                        _schoolTypePermissions.remove(stId);
-                                      } else {
-                                        _selectedSchoolTypes.add(stId);
-                                        _schoolTypePermissions[stId] = 'viewer';
-                                      }
-                                    });
-                                  },
-                                  child: Container(
-                                    width: 18,
-                                    height: 18,
-                                    decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? moduleInfo.color
-                                          : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(
-                                        color: isSelected
-                                            ? moduleInfo.color
-                                            : Colors.grey.shade400,
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                    child: isSelected
-                                        ? Icon(
-                                            Icons.check,
-                                            size: 12,
-                                            color: Colors.white,
-                                          )
-                                        : null,
-                                  ),
-                                ),
-                                SizedBox(width: 8),
-
-                                // Okul türü adı
-                                Expanded(
-                                  child: Text(
-                                    stName,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: isSelected
-                                          ? FontWeight.w600
-                                          : FontWeight.normal,
-                                      color: isSelected
-                                          ? Colors.black87
-                                          : Colors.grey.shade600,
-                                    ),
-                                  ),
-                                ),
-
-                                // Görüntüle / Düzenle Seçimi
-                                if (isSelected)
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      // Görüntüle Butonu
-                                      _buildTypeActionBtn(
-                                        label: 'Görüntüle',
-                                        isActive: stLevel == 'viewer',
-                                        activeColor: Colors.blue,
-                                        onTap: level == 'viewer' ? null : () {
-                                          setState(() {
-                                            _schoolTypePermissions[stId] = 'viewer';
-                                          });
-                                        },
-                                      ),
-                                      SizedBox(width: 4),
-                                      // Düzenle Butonu
-                                      _buildTypeActionBtn(
-                                        label: 'Düzenle',
-                                        isActive: stLevel == 'editor',
-                                        activeColor: Colors.orange,
-                                        onTap: level == 'viewer' ? null : () {
-                                          setState(() {
-                                            _schoolTypePermissions[stId] = 'editor';
-                                          });
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                              ],
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.userId != null;
+    final media = MediaQuery.of(context);
 
-    return DraggableScrollableSheet(
-      initialChildSize: 0.9,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            children: [
-              // Handle bar
-              Container(
-                margin: EdgeInsets.only(top: 12, bottom: 8),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Container(
+        height: media.size.height * 0.92,
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          color: Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          children: [
+            // Handle bar + Header
+            Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFFE2E8F0)),
                 ),
               ),
-
-              // Header
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.indigo.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        isEdit ? Icons.edit : Icons.person_add,
-                        color: Colors.indigo,
-                        size: 28,
-                      ),
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 10, bottom: 6),
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                    SizedBox(width: 16),
-                    Expanded(
-                      child: Text(
-                        isEdit ? 'Kullanıcıyı Düzenle' : 'Yeni Kullanıcı Ekle',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              ),
-
-              Divider(height: 1),
-
-              // Content
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: scrollController,
-                  padding: EdgeInsets.all(20),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 14, 12),
+                    child: Row(
                       children: [
-                        // Kişisel Bilgiler Card
-                        Card(
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            side: BorderSide(
-                              color: Colors.indigo.shade100,
-                              width: 1.5,
-                            ),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.indigo.shade50,
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Padding(
-                            padding: EdgeInsets.all(20),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                          child: Icon(
+                            isEdit ? Icons.edit : Icons.person_add,
+                            color: Colors.indigo,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isEdit
+                                    ? 'Kullanıcıyı Düzenle'
+                                    : 'Yeni Kullanıcı Ekle',
+                                style: const TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _currentStep == 0
+                                    ? 'Adım 1/2 • Kişisel Bilgiler, Görev ve Kademeler'
+                                    : 'Adım 2/2 • Parça Parça Modül ve Alt İşlem Yetkileri',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.blueGrey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Content
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Offstage(
+                        offstage: _currentStep != 0,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Kişisel Bilgiler Card
+                            Card(
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                side: BorderSide(
+                                  color: Colors.indigo.shade100,
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: Padding(
+                                padding: EdgeInsets.all(20),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
                                   children: [
@@ -3096,253 +2569,89 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                             ),
                           ),
                         ),
-                        SizedBox(height: 20),
+                          ],
+                        ),
+                      ),
 
-                        // ADIM 2: Modül Yetkileri (Sadece currentStep=1 ise göster)
+                        // ADIM 2: Parça Parça Modül ve Alt İşlem Yetkileri (Sadece currentStep=1 ise göster)
                         if (_currentStep == 1) ...[
-                          Card(
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              side: BorderSide(
-                                color: Colors.green.shade100,
-                                width: 1.5,
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 14),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: const Color(0xFFE2E8F0),
                               ),
                             ),
-                            child: Padding(
-                              padding: EdgeInsets.all(20),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.indigo.shade50,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(
+                                    Icons.verified_user_outlined,
+                                    color: Colors.indigo,
+                                    size: 20,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Container(
-                                        padding: EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green.shade50,
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                        ),
-                                        child: Icon(
-                                          Icons.security,
-                                          color: Colors.green,
-                                          size: 20,
+                                      Text(
+                                        'Kişiye Özel Yetki Ağacı (${widget.availableRoles[_selectedRole] ?? _selectedRole})',
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF0F172A),
                                         ),
                                       ),
-                                      SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Modül Yetkileri',
-                                              style: TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.green.shade700,
-                                              ),
-                                            ),
-                                            SizedBox(height: 4),
-                                            Text(
-                                              'Checkbox ile aktif edin, badge tıklayarak seviye değiştirin',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey.shade600,
-                                              ),
-                                            ),
-                                          ],
+                                      const SizedBox(height: 2),
+                                      const Text(
+                                        'Genel Kurum, Okul Türü ve Öğretmen Arayüzü yetkilerini en alt detaya kadar açıp kapatabilirsiniz.',
+                                        style: TextStyle(
+                                          fontSize: 11.5,
+                                          color: Color(0xFF64748B),
                                         ),
                                       ),
                                     ],
                                   ),
-                                  SizedBox(height: 20),
-
-                                  // Kategoriye göre grupla
-                                  ...AppModules.allCategories.map((category) {
-                                    final categoryModules =
-                                        AppModules.getModulesByCategory(
-                                          category,
-                                        );
-
-                                    return Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        // Kategori Başlığı
-                                        Padding(
-                                          padding: EdgeInsets.only(
-                                            bottom: 12,
-                                            top: 8,
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Container(
-                                                width: 4,
-                                                height: 16,
-                                                decoration: BoxDecoration(
-                                                  color: Colors.indigo,
-                                                  borderRadius:
-                                                      BorderRadius.circular(2),
-                                                ),
-                                              ),
-                                              SizedBox(width: 8),
-                                              Text(
-                                                category,
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.grey.shade700,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-
-                                        // Modül Liste
-                                        ...categoryModules.entries.map((
-                                          moduleEntry,
-                                        ) {
-                                          final moduleKey = moduleEntry.key;
-                                          final moduleInfo = moduleEntry.value;
-
-                                          // Initialize permissions if null
-                                          if (_modulePermissions[moduleKey] ==
-                                              null) {
-                                            _modulePermissions[moduleKey] = {
-                                              'enabled': false,
-                                              'level': 'viewer',
-                                            };
-                                          }
-
-                                          final perms =
-                                              _modulePermissions[moduleKey]!;
-                                          final isEnabled =
-                                              perms['enabled'] ?? false;
-                                          final level =
-                                              perms['level'] ?? 'viewer';
-
-                                          // Okul türleri modülü için özel yapı
-                                          if (moduleKey == 'okul_turleri') {
-                                            return _buildSchoolTypesModule(
-                                              moduleInfo,
-                                              isEnabled,
-                                              level,
-                                            );
-                                          }
-
-                                          return _buildPermissionTile(
-                                            moduleKey,
-                                            moduleInfo,
-                                            isEnabled,
-                                            level,
-                                            _modulePermissions,
-                                          );
-                                        }).toList(),
-                                        SizedBox(height: 16),
-                                      ],
-                                    );
-                                  }).toList(),
-
-                                  // OKUL TÜRÜ MODÜLLERİ
-                                  Padding(
-                                    padding:
-                                        EdgeInsets.only(top: 32, bottom: 16),
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          padding: EdgeInsets.all(8),
-                                          decoration: BoxDecoration(
-                                            color: Colors.indigo.shade50,
-                                            borderRadius:
-                                                BorderRadius.circular(10),
-                                          ),
-                                          child: Icon(
-                                            Icons.school_outlined,
-                                            color: Colors.indigo,
-                                            size: 20,
-                                          ),
-                                        ),
-                                        SizedBox(width: 12),
-                                        Text(
-                                          'Okul Türü Modülleri',
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.indigo.shade700,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                                ),
+                                TextButton.icon(
+                                  onPressed: () =>
+                                      _applyRoleTemplate(_selectedRole),
+                                  icon: const Icon(
+                                    Icons.restart_alt_rounded,
+                                    size: 16,
                                   ),
-
-                                  ...SchoolTypeModules.allModuleKeys.map((
-                                    moduleKey,
-                                  ) {
-                                    final moduleInfo =
-                                        SchoolTypeModules.getModule(moduleKey)!;
-
-                                    // Initialize permissions if null
-                                    if (_schoolTypeModulePermissions[
-                                            moduleKey] ==
-                                        null) {
-                                      _schoolTypeModulePermissions[moduleKey] =
-                                          {
-                                        'enabled': false,
-                                        'level': 'viewer',
-                                      };
-                                    }
-
-                                    final perms =
-                                        _schoolTypeModulePermissions[
-                                            moduleKey]!;
-                                    final isEnabled = perms['enabled'] ?? false;
-                                    final level = perms['level'] ?? 'viewer';
-
-                                    return _buildPermissionTile(
-                                      moduleKey,
-                                      moduleInfo,
-                                      isEnabled,
-                                      level,
-                                      _schoolTypeModulePermissions,
-                                    );
-                                  }).toList(),
-
-
-                                  // Bilgilendirme
-                                  Container(
-                                    padding: EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.blue.shade50,
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: Colors.blue.shade200,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.info_outline,
-                                          color: Colors.blue,
-                                          size: 20,
-                                        ),
-                                        SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            'Görüntüleyen: Sadece görüntüleme yetkisi • Düzenleyen: Tam yetki (ekleme, düzenleme, silme)',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.blue.shade900,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                                  label: const Text(
+                                    'Rol Şablonuna Sıfırla',
+                                    style: TextStyle(fontSize: 12),
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
+                          ),
+                          GranularPermissionEditor(
+                            appPermissions: _modulePermissions,
+                            schoolTypeModulePermissions:
+                                _schoolTypeModulePermissions,
+                            teacherPermissions: _teacherModulePermissions,
+                            schoolTypes: _schoolTypes,
+                            selectedSchoolTypes: _selectedSchoolTypes,
+                            schoolTypeAccessLevels: _schoolTypePermissions,
+                            isLoadingSchoolTypes: _isLoadingSchoolTypes,
+                            onChanged: () => setState(() {}),
                           ),
                         ],
                       ],
@@ -3353,9 +2662,17 @@ class _UserFormSheetState extends State<_UserFormSheet> {
 
               // Stepper Navigation Buttons
               Container(
-                padding: EdgeInsets.all(20),
-                decoration: BoxDecoration(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  14,
+                  20,
+                  14 + media.padding.bottom,
+                ),
+                decoration: const BoxDecoration(
                   color: Colors.white,
+                  border: Border(
+                    top: BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black12,
@@ -3374,13 +2691,13 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                             setState(() => _currentStep = 0);
                           },
                           style: OutlinedButton.styleFrom(
-                            padding: EdgeInsets.symmetric(vertical: 14),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            side: BorderSide(color: Colors.indigo),
+                            side: const BorderSide(color: Colors.indigo),
                           ),
-                          child: Text(
+                          child: const Text(
                             'Geri',
                             style: TextStyle(
                               fontSize: 16,
@@ -3390,7 +2707,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                         ),
                       ),
 
-                    if (_currentStep > 0) SizedBox(width: 12),
+                    if (_currentStep > 0) const SizedBox(width: 12),
 
                     // İleri / Kaydet Butonu
                     Expanded(
@@ -3400,24 +2717,22 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                             ? null
                             : () {
                                 if (_currentStep == 0) {
-                                  // Form validasyonu
                                   if (_formKey.currentState!.validate()) {
                                     setState(() => _currentStep = 1);
                                   }
                                 } else {
-                                  // Kaydet
                                   _save();
                                 }
                               },
                         style: ElevatedButton.styleFrom(
-                          padding: EdgeInsets.symmetric(vertical: 14),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
                           backgroundColor: Colors.indigo,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                         child: _isSaving
-                            ? SizedBox(
+                            ? const SizedBox(
                                 width: 24,
                                 height: 24,
                                 child: CircularProgressIndicator(
@@ -3427,9 +2742,9 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                               )
                             : Text(
                                 _currentStep == 0
-                                    ? 'İleri'
+                                    ? 'İleri (Yetkileri Düzenle)'
                                     : (isEdit ? 'Güncelle' : 'Kaydet'),
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 16,
                                   color: Colors.white,
                                 ),
@@ -3441,8 +2756,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
               ),
             ],
           ),
-        );
-      },
+      ),
     );
   }
 }

@@ -85,6 +85,12 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
         _updateClassesStream();
       });
     }
+    // Mükerrer ve boş şubeleri otomatik birleştir & temizle
+    TermService().deduplicateAndCleanClasses(
+      institutionId: widget.institutionId,
+      schoolTypeId: widget.schoolTypeId,
+      termId: effectiveTermId,
+    );
     _initializeDefaultClassType();
   }
 
@@ -207,7 +213,9 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
   }
 
   List<ClassModel> _filterClasses(List<ClassModel> classes) {
-    final filtered = classes.where((c) {
+    final seenNames = <String>{};
+    final filtered = <ClassModel>[];
+    for (final c in classes) {
       final matchesSearch = _searchQuery.isEmpty ||
           c.className.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           c.shortName.toLowerCase().contains(_searchQuery.toLowerCase());
@@ -222,8 +230,13 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
       final matchesTerm = _currentTermId != null && 
           c.termId == _currentTermId;
 
-      return matchesSearch && matchesType && matchesLevel && matchesTerm;
-    }).toList();
+      if (matchesSearch && matchesType && matchesLevel && matchesTerm) {
+        final normName = c.className.trim().toLowerCase();
+        if (normName.isNotEmpty && seenNames.add(normName)) {
+          filtered.add(c);
+        }
+      }
+    }
 
     // Manuel sıralama: önce seviye, sonra isim
     filtered.sort((a, b) {
@@ -3275,7 +3288,33 @@ class _ClassFormSheetState extends State<_ClassFormSheet> {
       );
 
       if (widget.classToEdit == null) {
-        await FirebaseFirestore.instance.collection('classes').add(classData.toMap());
+        // Aynı dönem ve okul türünde aynı isimde aktif şube varsa mükerrer şube oluşturma, mevcut olanı güncelle
+        final existingSnap = await FirebaseFirestore.instance
+            .collection('classes')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+            .where('termId', isEqualTo: classData.termId)
+            .where('isActive', isEqualTo: true)
+            .get();
+        final normTarget = classData.className.trim().toLowerCase();
+        QueryDocumentSnapshot<Map<String, dynamic>>? existingDoc;
+        for (final doc in existingSnap.docs) {
+          final dName = (doc.data()['className'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase();
+          if (dName == normTarget) {
+            existingDoc = doc;
+            break;
+          }
+        }
+        if (existingDoc != null) {
+          await existingDoc.reference.update(classData.toMap());
+        } else {
+          await FirebaseFirestore.instance
+              .collection('classes')
+              .add(classData.toMap());
+        }
       } else {
         await FirebaseFirestore.instance.collection('classes').doc(widget.classToEdit!.id).update(classData.toMap());
       }

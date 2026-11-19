@@ -52,13 +52,33 @@ class OdakExamResult {
   /// Ders -> öğrencinin kitapçığına ait doğru cevap dizisi.
   final Map<String, String> correctAnswers;
 
+  /// Tüm derslerin dahil olduğu sınav genel puanı (ör. LGS 500 tam puanı).
+  final double examScore;
+
+  /// Karnede kullanılmak üzere orijinal öğrenci sonuç kaydı.
+  final StudentResult? rawStudentResult;
+
   const OdakExamResult({
     required this.student,
     required this.booklet,
     required this.subjects,
     required this.answers,
     required this.correctAnswers,
+    this.examScore = 0.0,
+    this.rawStudentResult,
   });
+
+  /// Sınavdaki tüm derslerin toplam neti.
+  double get totalNet =>
+      subjects.values.fold<double>(0.0, (s, v) => s + v.net);
+
+  /// Sınavdaki tüm derslerin toplam doğru sayısı.
+  int get totalCorrect =>
+      subjects.values.fold<int>(0, (s, v) => s + v.correct);
+
+  /// Sınavdaki tüm derslerin toplam yanlış sayısı.
+  int get totalWrong =>
+      subjects.values.fold<int>(0, (s, v) => s + v.wrong);
 
   /// Birden fazla sınavın birleştirildiği sonuç mu? (kitapçık anahtarı '#' ile başlar)
   bool get isMerged => booklet.startsWith('#');
@@ -66,6 +86,68 @@ class OdakExamResult {
   String get bookletLetter => isMerged
       ? booklet
       : (booklet.isNotEmpty ? booklet[0] : 'A');
+
+  /// Sınav karnesi (`StudentReportCardDialog`) için `StudentResult` nesnesi üretir.
+  StudentResult toStudentResult() {
+    if (rawStudentResult != null && !isMerged) {
+      final raw = rawStudentResult!;
+      return StudentResult(
+        tcNo: raw.tcNo,
+        studentNo: raw.studentNo,
+        name: raw.name,
+        classLevel: raw.classLevel,
+        branch: raw.branch,
+        booklet: raw.booklet,
+        score: raw.score > 0 ? raw.score : examScore,
+        rankGeneral: raw.rankGeneral,
+        rankInstitution: raw.rankInstitution,
+        rankBranch: raw.rankBranch,
+        isMatched: raw.isMatched,
+        systemStudentId: raw.systemStudentId,
+        participatedSessions: Set<int>.from(raw.participatedSessions),
+        subjects: subjects.map(
+          (k, v) => MapEntry(
+            k,
+            SubjectStats(
+              correct: v.correct,
+              wrong: v.wrong,
+              empty: v.empty,
+              net: v.net,
+            ),
+          ),
+        ),
+        answers: Map<String, String>.from(answers),
+        correctAnswers: Map<String, String>.from(correctAnswers),
+      );
+    }
+    return StudentResult(
+      tcNo: rawStudentResult?.tcNo ?? '',
+      studentNo: rawStudentResult?.studentNo ?? '',
+      name: student.name,
+      classLevel: student.classLevel,
+      branch: student.branch,
+      booklet: booklet,
+      score: examScore,
+      rankGeneral: 0,
+      rankInstitution: 0,
+      rankBranch: 0,
+      isMatched: rawStudentResult?.isMatched ?? false,
+      systemStudentId: rawStudentResult?.systemStudentId ?? student.id,
+      subjects: subjects.map(
+        (k, v) => MapEntry(
+          k,
+          SubjectStats(
+            correct: v.correct,
+            wrong: v.wrong,
+            empty: v.empty,
+            net: v.net,
+          ),
+        ),
+      ),
+      answers: Map<String, String>.from(answers),
+      correctAnswers: Map<String, String>.from(correctAnswers),
+    );
+  }
 
   factory OdakExamResult.fromStudentResult(StudentResult r) {
     final id = (r.systemStudentId != null && r.systemStudentId!.isNotEmpty)
@@ -92,6 +174,8 @@ class OdakExamResult {
       ),
       answers: Map<String, String>.from(r.answers),
       correctAnswers: Map<String, String>.from(r.correctAnswers),
+      examScore: r.score,
+      rawStudentResult: r,
     );
   }
 }
@@ -226,11 +310,13 @@ class OdakSubjectRisk {
   final String name;
   final double rate; // 0..1
   final double classRate; // 0..1
+  final OdakRankedStudent? ranked;
 
   const OdakSubjectRisk({
     required this.name,
     required this.rate,
     required this.classRate,
+    this.ranked,
   });
 
   double get gapPercent =>

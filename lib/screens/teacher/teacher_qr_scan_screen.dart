@@ -6,6 +6,7 @@ import 'dart:ui_web' as ui_web;
 import 'dart:html' as html;
 import 'dart:js' as js;
 import '../../../services/attendance_service.dart';
+import '../../../services/qr_web_login_service.dart';
 import '../../../services/user_permission_service.dart';
 
 class TeacherQrScanScreen extends StatefulWidget {
@@ -66,6 +67,19 @@ class _TeacherQrScanScreenState extends State<TeacherQrScanScreen> {
     });
 
     try {
+      // Web QR ile oturum açma desteği
+      if (QrWebLoginService.isWebLoginQr(code)) {
+        final name = await QrWebLoginService.approveSessionFromQr(code);
+        if (mounted) {
+          setState(() {
+            _success = true;
+            _statusMessage =
+                "WEB OTURUMU AÇILDI!\n$name hesabıyla bilgisayarda giriş yapıldı.";
+          });
+        }
+        return;
+      }
+
       // 1. Format Check
       debugPrint("Checking QR code format...");
       if (!code.startsWith("edukn_attendance:")) {

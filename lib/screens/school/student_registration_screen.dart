@@ -6154,30 +6154,65 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         // Şube - Sadece okul türü ve sınıf seviyesi seçiliyse göster
         if (tempData['schoolTypeId'] != null && tempData['classLevel'] != null)
           FutureBuilder<List<Map<String, dynamic>>>(
-            future: FirebaseFirestore.instance
-                .collection('classes')
-                .where('schoolTypeId', isEqualTo: tempData['schoolTypeId'])
-                .where(
-                  'classLevel',
-                  isEqualTo:
-                      int.tryParse(tempData['classLevel']?.toString() ?? '0') ??
-                      0,
-                )
-                .where('isActive', isEqualTo: true)
-                .where('classTypeName', isEqualTo: 'Ders Sınıfı')
-                .get()
-                .then((snapshot) {
-                  final docs = snapshot.docs.map((doc) {
-                    final data = doc.data();
-                    data['id'] = doc.id;
-                    return data;
-                  }).toList();
-                  docs.sort(
-                    (a, b) =>
-                        (a['className'] ?? '').compareTo(b['className'] ?? ''),
-                  );
-                  return docs;
-                }),
+            future: () async {
+              final targetLvl = (tempData['classLevel'] ?? '')
+                  .toString()
+                  .replaceAll(RegExp(r'[^0-9]'), '');
+              final effectiveTermId =
+                  (tempData['termId'] ?? '').toString().trim().isNotEmpty
+                  ? tempData['termId'].toString().trim()
+                  : (await TermService().getSelectedTermId() ??
+                        await TermService().getActiveTermId());
+              final snapshot = await FirebaseFirestore.instance
+                  .collection('classes')
+                  .where('schoolTypeId', isEqualTo: tempData['schoolTypeId'])
+                  .where('isActive', isEqualTo: true)
+                  .get();
+              var allDocs = snapshot.docs.map((doc) {
+                final data = doc.data();
+                data['id'] = doc.id;
+                return data;
+              }).where((data) {
+                final tName = (data['classTypeName'] ?? 'Ders Sınıfı')
+                    .toString();
+                if (tName != 'Ders Sınıfı') return false;
+                final docLvl = (data['classLevel'] ?? '')
+                    .toString()
+                    .replaceAll(RegExp(r'[^0-9]'), '');
+                return docLvl == targetLvl;
+              }).toList();
+
+              if (effectiveTermId != null && effectiveTermId.isNotEmpty) {
+                final inTerm = allDocs
+                    .where(
+                      (d) =>
+                          (d['termId'] ?? '').toString().trim() ==
+                          effectiveTermId,
+                    )
+                    .toList();
+                if (inTerm.isNotEmpty) {
+                  allDocs = inTerm;
+                }
+              }
+
+              final seenNames = <String>{};
+              final docs = <Map<String, dynamic>>[];
+              for (final d in allDocs) {
+                final norm = (d['className'] ?? '')
+                    .toString()
+                    .trim()
+                    .toLowerCase();
+                if (norm.isNotEmpty && seenNames.add(norm)) {
+                  docs.add(d);
+                }
+              }
+              docs.sort(
+                (a, b) => (a['className'] ?? '').toString().compareTo(
+                  (b['className'] ?? '').toString(),
+                ),
+              );
+              return docs;
+            }(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return DropdownButtonFormField<String>(
@@ -7758,41 +7793,68 @@ class __StudentRegistrationFormScreenState
                       _selectedSchoolTypeId == null ||
                           _selectedClassLevel == null
                       ? Future.value([])
-                      : FirebaseFirestore.instance
-                            .collection('classes')
-                            .where(
-                              'schoolTypeId',
-                              isEqualTo: _selectedSchoolTypeId,
-                            )
-                            .where(
-                              'classLevel',
-                              isEqualTo:
-                                  int.tryParse(
-                                    _selectedClassLevel?.replaceAll(
-                                          RegExp(r'[^0-9]'),
-                                          '',
-                                        ) ??
-                                        '',
-                                  ) ??
-                                  0,
-                            )
-                            .where('isActive', isEqualTo: true)
-                            .where('classTypeName', isEqualTo: 'Ders Sınıfı')
-                            .get()
-                            .then((snapshot) {
-                              final docs = snapshot.docs.map((doc) {
-                                final data = doc.data();
-                                data['id'] = doc.id;
-                                return data;
-                              }).toList();
-                              // Manuel sıralama
-                              docs.sort(
-                                (a, b) => (a['className'] ?? '').compareTo(
-                                  b['className'] ?? '',
+                      : () async {
+                          final targetLvl = (_selectedClassLevel ?? '')
+                              .replaceAll(RegExp(r'[^0-9]'), '');
+                          final effectiveTermId =
+                              await TermService().getSelectedTermId() ??
+                              await TermService().getActiveTermId();
+                          final snapshot = await FirebaseFirestore.instance
+                              .collection('classes')
+                              .where(
+                                'schoolTypeId',
+                                isEqualTo: _selectedSchoolTypeId,
+                              )
+                              .where('isActive', isEqualTo: true)
+                              .get();
+                          var allDocs = snapshot.docs.map((doc) {
+                            final data = doc.data();
+                            data['id'] = doc.id;
+                            return data;
+                          }).where((data) {
+                            final tName =
+                                (data['classTypeName'] ?? 'Ders Sınıfı')
+                                    .toString();
+                            if (tName != 'Ders Sınıfı') return false;
+                            final docLvl = (data['classLevel'] ?? '')
+                                .toString()
+                                .replaceAll(RegExp(r'[^0-9]'), '');
+                            return docLvl == targetLvl;
+                          }).toList();
+
+                          if (effectiveTermId != null &&
+                              effectiveTermId.isNotEmpty) {
+                            final inTerm = allDocs
+                                .where(
+                                  (d) =>
+                                      (d['termId'] ?? '').toString().trim() ==
+                                      effectiveTermId,
+                                )
+                                .toList();
+                            if (inTerm.isNotEmpty) {
+                              allDocs = inTerm;
+                            }
+                          }
+
+                          final seenNames = <String>{};
+                          final docs = <Map<String, dynamic>>[];
+                          for (final d in allDocs) {
+                            final norm = (d['className'] ?? '')
+                                .toString()
+                                .trim()
+                                .toLowerCase();
+                            if (norm.isNotEmpty && seenNames.add(norm)) {
+                              docs.add(d);
+                            }
+                          }
+                          docs.sort(
+                            (a, b) =>
+                                (a['className'] ?? '').toString().compareTo(
+                                  (b['className'] ?? '').toString(),
                                 ),
-                              );
-                              return docs;
-                            }),
+                          );
+                          return docs;
+                        }(),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return DropdownButtonFormField<String>(

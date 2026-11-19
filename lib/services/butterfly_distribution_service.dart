@@ -136,6 +136,9 @@ class ButterflyDistributionService {
 
         final rawSups = (config['supervisors'] as List<dynamic>?) ?? [];
         final supervisors = rawSups.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final sessionSplits = config['sessionSplits'] is Map
+            ? Map<String, dynamic>.from(config['sessionSplits'] as Map)
+            : <String, dynamic>{};
 
         generatedRooms.add(ExamRoom(
           id: 'room_${rIdx + 1}',
@@ -147,6 +150,7 @@ class ButterflyDistributionService {
           supervisorId: supervisorId,
           supervisorName: supervisorName,
           supervisors: supervisors,
+          sessionSplits: sessionSplits,
           seats: roomSeats,
         ));
       }

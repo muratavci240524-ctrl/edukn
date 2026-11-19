@@ -102,6 +102,7 @@ class EduknAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final bool isMobile = MediaQuery.of(context).size.width < 1100;
+    SchoolLogoService.ensureLoaded(institutionId);
 
     // ── Leading widget: geri butonu veya özel leading ──
     Widget? leadingWidget;
@@ -165,17 +166,27 @@ class EduknAppBar extends StatelessWidget implements PreferredSizeWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              if (subtitle != null)
-                Text(
-                  subtitle!,
-                  style: TextStyle(
-                    color: subtitleColor ?? Colors.indigo.shade400,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+              ValueListenableBuilder<String?>(
+                valueListenable: SchoolLogoService.schoolName,
+                builder: (context, generalSchoolName, _) {
+                  final effectiveSubtitle = (subtitle != null && subtitle!.trim().isNotEmpty)
+                      ? subtitle!.trim()
+                      : (generalSchoolName ?? '').trim();
+                  if (effectiveSubtitle.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  return Text(
+                    effectiveSubtitle,
+                    style: TextStyle(
+                      color: subtitleColor ?? Colors.indigo.shade400,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  );
+                },
+              ),
             ],
           ),
         ),

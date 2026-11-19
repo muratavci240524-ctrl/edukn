@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../../firebase_options.dart';
 import '../../../services/crypto_service.dart';
+import '../../../services/role_permission_service.dart';
 
 class _UpperCaseTextFormatter extends TextInputFormatter {
   @override
@@ -29,8 +30,8 @@ class StaffFormScreen extends StatefulWidget {
   final String? fixedSchoolTypeId; // Okul türü ID'si
 
   const StaffFormScreen({
-    super.key, 
-    this.staffId, 
+    super.key,
+    this.staffId,
     this.staffData,
     this.fixedSchoolTypeName,
     this.fixedSchoolTypeId,
@@ -74,10 +75,29 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
   bool _isSaving = false;
   bool _obscurePassword = false; // Şifreyi varsayılan olarak açık/görünür göster
   String? _institutionId;
-  
+
   // Dinamik branş listesi
   List<String> _branchList = [];
-  
+
+  // Dinamik görev / rol listesi (Built-in + Yetki Tanımlama özel rolleri)
+  Map<String, String> _roleOptions = {
+    'ogretmen': 'Öğretmen',
+    'mudur': 'Müdür',
+    'mudur_yardimcisi': 'Müdür Yardımcısı',
+    'genel_mudur': 'Genel Müdür',
+    'rehber_ogretmen': 'Rehber Öğretmen',
+    'muhasebe': 'Muhasebe Sorumlusu',
+    'kantin_personeli': 'Kantin Sorumlusu / Kasiyer',
+    'magaza_sorumlusu': 'Mağaza Sorumlusu',
+    'saglik_personeli': 'Sağlık Personeli (Revir)',
+    'guvenlik': 'Güvenlik Görevlisi',
+    'depo': 'Depo Sorumlusu',
+    'satin_alma': 'Satın Alma Sorumlusu',
+    'hr': 'İnsan Kaynakları',
+    'destek_hizmetleri': 'Destek Hizmetleri',
+    'personel': 'Personel',
+  };
+
   // Varsayılan branşlar
   static const List<String> _defaultBranches = [
     'Almanca', 'Arapça', 'Beden Eğitimi ve Spor', 'Bilişim Teknolojileri ve Yazılım',
@@ -93,15 +113,15 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
     super.initState();
     // Önce varsayılan branşları yükle
     _branchList = List<String>.from(_defaultBranches)..sort();
-    _loadInstitutionId(); // Bu metod içinde _loadBranches() çağrılıyor
+    _loadInstitutionId(); // Bu metod içinde _loadBranches() ve _loadRoleTemplates() çağrılıyor
     if (widget.staffData != null) {
       _populateForm(widget.staffData!);
     }
   }
-  
+
   Future<void> _loadBranches() async {
     final allBranches = Set<String>.from(_defaultBranches);
-    
+
     // Firestore'dan özel branşları ekle
     if (_institutionId != null) {
       try {
@@ -130,6 +150,36 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
     }
   }
 
+  Future<void> _loadRoleTemplates() async {
+    if (_institutionId == null) return;
+    try {
+      final templates =
+          await RolePermissionService().getAllTemplates(_institutionId!);
+      final merged = Map<String, String>.from(_roleOptions);
+      templates.forEach((key, data) {
+        if (key == 'ogrenci' || key == 'veli') return;
+        final roleName = data['roleName']?.toString().trim();
+        if (roleName != null && roleName.isNotEmpty) {
+          merged[key] = roleName;
+        } else if (!merged.containsKey(key)) {
+          merged[key] = key;
+        }
+      });
+      if (_title != null &&
+          _title!.isNotEmpty &&
+          !merged.containsKey(_title!)) {
+        merged[_title!] = _title!;
+      }
+      if (mounted) {
+        setState(() {
+          _roleOptions = merged;
+        });
+      }
+    } catch (e) {
+      debugPrint('Özel görev şablonları yükleme hatası: $e');
+    }
+  }
+
   void _populateForm(Map<String, dynamic> data) {
     final instId = data['institutionId'] as String?;
     _tcController.text = CryptoService.decrypt(data['tcKimlik'] ?? data['tc'] ?? '', institutionId: instId);
@@ -154,7 +204,12 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
       _gender = data['gender'];
       _maritalStatus = data['maritalStatus'];
       _bloodGroup = data['bloodGroup'];
-      _title = data['title'];
+      _title = (data['title'] ?? data['role'])?.toString();
+      if (_title != null &&
+          _title!.isNotEmpty &&
+          !_roleOptions.containsKey(_title!)) {
+        _roleOptions[_title!] = _title!;
+      }
       _branch = data['branch'];
     });
   }
@@ -168,8 +223,9 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
     setState(() {
       _institutionId = instId;
     });
-    // Institution ID yüklendikten sonra branşları yükle
+    // Institution ID yüklendikten sonra branşları ve özel görev rollerini yükle
     _loadBranches();
+    _loadRoleTemplates();
   }
 
   Future<void> _checkDuplicateAndPullData(String tc) async {
@@ -188,7 +244,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
 
       if (userQuery.docs.isNotEmpty) {
         final existingUser = userQuery.docs.first.data();
-        
+
         setState(() {
           _fullNameController.text = existingUser['fullName'] ?? '';
           _birthDateController.text = existingUser['birthDate'] ?? '';
@@ -208,7 +264,12 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
           _emergencyPhoneController.text = existingUser['emergencyContactPhone'] ?? '';
           _photoUrlController.text = existingUser['photoUrl'] ?? '';
           _usernameController.text = existingUser['username'] ?? '';
-          _title = existingUser['title'];
+          _title = (existingUser['title'] ?? existingUser['role'])?.toString();
+          if (_title != null &&
+              _title!.isNotEmpty &&
+              !_roleOptions.containsKey(_title!)) {
+            _roleOptions[_title!] = _title!;
+          }
           _branch = existingUser['branch'];
         });
 
@@ -321,7 +382,6 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
       final defaultPassword = _passwordController.text.trim();
 
       final roleKey = _title ?? 'personel';
-      final isManager = ['mudur_yardimcisi', 'mudur', 'genel_mudur', 'yonetici'].contains(roleKey);
 
       List<String> assignedSchoolTypes = [];
       if (widget.fixedSchoolTypeId != null) {
@@ -335,20 +395,40 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
               .where('institutionId', isEqualTo: _institutionId)
               .get();
           assignedSchoolTypes = stSnap.docs.map((d) => d.id).toList();
-        } catch (silentError) { debugPrint('[staff_form_screen] hata yutuldu: $silentError'); }
+        } catch (silentError) {
+          debugPrint('[staff_form_screen] hata yutuldu: $silentError');
+        }
       }
 
-      final Map<String, dynamic> defaultModulePermissions = {
-        'genel_duyurular': {'enabled': true, 'level': isManager ? 'admin' : 'editor'},
-        'okul_turleri': {'enabled': true, 'level': isManager ? 'admin' : 'viewer'},
-        'ogrenci_kayit': {'enabled': isManager, 'level': isManager ? 'admin' : 'viewer'},
-        'insan_kaynaklari': {'enabled': isManager, 'level': isManager ? 'admin' : 'viewer'},
-        'muhasebe': {'enabled': isManager, 'level': isManager ? 'editor' : 'viewer'},
-        'satin_alma': {'enabled': isManager, 'level': isManager ? 'editor' : 'viewer'},
-        'depo': {'enabled': isManager, 'level': isManager ? 'editor' : 'viewer'},
-        'destek_hizmetleri': {'enabled': isManager, 'level': isManager ? 'editor' : 'viewer'},
-        'kullanici_yonetimi': {'enabled': isManager, 'level': isManager ? 'editor' : 'viewer'},
-      };
+      // Yetki Tanımlama şablonundan veya varsayılan rol şablonundan izinleri al
+      final roleTemplate = await RolePermissionService().loadRoleTemplate(
+        _institutionId!,
+        roleKey,
+      );
+      final Map<String, dynamic> resolvedAppPermissions =
+          (roleTemplate?['appPermissions'] as Map<String, dynamic>?) ??
+              RolePermissionService.getDefaultAppPermissions(roleKey);
+      final Map<String, dynamic> resolvedSchoolTypePermissions =
+          (roleTemplate?['schoolTypePermissions'] as Map<String, dynamic>?) ??
+              RolePermissionService.getDefaultSchoolTypePermissions(roleKey);
+      final Map<String, dynamic> resolvedTeacherPermissions =
+          (roleTemplate?['teacherPermissions'] as Map<String, dynamic>?) ??
+              RolePermissionService.getDefaultTeacherPermissions(roleKey);
+
+      final existingModPerms =
+          widget.staffData?['modulePermissions'] as Map<String, dynamic>?;
+      final hasLegacyPermsOnly = existingModPerms == null ||
+          (!existingModPerms.containsKey('egitim') &&
+              !existingModPerms.containsKey('mali_isler') &&
+              !existingModPerms.containsKey('sistem_ayarlari'));
+      final roleChanged =
+          (widget.staffData?['role'] ?? widget.staffData?['title'])?.toString() !=
+              roleKey;
+      final shouldWriteRolePerms =
+          !isEdit ||
+          roleChanged ||
+          (hasLegacyPermsOnly &&
+              widget.staffData?['hasCustomPermissions'] != true);
 
       final data = <String, dynamic>{
         'fullName': _fullNameController.text.trim(),
@@ -383,7 +463,12 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
         'tcKimlik': CryptoService.encrypt(_tcController.text.trim(), institutionId: _institutionId),
         'phone': _mobilePhoneController.text.trim(),
         'schoolTypes': assignedSchoolTypes,
-        'modulePermissions': defaultModulePermissions,
+        if (shouldWriteRolePerms) ...{
+          'modulePermissions': resolvedAppPermissions,
+          'schoolTypeModulePermissions': resolvedSchoolTypePermissions,
+          'teacherModulePermissions': resolvedTeacherPermissions,
+          if (roleChanged) 'hasCustomPermissions': false,
+        },
       };
 
       if (widget.staffId != null) {
@@ -648,19 +733,16 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                     // Ünvan / Görev (+ Branş varsa)
                     DropdownButtonFormField<String>(
                       decoration: _inputDecoration('Ünvan / Görev', isRequired: true, icon: Icons.work_outline),
-                      initialValue: _title,
+                      initialValue: _roleOptions.containsKey(_title) ? _title : null,
                       isExpanded: true,
-                      items: const [
-                        DropdownMenuItem(value: 'ogretmen', child: Text('Öğretmen')),
-                        DropdownMenuItem(value: 'mudur', child: Text('Müdür')),
-                        DropdownMenuItem(value: 'mudur_yardimcisi', child: Text('Müdür Yardımcısı')),
-                        DropdownMenuItem(value: 'personel', child: Text('Personel')),
-                        DropdownMenuItem(value: 'hr', child: Text('İnsan Kaynakları')),
-                        DropdownMenuItem(value: 'muhasebe', child: Text('Muhasebe')),
-                        DropdownMenuItem(value: 'satin_alma', child: Text('Satın Alma')),
-                        DropdownMenuItem(value: 'depo', child: Text('Depo Sorumlusu')),
-                        DropdownMenuItem(value: 'destek_hizmetleri', child: Text('Destek Hizmetleri')),
-                      ],
+                      items: _roleOptions.entries
+                          .map(
+                            (e) => DropdownMenuItem<String>(
+                              value: e.key,
+                              child: Text(e.value),
+                            ),
+                          )
+                          .toList(),
                       onChanged: (value) => setState(() {
                         _title = value;
                         if (value != 'ogretmen') _branch = null;

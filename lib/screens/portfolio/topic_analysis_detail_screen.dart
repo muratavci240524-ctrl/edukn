@@ -25,6 +25,14 @@ class TopicAnalysisDetailScreen extends StatefulWidget {
 class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
   late String _selectedSubject;
   late List<String> _orderedSubjects;
+  final ValueNotifier<({String subject, String topic, String stats})?>
+  _hoveredDetailTopicInfo = ValueNotifier(null);
+
+  @override
+  void dispose() {
+    _hoveredDetailTopicInfo.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -134,7 +142,9 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
-      appBar: EduknAppBar(title: 'Birleşik Kazanım Analizi - ${widget.studentName}'),
+      appBar: EduknAppBar(
+        title: 'Birleşik Kazanım Analizi - ${widget.studentName}',
+      ),
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -171,7 +181,9 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
                               decoration: BoxDecoration(
                                 color: Colors.indigo.shade50,
                                 borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: Colors.indigo.shade100),
+                                border: Border.all(
+                                  color: Colors.indigo.shade100,
+                                ),
                               ),
                               child: Text(
                                 '${widget.analyzedExamCount} Sınav Birleştirildi',
@@ -283,11 +295,13 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
     final sortedEntries = statsMap.entries.toList()
       ..sort((a, b) {
         double aCorr = a.value['correct'] ?? 0;
-        double aTotal = aCorr + (a.value['wrong'] ?? 0) + (a.value['empty'] ?? 0);
+        double aTotal =
+            aCorr + (a.value['wrong'] ?? 0) + (a.value['empty'] ?? 0);
         double aPct = aTotal > 0 ? (aCorr / aTotal) * 100 : 0;
 
         double bCorr = b.value['correct'] ?? 0;
-        double bTotal = bCorr + (b.value['wrong'] ?? 0) + (b.value['empty'] ?? 0);
+        double bTotal =
+            bCorr + (b.value['wrong'] ?? 0) + (b.value['empty'] ?? 0);
         double bPct = bTotal > 0 ? (bCorr / bTotal) * 100 : 0;
 
         return aPct.compareTo(bPct);
@@ -376,9 +390,7 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
                 child: DataTable(
                   columnSpacing: isMobile ? 20 : 36,
                   horizontalMargin: 16,
-                  headingRowColor: WidgetStateProperty.all(
-                    Colors.grey.shade50,
-                  ),
+                  headingRowColor: WidgetStateProperty.all(Colors.grey.shade50),
                   columns: [
                     DataColumn(
                       label: Text(
@@ -425,45 +437,69 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
                     return DataRow(
                       cells: [
                         DataCell(
-                          Container(
-                            constraints: BoxConstraints(
-                              maxWidth: isMobile ? 200 : 420,
-                            ),
-                            child: Tooltip(
-                              message: e.key,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      e.key,
-                                      style: TextStyle(fontSize: 12),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  if (examCnt > 1) ...[
-                                    SizedBox(width: 6),
-                                    Container(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.indigo.shade50,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        '$examCnt sınav',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.indigo.shade700,
+                          MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            onEnter: (_) {
+                              _hoveredDetailTopicInfo.value = (
+                                subject: _selectedSubject,
+                                topic: e.key,
+                                stats:
+                                    'Sınav: $examCnt • Soru: ${total.toInt()} • Doğru: ${corr.toInt()} • Yanlış: ${wrng.toInt()} • Başarı: %${pct.toStringAsFixed(1)}',
+                              );
+                            },
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {
+                                _hoveredDetailTopicInfo.value = (
+                                  subject: _selectedSubject,
+                                  topic: e.key,
+                                  stats:
+                                      'Sınav: $examCnt • Soru: ${total.toInt()} • Doğru: ${corr.toInt()} • Yanlış: ${wrng.toInt()} • Başarı: %${pct.toStringAsFixed(1)}',
+                                );
+                              },
+                              child: Container(
+                                constraints: BoxConstraints(
+                                  maxWidth: isMobile ? 200 : 420,
+                                ),
+                                child: Tooltip(
+                                  message: e.key,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          e.key,
+                                          style: TextStyle(fontSize: 12),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
-                                    ),
-                                  ],
-                                ],
+                                      if (examCnt > 1) ...[
+                                        SizedBox(width: 6),
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.indigo.shade50,
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            '$examCnt sınav',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.indigo.shade700,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -473,8 +509,12 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
                             examCnt.toString(),
                             style: TextStyle(
                               fontSize: 12,
-                              fontWeight: examCnt > 1 ? FontWeight.bold : FontWeight.normal,
-                              color: examCnt > 1 ? Colors.indigo.shade700 : Colors.black87,
+                              fontWeight: examCnt > 1
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              color: examCnt > 1
+                                  ? Colors.indigo.shade700
+                                  : Colors.black87,
                             ),
                           ),
                         ),
@@ -520,6 +560,114 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
                   }).toList(),
                 ),
               ),
+            ),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<
+              ({String subject, String topic, String stats})?
+            >(
+              valueListenable: _hoveredDetailTopicInfo,
+              builder: (context, info, _) {
+                if (info == null || info.topic.trim().isEmpty) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 9,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.mouse_outlined,
+                          size: 16,
+                          color: Colors.indigo.shade400,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Kısaltılmış kazanım metninin tamamını burada okumak için fareyle tablodaki kazanımın üzerine gelin.',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: Colors.blueGrey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEEF2FF),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.indigo.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.shade700,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              info.subject,
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            'KAZANIM TAM METNİ',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.indigo.shade900,
+                            ),
+                          ),
+                          Text(
+                            '•  ${info.stats}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.indigo.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      SelectableText(
+                        info.topic,
+                        style: const TextStyle(
+                          fontSize: 12.8,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF0F172A),
+                          height: 1.38,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
             SizedBox(height: 24),
           ],

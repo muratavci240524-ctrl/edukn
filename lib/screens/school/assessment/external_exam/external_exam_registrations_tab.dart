@@ -568,7 +568,9 @@ class _ExternalExamRegistrationsTabState
         'City',
         'District',
         'CurrentSchool',
-        'SessionId'
+        'SessionId',
+        'ApplicationDate',
+        'ApplicationTime'
       ];
       sheetObject.appendRow(headers.map((e) => TextCellValue(e)).toList());
 
@@ -587,6 +589,16 @@ class _ExternalExamRegistrationsTabState
           TextCellValue(reg.district ?? ''),
           TextCellValue(reg.currentSchool),
           TextCellValue(reg.sessionId ?? ''),
+          DateCellValue(
+            year: reg.createdAt.toLocal().year,
+            month: reg.createdAt.toLocal().month,
+            day: reg.createdAt.toLocal().day,
+          ),
+          TimeCellValue(
+            hour: reg.createdAt.toLocal().hour,
+            minute: reg.createdAt.toLocal().minute,
+            second: reg.createdAt.toLocal().second,
+          ),
         ];
         sheetObject.appendRow(row);
       }
@@ -839,6 +851,7 @@ class _ExternalExamRegistrationsTabState
       builder: (context) => _EditRegistrationDialog(
         registration: reg,
         service: _service,
+        exam: widget.exam,
       ),
     );
   }
@@ -1270,11 +1283,13 @@ class _ExistingStudentsDialogState extends State<_ExistingStudentsDialog> {
 class _EditRegistrationDialog extends StatefulWidget {
   final ExternalExamRegistration registration;
   final ExternalExamService service;
+  final ExternalExam exam;
 
   const _EditRegistrationDialog({
     Key? key,
     required this.registration,
     required this.service,
+    required this.exam,
   }) : super(key: key);
 
   @override
@@ -1287,49 +1302,103 @@ class _EditRegistrationDialogState extends State<_EditRegistrationDialog> {
   late TextEditingController _surnameCtrl;
   late TextEditingController _tcCtrl;
   late TextEditingController _phoneCtrl;
-  late TextEditingController _gradeCtrl;
   late TextEditingController _schoolCtrl;
+  late TextEditingController _studentNoCtrl;
+  late TextEditingController _emailCtrl;
+  late TextEditingController _parentNameCtrl;
+  late TextEditingController _parentSurnameCtrl;
+  late TextEditingController _parentPhoneCtrl;
+  late TextEditingController _parentEmailCtrl;
+  late TextEditingController _cityCtrl;
+  late TextEditingController _districtCtrl;
+  late String _grade;
+  late String _sessionId;
+  late RegistrationStatus _status;
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
-    _nameCtrl = TextEditingController(text: widget.registration.studentName);
-    _surnameCtrl = TextEditingController(text: widget.registration.studentSurname);
-    _tcCtrl = TextEditingController(text: widget.registration.studentTcNo);
-    _phoneCtrl = TextEditingController(text: widget.registration.phone ?? widget.registration.parentPhone ?? '');
-    _gradeCtrl = TextEditingController(text: widget.registration.gradeLevel);
-    _schoolCtrl = TextEditingController(text: widget.registration.currentSchool);
+    final r = widget.registration;
+    _nameCtrl = TextEditingController(text: r.studentName);
+    _surnameCtrl = TextEditingController(text: r.studentSurname);
+    _tcCtrl = TextEditingController(text: r.studentTcNo);
+    _phoneCtrl = TextEditingController(text: r.phone ?? '');
+    _schoolCtrl = TextEditingController(text: r.currentSchool);
+    _studentNoCtrl = TextEditingController(text: r.studentNumber ?? '');
+    _emailCtrl = TextEditingController(text: r.email ?? '');
+    _parentNameCtrl = TextEditingController(text: r.parentName);
+    _parentSurnameCtrl = TextEditingController(text: r.parentSurname);
+    _parentPhoneCtrl = TextEditingController(text: r.parentPhone);
+    _parentEmailCtrl = TextEditingController(text: r.parentEmail ?? '');
+    _cityCtrl = TextEditingController(text: r.city);
+    _districtCtrl = TextEditingController(text: r.district);
+    _grade = r.gradeLevel;
+    _sessionId = r.sessionId;
+    _status = r.status;
   }
 
   @override
   void dispose() {
-    _nameCtrl.dispose();
-    _surnameCtrl.dispose();
-    _tcCtrl.dispose();
-    _phoneCtrl.dispose();
-    _gradeCtrl.dispose();
-    _schoolCtrl.dispose();
+    for (final c in [
+      _nameCtrl, _surnameCtrl, _tcCtrl, _phoneCtrl, _schoolCtrl, _studentNoCtrl,
+      _emailCtrl, _parentNameCtrl, _parentSurnameCtrl, _parentPhoneCtrl,
+      _parentEmailCtrl, _cityCtrl, _districtCtrl,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
+  }
+
+  List<String> get _gradeOptions {
+    final list = List<String>.from(widget.exam.gradeLevels);
+    if (_grade.isNotEmpty && !list.contains(_grade)) list.add(_grade);
+    return list;
+  }
+
+  String _sessionLabel(ApplicationSession s) {
+    final d = s.sessionDate;
+    final date = '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
+    return '$date  ${s.displayTime}';
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
     try {
-      final updated = widget.registration.copyWith(
+      final r = widget.registration;
+      final changedPlacement = _grade != r.gradeLevel || _sessionId != r.sessionId;
+      final updated = r.copyWith(
         studentName: _nameCtrl.text.trim(),
         studentSurname: _surnameCtrl.text.trim(),
         studentTcNo: _tcCtrl.text.trim(),
+        studentNumber: _studentNoCtrl.text.trim(),
         phone: _phoneCtrl.text.trim(),
-        gradeLevel: _gradeCtrl.text.trim(),
+        email: _emailCtrl.text.trim(),
+        gradeLevel: _grade,
+        sessionId: _sessionId,
         currentSchool: _schoolCtrl.text.trim(),
+        parentName: _parentNameCtrl.text.trim(),
+        parentSurname: _parentSurnameCtrl.text.trim(),
+        parentPhone: _parentPhoneCtrl.text.trim(),
+        parentEmail: _parentEmailCtrl.text.trim(),
+        city: _cityCtrl.text.trim(),
+        district: _districtCtrl.text.trim(),
+        status: _status,
+        // Sınıf seviyesi veya seans değişince eski salon/sıra geçersizdir
+        clearSeatAssignment: changedPlacement,
       );
-      await widget.service.updateRegistration(widget.registration.id!, updated);
+      await widget.service.updateRegistration(r.id!, updated);
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Başvuru güncellendi.')),
+          SnackBar(
+            content: Text(
+              changedPlacement && r.assignedRoomId != null
+                  ? 'Başvuru güncellendi. Sınıf/seans değiştiği için salon ataması sıfırlandı; Salon Planı sekmesinden yeniden atayın.'
+                  : 'Başvuru güncellendi.',
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -1343,172 +1412,176 @@ class _EditRegistrationDialogState extends State<_EditRegistrationDialog> {
     }
   }
 
+  Widget _section(String t) => Padding(
+    padding: const EdgeInsets.only(top: 22, bottom: 10),
+    child: Text(t, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.blue.shade700, letterSpacing: 0.4)),
+  );
+
+  Widget _row(Widget a, Widget b) => Padding(
+    padding: const EdgeInsets.only(bottom: 14),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: a), const SizedBox(width: 16), Expanded(child: b)]),
+  );
+
+  InputDecoration _dec(String label, IconData icon) => InputDecoration(
+    labelText: label,
+    labelStyle: GoogleFonts.inter(color: Colors.grey.shade500),
+    prefixIcon: Icon(icon, color: Colors.grey.shade400, size: 20),
+    filled: true,
+    fillColor: Colors.grey.shade50,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.blue.shade300, width: 2)),
+  );
+
   @override
   Widget build(BuildContext context) {
+    final sessions = widget.exam.applicationSessions;
+    final sessionIds = sessions.map((s) => s.id).toSet();
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: Container(
-        width: 650,
-        padding: const EdgeInsets.all(32),
+        width: 700,
+        constraints: const BoxConstraints(maxHeight: 820),
+        padding: const EdgeInsets.all(28),
         child: Form(
           key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(Icons.edit_document, color: Colors.blue.shade700, size: 24),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Başvuruyu Düzenle',
-                            style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.grey.shade900),
-                          ),
-                          Text(
-                            'Öğrencinin kayıt bilgilerini güncelleyin',
-                            style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade500),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.close_rounded, color: Colors.grey.shade400),
-                      onPressed: () => Navigator.pop(context),
-                      style: IconButton.styleFrom(backgroundColor: Colors.grey.shade50),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _nameCtrl,
-                        label: 'Öğrenci Adı',
-                        icon: Icons.person_outline_rounded,
-                        validator: (v) => v!.isEmpty ? 'Gerekli' : null,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _surnameCtrl,
-                        label: 'Öğrenci Soyadı',
-                        icon: Icons.person_outline_rounded,
-                        validator: (v) => v!.isEmpty ? 'Gerekli' : null,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _tcCtrl,
-                        label: 'TC Kimlik No',
-                        icon: Icons.badge_outlined,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _gradeCtrl,
-                        label: 'Sınıf Seviyesi',
-                        icon: Icons.school_outlined,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _phoneCtrl,
-                        label: 'İletişim (Telefon)',
-                        icon: Icons.phone_outlined,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _schoolCtrl,
-                        label: 'Mevcut Okulu',
-                        icon: Icons.account_balance_outlined,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-                ElevatedButton(
-                  onPressed: _isSaving ? null : _save,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue.shade600,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(16)),
+                    child: Icon(Icons.edit_document, color: Colors.blue.shade700, size: 24),
                   ),
-                  child: _isSaving
-                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Text('Değişiklikleri Kaydet', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Başvuruyu Düzenle', style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.grey.shade900)),
+                        Text('Öğrenci, veli, sınıf seviyesi, seans ve durum bilgilerini güncelleyin', style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500)),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close_rounded, color: Colors.grey.shade400),
+                    onPressed: () => Navigator.pop(context),
+                    style: IconButton.styleFrom(backgroundColor: Colors.grey.shade50),
+                  ),
+                ],
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _section('SINAV BİLGİLERİ'),
+                      _row(
+                        DropdownButtonFormField<String>(
+                          initialValue: _gradeOptions.contains(_grade) ? _grade : null,
+                          isExpanded: true,
+                          decoration: _dec('Sınıf Seviyesi', Icons.school_outlined),
+                          items: _gradeOptions.map((g) => DropdownMenuItem(value: g, child: Text(g == 'Mezun' ? 'Mezun' : '$g. Sınıf'))).toList(),
+                          onChanged: (v) => setState(() => _grade = v ?? _grade),
+                        ),
+                        DropdownButtonFormField<String>(
+                          initialValue: sessionIds.contains(_sessionId) ? _sessionId : null,
+                          isExpanded: true,
+                          decoration: _dec('Başvuru Seansı', Icons.event_available_outlined),
+                          items: sessions.map((s) => DropdownMenuItem(value: s.id, child: Text(_sessionLabel(s), overflow: TextOverflow.ellipsis))).toList(),
+                          onChanged: (v) => setState(() => _sessionId = v ?? _sessionId),
+                        ),
+                      ),
+                      _row(
+                        DropdownButtonFormField<RegistrationStatus>(
+                          initialValue: _status,
+                          decoration: _dec('Başvuru Durumu', Icons.verified_outlined),
+                          items: const [
+                            DropdownMenuItem(value: RegistrationStatus.pending, child: Text('Bekliyor')),
+                            DropdownMenuItem(value: RegistrationStatus.confirmed, child: Text('Onaylandı')),
+                            DropdownMenuItem(value: RegistrationStatus.cancelled, child: Text('İptal')),
+                          ],
+                          onChanged: (v) => setState(() => _status = v ?? _status),
+                        ),
+                        _field(_schoolCtrl, 'Mevcut Okulu', Icons.account_balance_outlined),
+                      ),
+                      if (_grade != widget.registration.gradeLevel || _sessionId != widget.registration.sessionId)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(10)),
+                          child: Row(children: [
+                            Icon(Icons.info_outline_rounded, size: 18, color: Colors.amber.shade800),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text('Sınıf seviyesi veya seans değiştiği için mevcut salon/sıra ataması sıfırlanacak; Salon Planı\'ndan yeniden atama yapın.', style: TextStyle(fontSize: 12, color: Colors.amber.shade900))),
+                          ]),
+                        ),
+                      _section('ÖĞRENCİ BİLGİLERİ'),
+                      _row(
+                        _field(_nameCtrl, 'Öğrenci Adı', Icons.person_outline_rounded, required: true),
+                        _field(_surnameCtrl, 'Öğrenci Soyadı', Icons.person_outline_rounded, required: true),
+                      ),
+                      _row(
+                        _field(_tcCtrl, 'T.C. Kimlik No', Icons.badge_outlined),
+                        _field(_studentNoCtrl, 'Öğrenci No (opsiyonel)', Icons.numbers_rounded),
+                      ),
+                      _row(
+                        _field(_phoneCtrl, 'Öğrenci Telefon', Icons.phone_outlined),
+                        _field(_emailCtrl, 'Öğrenci E-posta', Icons.alternate_email_rounded),
+                      ),
+                      _section('VELİ BİLGİLERİ'),
+                      _row(
+                        _field(_parentNameCtrl, 'Veli Adı', Icons.family_restroom_rounded),
+                        _field(_parentSurnameCtrl, 'Veli Soyadı', Icons.family_restroom_rounded),
+                      ),
+                      _row(
+                        _field(_parentPhoneCtrl, 'Veli Telefon', Icons.phone_android_rounded),
+                        _field(_parentEmailCtrl, 'Veli E-posta', Icons.mail_outline_rounded),
+                      ),
+                      _section('ADRES'),
+                      _row(
+                        _field(_cityCtrl, 'İl', Icons.location_city_rounded),
+                        _field(_districtCtrl, 'İlçe', Icons.map_outlined),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 18),
+              ElevatedButton(
+                onPressed: _isSaving ? null : _save,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue.shade600,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                child: _isSaving
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : Text('Değişiklikleri Kaydet', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    String? Function(String?)? validator,
-  }) {
+  Widget _field(TextEditingController c, String label, IconData icon, {bool required = false}) {
     return TextFormField(
-      controller: controller,
-      validator: validator,
+      controller: c,
+      validator: required ? (v) => (v == null || v.trim().isEmpty) ? 'Gerekli' : null : null,
       style: GoogleFonts.inter(fontSize: 14),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: GoogleFonts.inter(color: Colors.grey.shade500),
-        prefixIcon: Icon(icon, color: Colors.grey.shade400, size: 20),
-        filled: true,
-        fillColor: Colors.grey.shade50,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey.shade200),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey.shade200),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.blue.shade300, width: 2),
-        ),
-      ),
+      decoration: _dec(label, icon),
     );
   }
 }
-
 

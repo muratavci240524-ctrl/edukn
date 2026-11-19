@@ -3,13 +3,14 @@
 <head>
   <base href="$FLUTTER_BASE_HREF">
 
-  <!-- 🧹 Eski ve bozuk Service Worker / Cache Temizliği (Tek Seferlik Güvenli Sürüm Kontrolü) -->
+  <!-- 🧹 Eski ve bozuk Service Worker / Cache / Firestore IndexedDB Temizliği (Tek Seferlik Güvenli Sürüm Kontrolü) -->
   <script>
     (function() {
-      const CURRENT_CACHE_VERSION = 'edukn_v2026_09';
+      const CURRENT_CACHE_VERSION = 'edukn_v2026_11';
       try {
         const savedVersion = localStorage.getItem('edukn_cache_version');
         if (savedVersion !== CURRENT_CACHE_VERSION) {
+          localStorage.setItem('edukn_cache_version', CURRENT_CACHE_VERSION);
           if ('caches' in window) {
             caches.keys().then(function(names) {
               names.forEach(function(name) {
@@ -17,8 +18,34 @@
               });
             });
           }
-          localStorage.setItem('edukn_cache_version', CURRENT_CACHE_VERSION);
-          console.log('🧹 Eski cache temizlendi, sürüm:', CURRENT_CACHE_VERSION);
+          // Bozulmuş Firestore Web IndexedDB target cache'lerini temizle (Auth DB'ye dokunmaz)
+          if (window.indexedDB && typeof window.indexedDB.databases === 'function') {
+            window.indexedDB.databases().then(function(dbs) {
+              (dbs || []).forEach(function(db) {
+                if (db && db.name && db.name.indexOf('firestore/') === 0) {
+                  try { window.indexedDB.deleteDatabase(db.name); } catch (_) {}
+                }
+              });
+            }).catch(function() {});
+          }
+          // Eski immutable HTTP disk önbelleğindeki ikon fontu ve manifestleri zorla yenile
+          const mutableAssets = [
+            'assets/fonts/MaterialIcons-Regular.otf',
+            'assets/FontManifest.json',
+            'assets/AssetManifest.bin',
+            'assets/AssetManifest.bin.json',
+            'assets/AssetManifest.json'
+          ];
+          Promise.all(
+            mutableAssets.map(function(u) {
+              return fetch(u, { cache: 'reload' }).catch(function() {});
+            })
+          ).then(function() {
+            console.log('🧹 Eski cache ve ikon fontu yenilendi, sürüm:', CURRENT_CACHE_VERSION);
+            if (savedVersion) {
+              window.location.reload();
+            }
+          });
         }
       } catch (e) {
         console.warn('Cache kontrol hatası:', e);
@@ -57,13 +84,27 @@
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="edukn">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <meta name="apple-mobile-web-app-title" content="edukn" id="apple-app-title">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png" id="apple-touch-icon-link">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" type="image/png" href="favicon.png" id="favicon-link"/>
 
-  <title>edukn</title>
+  <title>eduKN Yönetim Paneli</title>
+  <script>
+    (function() {
+      var host = (window.location.hostname || '').toLowerCase();
+      if (host.indexOf('courseappy') !== -1) {
+        document.title = 'CourseAppy Yönetim Paneli';
+        var fav = document.getElementById('favicon-link');
+        if (fav) fav.href = 'courseappy_favicon.png';
+        var appleIcon = document.getElementById('apple-touch-icon-link');
+        if (appleIcon) appleIcon.href = 'courseappy_favicon.png';
+        var appleTitle = document.getElementById('apple-app-title');
+        if (appleTitle) appleTitle.content = 'CourseAppy';
+      }
+    })();
+  </script>
   <link rel="manifest" href="manifest.json">
 
   <!-- Material Icons Font (Flutter 3.44+ için gerekli) -->
@@ -71,12 +112,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Outlined|Material+Icons+Round|Material+Icons+Sharp" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
-
-  <!-- Firebase SDK'ları -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 
   <!-- QR Scanning Engine (The Force) -->
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -135,76 +170,88 @@
        📱 MOBİL KLAVYE VIEWPORT FIX
        Klavye kapandığında kalan boşluğu otomatik temizler.
        iOS Safari + Android Chrome için evrensel çözüm.
+       Masaüstü tarayıcılarda scrollbar titreşimini önlemek için yalnızca
+       mobil/dokunmatik cihazlarda piksel kilitlemesi yapar.
        ═══════════════════════════════════════════════════════════════════════ -->
   <script>
     (function() {
+      const isMobileTouch = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '') ||
+        (navigator.maxTouchPoints > 1 && window.innerWidth <= 1024);
+
+      let lastVvHeight = 0;
+      let lastVvWidth = 0;
+      let rafId = null;
+
       // Gerçek görünür alan yüksekliğini CSS değişkenine yaz
       function setViewportHeight() {
         const vh = window.visualViewport
-          ? window.visualViewport.height
+          ? Math.round(window.visualViewport.height)
           : window.innerHeight;
         document.documentElement.style.setProperty('--real-vh', vh + 'px');
       }
 
-      // Flutter'ın ana konteynerini görünür alana sığdır
+      // Mobil cihazlarda Flutter'ın ana konteynerini görünür alana sığdır
       function fixFlutterViewport() {
-        const vvHeight = window.visualViewport
-          ? window.visualViewport.height
-          : window.innerHeight;
-        const vvWidth = window.visualViewport
-          ? window.visualViewport.width
-          : window.innerWidth;
-
-        // body ve html'i visual viewport'a kilitle
-        document.documentElement.style.height = vvHeight + 'px';
-        document.body.style.height = vvHeight + 'px';
-        document.body.style.width = vvWidth + 'px';
-
-        // Flutter'ın glass-pane elementini de düzelt
-        const flutterView = document.querySelector('flt-glass-pane');
-        if (flutterView) {
-          flutterView.style.height = vvHeight + 'px';
-          flutterView.style.width = vvWidth + 'px';
+        if (!isMobileTouch) {
+          setViewportHeight();
+          return;
         }
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(function() {
+          const vvHeight = Math.round(
+            window.visualViewport ? window.visualViewport.height : window.innerHeight
+          );
+          const vvWidth = Math.round(
+            window.visualViewport ? window.visualViewport.width : window.innerWidth
+          );
 
-        // Flutter'ın view container'ını da düzelt
-        const flutterViewport = document.querySelector('flutter-view');
-        if (flutterViewport) {
-          flutterViewport.style.height = vvHeight + 'px';
-        }
+          if (Math.abs(vvHeight - lastVvHeight) < 1 && Math.abs(vvWidth - lastVvWidth) < 1) {
+            return;
+          }
+          lastVvHeight = vvHeight;
+          lastVvWidth = vvWidth;
+
+          document.documentElement.style.height = vvHeight + 'px';
+          document.body.style.height = vvHeight + 'px';
+          document.body.style.width = vvWidth + 'px';
+
+          const flutterView = document.querySelector('flt-glass-pane');
+          if (flutterView) {
+            flutterView.style.height = vvHeight + 'px';
+            flutterView.style.width = vvWidth + 'px';
+          }
+
+          const flutterViewport = document.querySelector('flutter-view');
+          if (flutterViewport) {
+            flutterViewport.style.height = vvHeight + 'px';
+          }
+        });
       }
 
-      // visualViewport API var mı? (Modern iOS 13+ ve Android destekler)
       if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', function() {
-          fixFlutterViewport();
           setViewportHeight();
-        });
-        window.visualViewport.addEventListener('scroll', function() {
           fixFlutterViewport();
         });
-        // Başlangıç değerini ayarla
+        if (isMobileTouch) {
+          window.visualViewport.addEventListener('scroll', function() {
+            fixFlutterViewport();
+          });
+        }
         setViewportHeight();
       }
 
-      // Eski yöntem: window resize (Android Chrome fallback)
       window.addEventListener('resize', function() {
         setViewportHeight();
-        // Küçük bir gecikme ile çalıştır (klavye animasyonu bitmesini bekle)
-        setTimeout(fixFlutterViewport, 100);
-        setTimeout(fixFlutterViewport, 300); // iOS Safari için ekstra deneme
+        if (isMobileTouch) {
+          setTimeout(fixFlutterViewport, 100);
+          setTimeout(fixFlutterViewport, 300);
+        }
       });
 
-      // Sayfa yüklendiğinde ve orientation değiştiğinde de çalıştır
       window.addEventListener('orientationchange', function() {
         setTimeout(fixFlutterViewport, 300);
         setTimeout(fixFlutterViewport, 600);
-      });
-
-      // Flutter render tamamlandıktan sonra başlangıç değerini uygula
-      window.addEventListener('load', function() {
-        setTimeout(fixFlutterViewport, 500);
-        setTimeout(fixFlutterViewport, 1500);
       });
     })();
   </script>
@@ -227,15 +274,40 @@
 
   <style>
     /* ═══════════════════════════════════════════════════════════════════════
+       🔒 ROOT VIEWPORT & SCROLLBAR RESET (Açılışta Sağ/Alt Titreşimi Önler)
+       ═══════════════════════════════════════════════════════════════════════ */
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100%;
+      height: 100%;
+      overflow: hidden !important;
+      overscroll-behavior: none;
+      background-color: #F8FAFC;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════
        ✨ eduKN INITIAL LOADING SPLASH SCREEN (Beyaz Ekran Önleyici)
        ═══════════════════════════════════════════════════════════════════════ */
     #loading-splash {
       position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      height: 100dvh;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      contain: layout paint;
       background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 50%, #EFF6FF 100%);
       display: flex;
       flex-direction: column;
@@ -369,18 +441,30 @@
   </style>
 </head>
 <body>
-  <!-- ✨ eduKN Web Giriş Splash Screen -->
+  <!-- ✨ eduKN / CourseAppy Web Giriş Splash Screen -->
   <div id="loading-splash">
     <div class="splash-container">
       <div class="splash-logo-wrap">
         <div class="splash-logo-glow"></div>
-        <img src="splash_logo.png" alt="eduKN" class="splash-logo" onerror="this.src='logo.png'" />
+        <img id="splash-logo-img" src="splash_logo.png" alt="eduKN" class="splash-logo" onerror="this.src='logo.png'" />
       </div>
       <div class="splash-slogan">DAHA İYİ PLANLA, DAHA HIZLI İLERLE</div>
       <div class="splash-loader-bar"></div>
       <div class="splash-status">Sistem Hazırlanıyor...</div>
     </div>
   </div>
+  <script>
+    (function() {
+      var host = (window.location.hostname || '').toLowerCase();
+      if (host.indexOf('courseappy') !== -1) {
+        var splashImg = document.getElementById('splash-logo-img');
+        if (splashImg) {
+          splashImg.src = 'courseappy_logo.png';
+          splashImg.alt = 'CourseAppy';
+        }
+      }
+    })();
+  </script>
 
   <script>
     (function() {

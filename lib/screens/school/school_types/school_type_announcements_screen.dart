@@ -82,10 +82,15 @@ class _SchoolTypeAnnouncementsScreenState
     if (_resolvedInstitutionId == null || _resolvedInstitutionId!.isEmpty) {
       final userData = await UserPermissionService.loadUserData();
       final user = FirebaseAuth.instance.currentUser;
-      _resolvedInstitutionId = await UserPermissionService.resolveInstitutionId(user?.email ?? '', userData: userData);
+      _resolvedInstitutionId = await UserPermissionService.resolveInstitutionId(
+        user?.email ?? '',
+        userData: userData,
+      );
     }
 
-    final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+    final activeTermId =
+        await TermService().getSelectedTermId() ??
+        await TermService().getActiveTermId();
     if (mounted) {
       setState(() {
         _activeTermId = activeTermId;
@@ -102,7 +107,8 @@ class _SchoolTypeAnnouncementsScreenState
 
   Future<void> _loadSchoolTypes() async {
     try {
-      if (_resolvedInstitutionId == null || _resolvedInstitutionId!.isEmpty) return;
+      if (_resolvedInstitutionId == null || _resolvedInstitutionId!.isEmpty)
+        return;
       final snapshot = await FirebaseFirestore.instance
           .collection('schoolTypes')
           .where('institutionId', isEqualTo: _resolvedInstitutionId)
@@ -114,29 +120,45 @@ class _SchoolTypeAnnouncementsScreenState
       final role = (data?['role'] ?? '').toString().toLowerCase();
       final type = (data?['type'] ?? '').toString().toLowerCase();
 
-      final isGlobalAdmin = role == 'admin' || role == 'manager' || role == 'genel_mudur' || type == 'admin';
+      final isGlobalAdmin =
+          role == 'admin' ||
+          role == 'manager' ||
+          role == 'genel_mudur' ||
+          type == 'admin';
 
       List<Map<String, dynamic>> loadedTypes = [];
 
       for (var d in snapshot.docs) {
         final stId = d.id;
-        final stName = d.data()['name'] ?? d.data()['schoolTypeName'] ?? d.data()['typeName'] ?? d.data()['schoolName'] ?? 'Bilinmeyen Okul Türü';
+        final stName =
+            d.data()['name'] ??
+            d.data()['schoolTypeName'] ??
+            d.data()['typeName'] ??
+            d.data()['schoolName'] ??
+            'Bilinmeyen Okul Türü';
 
         if (!isGlobalAdmin) {
           bool hasAccess = false;
-          if (userSchoolTypeId != null && userSchoolTypeId == stId) hasAccess = true;
+          if (userSchoolTypeId != null && userSchoolTypeId == stId)
+            hasAccess = true;
           if (userSchoolTypeIds.contains(stId)) hasAccess = true;
-          final schoolTypePerms = data?['schoolTypePermissions'] as Map<String, dynamic>?;
-          if (schoolTypePerms != null && schoolTypePerms.containsKey(stId)) hasAccess = true;
+          final schoolTypePerms =
+              data?['schoolTypePermissions'] as Map<String, dynamic>?;
+          if (schoolTypePerms != null && schoolTypePerms.containsKey(stId))
+            hasAccess = true;
 
-          if (!hasAccess) continue; // Skip school types the user is not assigned to
+          if (!hasAccess)
+            continue; // Skip school types the user is not assigned to
         }
 
         loadedTypes.add({'id': stId, 'name': stName});
       }
 
       if (mounted) {
-        final isTeacher = role.contains('ogretmen') || role.contains('öğretmen') || role.contains('teacher');
+        final isTeacher =
+            role.contains('ogretmen') ||
+            role.contains('öğretmen') ||
+            role.contains('teacher');
         setState(() {
           _schoolTypes = loadedTypes;
           if (widget.schoolTypeId.isEmpty) {
@@ -170,7 +192,8 @@ class _SchoolTypeAnnouncementsScreenState
     List<String> classIds = [];
     if (role == 'ogretmen' || role == 'öğretmen' || role == 'teacher') {
       try {
-        final instId = _resolvedInstitutionId ?? data?['institutionId']?.toString();
+        final instId =
+            _resolvedInstitutionId ?? data?['institutionId']?.toString();
         if (instId != null && instId.isNotEmpty && email.isNotEmpty) {
           final uid = FirebaseAuth.instance.currentUser?.uid;
           final ids = <String>{};
@@ -201,7 +224,7 @@ class _SchoolTypeAnnouncementsScreenState
               }
             }
           }
-          
+
           if (uid != null) {
             final assignSnap = await FirebaseFirestore.instance
                 .collection('lessonAssignments')
@@ -240,7 +263,11 @@ class _SchoolTypeAnnouncementsScreenState
       return true;
     }
     if (widget.schoolTypeId.isEmpty) {
-      return UserPermissionService.canEditSubModule('haberlesme', 'genel_duyurular', userData);
+      return UserPermissionService.canEditSubModule(
+        'haberlesme',
+        'genel_duyurular',
+        userData,
+      );
     }
     final schoolTypePerms =
         userData!['schoolTypePermissions'] as Map<String, dynamic>?;
@@ -262,7 +289,9 @@ class _SchoolTypeAnnouncementsScreenState
   void _openCreateSheet() {
     final activeSchoolTypeId = widget.schoolTypeId.isNotEmpty
         ? widget.schoolTypeId
-        : (_selectedFilterSchoolTypeId == 'GENEL' ? '' : _selectedFilterSchoolTypeId);
+        : (_selectedFilterSchoolTypeId == 'GENEL'
+              ? ''
+              : _selectedFilterSchoolTypeId);
 
     String activeSchoolTypeName = widget.schoolTypeName;
     if (activeSchoolTypeName.isEmpty && activeSchoolTypeId.isNotEmpty) {
@@ -287,43 +316,61 @@ class _SchoolTypeAnnouncementsScreenState
   Future<void> _openTeacherModeSettingsDialog() async {
     final schoolId = await _announcementService.getSchoolId();
     if (schoolId == null) return;
-    String currentMode = await _announcementService.getTeacherAnnouncementMode(schoolId);
+    String currentMode = await _announcementService.getTeacherAnnouncementMode(
+      schoolId,
+    );
 
     if (!mounted) return;
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: Row(
             children: [
               const Icon(Icons.settings_suggest_rounded, color: Colors.indigo),
               const SizedBox(width: 8),
-              Text('Öğretmen Duyuru Ayarı', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold)),
+              Text(
+                'Öğretmen Duyuru Ayarı',
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Öğretmenlerin duyuru oluşturma izinlerini ve onay sürecini belirleyin:'),
+              const Text(
+                'Öğretmenlerin duyuru oluşturma izinlerini ve onay sürecini belirleyin:',
+              ),
               const SizedBox(height: 12),
               RadioListTile<String>(
                 title: const Text('Yönetim Onayına Düşsün'),
-                subtitle: const Text('Öğretmen duyuru yapar, yönetici onaylayınca yayınlanır.'),
+                subtitle: const Text(
+                  'Öğretmen duyuru yapar, yönetici onaylayınca yayınlanır.',
+                ),
                 value: 'approval_required',
                 groupValue: currentMode,
                 onChanged: (val) => setDialogState(() => currentMode = val!),
               ),
               RadioListTile<String>(
                 title: const Text('Doğrudan Yayınlansın'),
-                subtitle: const Text('Öğretmenin yaptığı duyuru onay gerekmeden yayınlanır.'),
+                subtitle: const Text(
+                  'Öğretmenin yaptığı duyuru onay gerekmeden yayınlanır.',
+                ),
                 value: 'direct',
                 groupValue: currentMode,
                 onChanged: (val) => setDialogState(() => currentMode = val!),
               ),
               RadioListTile<String>(
                 title: const Text('Öğretmen Duyuru Yapamasın'),
-                subtitle: const Text('Öğretmen modülünde duyuru oluşturma kapalıdır.'),
+                subtitle: const Text(
+                  'Öğretmen modülünde duyuru oluşturma kapalıdır.',
+                ),
                 value: 'disabled',
                 groupValue: currentMode,
                 onChanged: (val) => setDialogState(() => currentMode = val!),
@@ -337,15 +384,26 @@ class _SchoolTypeAnnouncementsScreenState
             ),
             ElevatedButton(
               onPressed: () async {
-                await _announcementService.setTeacherAnnouncementMode(schoolId, currentMode);
+                await _announcementService.setTeacherAnnouncementMode(
+                  schoolId,
+                  currentMode,
+                );
                 if (mounted) {
                   if (mounted) Navigator.pop(ctx);
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Öğretmen duyuru yetki ayarı kaydedildi.')),
-                  );
+                  if (mounted)
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Öğretmen duyuru yetki ayarı kaydedildi.',
+                        ),
+                      ),
+                    );
                 }
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.indigo,
+                foregroundColor: Colors.white,
+              ),
               child: const Text('Kaydet'),
             ),
           ],
@@ -386,9 +444,9 @@ class _SchoolTypeAnnouncementsScreenState
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Hata: $e')));
       }
     }
   }
@@ -404,12 +462,16 @@ class _SchoolTypeAnnouncementsScreenState
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: EduknAppBar(
+        institutionId: widget.institutionId,
         title: 'Duyurular',
         subtitle: widget.schoolTypeName.isNotEmpty
             ? widget.schoolTypeName
             : (_selectedFilterSchoolTypeId == 'GENEL'
-                ? 'Tüm Okul Türleri'
-                : (_schoolTypes.firstWhere((st) => st['id'] == _selectedFilterSchoolTypeId, orElse: () => {'name': null})['name'])),
+                  ? 'Tüm Okul Türleri'
+                  : (_schoolTypes.firstWhere(
+                      (st) => st['id'] == _selectedFilterSchoolTypeId,
+                      orElse: () => {'name': null},
+                    )['name'])),
         actions: [
           if (_canEditAnnouncements())
             IconButton(
@@ -440,7 +502,11 @@ class _SchoolTypeAnnouncementsScreenState
                   value: 'sent',
                   child: Row(
                     children: [
-                      Icon(Icons.outbox_rounded, color: Colors.indigo, size: 20),
+                      Icon(
+                        Icons.outbox_rounded,
+                        color: Colors.indigo,
+                        size: 20,
+                      ),
                       SizedBox(width: 12),
                       Text('Gönderilenler'),
                     ],
@@ -472,266 +538,321 @@ class _SchoolTypeAnnouncementsScreenState
             // Duyuru Listesi
             Expanded(
               child: SafeStreamBuilder<QuerySnapshot>(
-                    stream: _announcementService.getAnnouncements(),
-                    builder: (context, snapshot) {
-                      if (_isLoadingPermissions || snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
+                stream: _announcementService.getAnnouncements(),
+                builder: (context, snapshot) {
+                  if (_isLoadingPermissions ||
+                      snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-                      if (snapshot.hasError) {
-                        return Center(child: Text('Hata: ${snapshot.error}'));
-                      }
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Hata: ${snapshot.error}'));
+                  }
 
-                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                        return _buildEmptyState(
-                          'Henüz bir duyuru paylaşılmamış',
-                          'Aktif döneme ait yayınlanmış herhangi bir duyuru bulunmuyor.',
-                        );
-                      }
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return _buildEmptyState(
+                      'Henüz bir duyuru paylaşılmamış',
+                      'Aktif döneme ait yayınlanmış herhangi bir duyuru bulunmuyor.',
+                    );
+                  }
 
-                      final allDocs = snapshot.data!.docs;
-                      final currentUserEmail = _userEmail.isNotEmpty
-                          ? _userEmail
-                          : FirebaseAuth.instance.currentUser?.email ?? '';
-                      final searchText = _search.text.toLowerCase();
-                      final viewingSchoolTypeId = _activeViewSchoolTypeId;
+                  final allDocs = snapshot.data!.docs;
+                  final currentUserEmail = _userEmail.isNotEmpty
+                      ? _userEmail
+                      : FirebaseAuth.instance.currentUser?.email ?? '';
+                  final searchText = _search.text.toLowerCase();
+                  final viewingSchoolTypeId = _activeViewSchoolTypeId;
 
-                      final effectiveRole = _userRole.isNotEmpty ? _userRole : 'admin';
+                  final effectiveRole = _userRole.isNotEmpty
+                      ? _userRole
+                      : 'admin';
 
-                      final currentUserUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                  final currentUserUid =
+                      FirebaseAuth.instance.currentUser?.uid ?? '';
 
-                      // ─── Rol & Okul Türü Filtrelemesi ───
-                      var rolFiltered = AnnouncementService.filterAnnouncementsForUser(
+                  // ─── Rol & Okul Türü Filtrelemesi ───
+                  var rolFiltered =
+                      AnnouncementService.filterAnnouncementsForUser(
                         docs: allDocs,
                         userRole: effectiveRole,
                         userEmail: currentUserEmail,
                         userClassIds: _userClassIds,
                         viewingSchoolTypeId: viewingSchoolTypeId,
-                        isGeneralView: _selectedFilterSchoolTypeId == 'GENEL' && widget.schoolTypeId.isEmpty,
+                        isGeneralView:
+                            _selectedFilterSchoolTypeId == 'GENEL' &&
+                            widget.schoolTypeId.isEmpty,
                         userId: currentUserUid,
                       );
 
-                      // ─── Oturum Açılışındaki Okunmamış Dokümanları Kaydet ───
-                      for (final doc in rolFiltered) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        final readBy = data['readBy'] as List<dynamic>? ?? [];
-                        final isRead = readBy.contains(currentUserEmail) || readBy.contains(currentUserUid);
-                        if (!isRead) {
-                          _sessionUnreadDocIds.add(doc.id);
-                        }
+                  // ─── Oturum Açılışındaki Okunmamış Dokümanları Kaydet ───
+                  for (final doc in rolFiltered) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final readBy = data['readBy'] as List<dynamic>? ?? [];
+                    final isRead =
+                        readBy.contains(currentUserEmail) ||
+                        readBy.contains(currentUserUid);
+                    if (!isRead) {
+                      _sessionUnreadDocIds.add(doc.id);
+                    }
+                  }
+
+                  // ─── Zaman, Arama Metni, Dönem & Sekme (Yeni/Geçmiş) Filtresi ───
+                  var filteredDocs = rolFiltered.where((doc) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final status = data['status'] ?? 'published';
+                    final title = (data['title'] ?? '')
+                        .toString()
+                        .toLowerCase();
+                    final content = (data['content'] ?? '')
+                        .toString()
+                        .toLowerCase();
+                    final publishDate = data['publishDate'] as Timestamp?;
+                    final isPinned = data['isPinned'] ?? false;
+
+                    final docCreatedBy = (data['createdBy'] ?? '').toString();
+                    final isCreator =
+                        docCreatedBy.isNotEmpty &&
+                        docCreatedBy == currentUserEmail;
+
+                    if (status != 'published') {
+                      if (status == 'pending_approval' &&
+                          (_canEditAnnouncements() || isCreator)) {
+                        // Onay bekleyen duyuruyu yöneticiye veya oluşturan öğretmene göster
+                      } else {
+                        return false;
                       }
+                    }
 
-                      // ─── Zaman, Arama Metni, Dönem & Sekme (Yeni/Geçmiş) Filtresi ───
-                      var filteredDocs = rolFiltered.where((doc) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        final status = data['status'] ?? 'published';
-                        final title = (data['title'] ?? '').toString().toLowerCase();
-                        final content = (data['content'] ?? '').toString().toLowerCase();
-                        final publishDate = data['publishDate'] as Timestamp?;
-                        final isPinned = data['isPinned'] ?? false;
+                    if (publishDate != null &&
+                        publishDate.toDate().isAfter(DateTime.now())) {
+                      return false;
+                    }
 
-                        final docCreatedBy = (data['createdBy'] ?? '').toString();
-                        final isCreator = docCreatedBy.isNotEmpty && docCreatedBy == currentUserEmail;
+                    if (searchText.isNotEmpty &&
+                        !title.contains(searchText) &&
+                        !content.contains(searchText)) {
+                      return false;
+                    }
 
-                        if (status != 'published') {
-                          if (status == 'pending_approval' && (_canEditAnnouncements() || isCreator)) {
-                            // Onay bekleyen duyuruyu yöneticiye veya oluşturan öğretmene göster
-                          } else {
-                            return false;
-                          }
+                    if (_range != null && publishDate != null) {
+                      final date = publishDate.toDate();
+                      if (date.isBefore(_range!.start) ||
+                          date.isAfter(_range!.end)) {
+                        return false;
+                      }
+                    }
+
+                    // Sekme filtrelemesi: yayın tarihinden itibaren 3 gün 'Yeni', sonrası 'Geçmiş'
+                    final refTs =
+                        (publishDate ?? data['createdAt']) as Timestamp?;
+                    final isRecent =
+                        refTs == null ||
+                        DateTime.now().difference(refTs.toDate()).inDays < 3;
+                    if (_viewMode == 'past' && isRecent) return false;
+                    if (_viewMode == 'new' && !isRecent) return false;
+
+                    if (_filterType == 'pinned' && !isPinned) return false;
+
+                    return true;
+                  }).toList();
+
+                  // Sıralama
+                  filteredDocs.sort((a, b) {
+                    final aData = a.data() as Map<String, dynamic>;
+                    final aPinned = aData['isPinned'] ?? false;
+                    final bData = b.data() as Map<String, dynamic>;
+                    final bPinned = bData['isPinned'] ?? false;
+
+                    if (aPinned != bPinned) return aPinned ? -1 : 1;
+
+                    final aDate = aData['publishDate'] as Timestamp?;
+                    final bDate = bData['publishDate'] as Timestamp?;
+                    if (aDate == null) return 1;
+                    if (bDate == null) return -1;
+                    return bDate.compareTo(aDate);
+                  });
+
+                  if (filteredDocs.isEmpty) {
+                    return _buildEmptyState(
+                      _viewMode == 'new'
+                          ? 'Son 3 gün içinde yayınlanan duyuru yok'
+                          : 'Geçmiş duyuru bulunmuyor',
+                      _viewMode == 'new'
+                          ? 'Yeni bir duyuru yayınlandığında burada görünecektir.'
+                          : '3 günden eski duyurular geçmiş sekmesinde listelenir.',
+                    );
+                  }
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(20),
+                    itemCount: filteredDocs.length,
+                    itemBuilder: (context, index) {
+                      final doc = filteredDocs[index];
+                      final data = doc.data() as Map<String, dynamic>;
+                      final createdBy = data['createdBy'] ?? '';
+                      final readBy = data['readBy'] as List<dynamic>? ?? [];
+                      final links = data['links'] as List<dynamic>? ?? [];
+                      final isRead =
+                          readBy.contains(currentUserEmail) ||
+                          readBy.contains(currentUserUid);
+                      final isPinned = data['isPinned'] ?? false;
+                      final isCreator =
+                          createdBy == currentUserEmail ||
+                          (createdBy.isNotEmpty &&
+                              createdBy.split('@')[0] ==
+                                  currentUserEmail.split('@')[0]);
+                      final isPending = data['status'] == 'pending_approval';
+
+                      final isSurvey = links.any((l) {
+                        if (l is Map) {
+                          return (l['url'] ?? '').toString().startsWith(
+                            'internal://survey',
+                          );
                         }
-
-                        if (publishDate != null &&
-                            publishDate.toDate().isAfter(DateTime.now())) {
-                          return false;
-                        }
-
-                        if (searchText.isNotEmpty &&
-                            !title.contains(searchText) &&
-                            !content.contains(searchText)) {
-                          return false;
-                        }
-
-                        if (_range != null && publishDate != null) {
-                          final date = publishDate.toDate();
-                          if (date.isBefore(_range!.start) ||
-                              date.isAfter(_range!.end)) {
-                            return false;
-                          }
-                        }
-
-                        // Sekme filtrelemesi: yayın tarihinden itibaren 3 gün 'Yeni', sonrası 'Geçmiş'
-                        final refTs = (publishDate ?? data['createdAt']) as Timestamp?;
-                        final isRecent = refTs == null ||
-                            DateTime.now().difference(refTs.toDate()).inDays < 3;
-                        if (_viewMode == 'past' && isRecent) return false;
-                        if (_viewMode == 'new' && !isRecent) return false;
-
-                        if (_filterType == 'pinned' && !isPinned) return false;
-
-                        return true;
-                      }).toList();
-
-                      // Sıralama
-                      filteredDocs.sort((a, b) {
-                        final aData = a.data() as Map<String, dynamic>;
-                        final aPinned = aData['isPinned'] ?? false;
-                        final bData = b.data() as Map<String, dynamic>;
-                        final bPinned = bData['isPinned'] ?? false;
-
-                        if (aPinned != bPinned) return aPinned ? -1 : 1;
-
-                        final aDate = aData['publishDate'] as Timestamp?;
-                        final bDate = bData['publishDate'] as Timestamp?;
-                        if (aDate == null) return 1;
-                        if (bDate == null) return -1;
-                        return bDate.compareTo(aDate);
+                        return false;
                       });
 
-                      if (filteredDocs.isEmpty) {
-                        return _buildEmptyState(
-                          _viewMode == 'new'
-                              ? 'Son 3 gün içinde yayınlanan duyuru yok'
-                              : 'Geçmiş duyuru bulunmuyor',
-                          _viewMode == 'new'
-                              ? 'Yeni bir duyuru yayınlandığında burada görünecektir.'
-                              : '3 günden eski duyurular geçmiş sekmesinde listelenir.',
-                        );
-                      }
-
-                      return ListView.builder(
-                        padding: const EdgeInsets.all(20),
-                        itemCount: filteredDocs.length,
-                        itemBuilder: (context, index) {
-                          final doc = filteredDocs[index];
-                          final data = doc.data() as Map<String, dynamic>;
-                          final createdBy = data['createdBy'] ?? '';
-                          final readBy = data['readBy'] as List<dynamic>? ?? [];
-                          final links = data['links'] as List<dynamic>? ?? [];
-                          final isRead = readBy.contains(currentUserEmail) || readBy.contains(currentUserUid);
-                          final isPinned = data['isPinned'] ?? false;
-                          final isCreator = createdBy == currentUserEmail || (createdBy.isNotEmpty && createdBy.split('@')[0] == currentUserEmail.split('@')[0]);
-                          final isPending = data['status'] == 'pending_approval';
-
-                          final isSurvey = links.any((l) {
-                            if (l is Map) {
-                              return (l['url'] ?? '').toString().startsWith(
-                                'internal://survey',
-                              );
-                            }
-                            return false;
-                          });
-
-                          return Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              AnnouncementCard(
-                                doc: doc,
-                                isCreator: isCreator,
-                                isRead: isRead,
-                                isPinned: isPinned,
-                                isSurvey: isSurvey,
-                                canEdit: _canEditAnnouncements(),
-                                isPendingApproval: isPending,
-                                onApprove: () async {
-                                  final sId = await _announcementService.getSchoolId();
-                                  if (sId != null) {
-                                    await _announcementService.approveAnnouncement(doc.id, sId, currentUserEmail);
-                                    if (mounted) {
-                                      setState(() {});
-                                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Duyuru onaylandı ve yayınlandı!')),
-                                      );
-                                    }
-                                  }
-                                },
-                                onReject: () async {
-                                  final sId = await _announcementService.getSchoolId();
-                                  if (sId != null) {
-                                    await _announcementService.rejectAnnouncement(doc.id, sId, currentUserEmail);
-                                    if (mounted) {
-                                      setState(() {});
-                                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Duyuru reddedildi.')),
-                                      );
-                                    }
-                                  }
-                                },
-                                onTogglePin: () => _togglePin(doc.id, isPinned),
-                                onMarkAsRead: () => _markAsRead(doc.id),
-                                onTap: () async {
-                                  if (!isRead) {
-                                    _markAsRead(doc.id);
-                                  }
-                                  
-                                  if (!_canEditAnnouncements()) {
-                                    return; // Sadece yetkililer detay (okuyanlar) ekranına gidebilir
-                                  }
-                                  
-                                  final schoolId = await _announcementService.getSchoolId();
-                                  if (schoolId != null && mounted) {
-                                    if (mounted) Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (ctx) => AnnouncementDetailScreen(
-                                          announcementId: doc.id,
-                                          schoolId: schoolId,
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AnnouncementCard(
+                            doc: doc,
+                            isCreator: isCreator,
+                            isRead: isRead,
+                            isPinned: isPinned,
+                            isSurvey: isSurvey,
+                            canEdit: _canEditAnnouncements(),
+                            isPendingApproval: isPending,
+                            onApprove: () async {
+                              final sId = await _announcementService
+                                  .getSchoolId();
+                              if (sId != null) {
+                                await _announcementService.approveAnnouncement(
+                                  doc.id,
+                                  sId,
+                                  currentUserEmail,
+                                );
+                                if (mounted) {
+                                  setState(() {});
+                                  if (mounted)
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Duyuru onaylandı ve yayınlandı!',
                                         ),
                                       ),
                                     );
-                                  }
-                                },
+                                }
+                              }
+                            },
+                            onReject: () async {
+                              final sId = await _announcementService
+                                  .getSchoolId();
+                              if (sId != null) {
+                                await _announcementService.rejectAnnouncement(
+                                  doc.id,
+                                  sId,
+                                  currentUserEmail,
+                                );
+                                if (mounted) {
+                                  setState(() {});
+                                  if (mounted)
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Duyuru reddedildi.'),
+                                      ),
+                                    );
+                                }
+                              }
+                            },
+                            onTogglePin: () => _togglePin(doc.id, isPinned),
+                            onMarkAsRead: () => _markAsRead(doc.id),
+                            onTap: () async {
+                              if (!isRead) {
+                                _markAsRead(doc.id);
+                              }
+
+                              if (!_canEditAnnouncements()) {
+                                return; // Sadece yetkililer detay (okuyanlar) ekranına gidebilir
+                              }
+
+                              final schoolId = await _announcementService
+                                  .getSchoolId();
+                              if (schoolId != null && mounted) {
+                                if (mounted)
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (ctx) =>
+                                          AnnouncementDetailScreen(
+                                            announcementId: doc.id,
+                                            schoolId: schoolId,
+                                          ),
+                                    ),
+                                  );
+                              }
+                            },
+                          ),
+                          if (!isRead)
+                            Padding(
+                              padding: const EdgeInsets.only(
+                                bottom: 16,
+                                left: 12,
+                                right: 12,
                               ),
-                              if (!isRead)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 16, left: 12, right: 12),
-                                  child: GestureDetector(
-                                    onTap: () => _markAsRead(doc.id),
-                                    child: Container(
-                                      width: double.infinity,
-                                      padding: const EdgeInsets.symmetric(vertical: 10),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFF0F7FF),
-                                        borderRadius: const BorderRadius.only(
-                                          bottomLeft: Radius.circular(14),
-                                          bottomRight: Radius.circular(14),
-                                        ),
-                                        border: Border.all(color: const Color(0xFFBFDBFE), width: 1.2),
-                                      ),
-                                      child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          const Icon(
-                                            Icons.check_circle_outline_rounded,
-                                            size: 16,
-                                            color: Color(0xFF1976D2),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          Text(
-                                            'Okundu olarak işaretle → Geçmişe at',
-                                            style: GoogleFonts.inter(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600,
-                                              color: const Color(0xFF1976D2),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                              child: GestureDetector(
+                                onTap: () => _markAsRead(doc.id),
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF0F7FF),
+                                    borderRadius: const BorderRadius.only(
+                                      bottomLeft: Radius.circular(14),
+                                      bottomRight: Radius.circular(14),
+                                    ),
+                                    border: Border.all(
+                                      color: const Color(0xFFBFDBFE),
+                                      width: 1.2,
                                     ),
                                   ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(
+                                        Icons.check_circle_outline_rounded,
+                                        size: 16,
+                                        color: Color(0xFF1976D2),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'Okundu olarak işaretle → Geçmişe at',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: const Color(0xFF1976D2),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              const SizedBox(height: 12),
-                            ],
-                          );
-                        },
+                              ),
+                            ),
+                          const SizedBox(height: 12),
+                        ],
                       );
                     },
-                  ),
+                  );
+                },
+              ),
             ),
           ],
         ),
       ),
-      floatingActionButton: !_isLoadingPermissions && (_canEditAnnouncements() || _isTeacherRole)
+      floatingActionButton:
+          !_isLoadingPermissions && (_canEditAnnouncements() || _isTeacherRole)
           ? FloatingActionButton.extended(
               onPressed: _openCreateSheet,
               backgroundColor: const Color(0xFF1976D2),
@@ -751,7 +872,9 @@ class _SchoolTypeAnnouncementsScreenState
 
   bool get _isTeacherRole {
     final role = _userRole.toLowerCase();
-    return role.contains('ogretmen') || role.contains('öğretmen') || role.contains('teacher');
+    return role.contains('ogretmen') ||
+        role.contains('öğretmen') ||
+        role.contains('teacher');
   }
 
   bool get _shouldShowSchoolTypeFilter {
@@ -822,7 +945,9 @@ class _SchoolTypeAnnouncementsScreenState
               const SizedBox(width: 12),
               // Takvim Butonu
               Material(
-                color: _range != null ? Colors.indigo.withValues(alpha: 0.1) : const Color(0xFFF1F5F9),
+                color: _range != null
+                    ? Colors.indigo.withValues(alpha: 0.1)
+                    : const Color(0xFFF1F5F9),
                 borderRadius: BorderRadius.circular(12),
                 child: InkWell(
                   onTap: _pickRange,
@@ -832,7 +957,9 @@ class _SchoolTypeAnnouncementsScreenState
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     decoration: BoxDecoration(
                       border: Border.all(
-                        color: _range != null ? Colors.indigo : Colors.transparent,
+                        color: _range != null
+                            ? Colors.indigo
+                            : Colors.transparent,
                       ),
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -840,7 +967,9 @@ class _SchoolTypeAnnouncementsScreenState
                       children: [
                         Icon(
                           Icons.date_range_rounded,
-                          color: _range != null ? Colors.indigo : const Color(0xFF64748B),
+                          color: _range != null
+                              ? Colors.indigo
+                              : const Color(0xFF64748B),
                         ),
                         if (_range != null) ...[
                           const SizedBox(width: 8),
@@ -874,11 +1003,17 @@ class _SchoolTypeAnnouncementsScreenState
               ),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
-                  value: _selectedFilterSchoolTypeId == 'GENEL' && _isTeacherRole && _schoolTypes.isNotEmpty
+                  value:
+                      _selectedFilterSchoolTypeId == 'GENEL' &&
+                          _isTeacherRole &&
+                          _schoolTypes.isNotEmpty
                       ? _schoolTypes.first['id']
                       : _selectedFilterSchoolTypeId,
                   isExpanded: true,
-                  icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.indigo),
+                  icon: const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    color: Colors.indigo,
+                  ),
                   style: GoogleFonts.inter(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -897,11 +1032,17 @@ class _SchoolTypeAnnouncementsScreenState
                         value: 'GENEL',
                         child: Row(
                           children: [
-                            const Icon(Icons.school_rounded, size: 18, color: Colors.indigo),
+                            const Icon(
+                              Icons.school_rounded,
+                              size: 18,
+                              color: Colors.indigo,
+                            ),
                             const SizedBox(width: 10),
                             Text(
                               'Genel Duyurular',
-                              style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ],
                         ),
@@ -911,7 +1052,11 @@ class _SchoolTypeAnnouncementsScreenState
                         value: st['id'] as String,
                         child: Row(
                           children: [
-                            const Icon(Icons.apartment_rounded, size: 18, color: Color(0xFF64748B)),
+                            const Icon(
+                              Icons.apartment_rounded,
+                              size: 18,
+                              color: Color(0xFF64748B),
+                            ),
                             const SizedBox(width: 10),
                             Text(st['name'] ?? 'Okul Türü'),
                           ],
@@ -949,7 +1094,9 @@ class _SchoolTypeAnnouncementsScreenState
                   height: double.infinity,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: _viewMode == 'new' ? Colors.white : Colors.transparent,
+                    color: _viewMode == 'new'
+                        ? Colors.white
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(8),
                     boxShadow: _viewMode == 'new'
                         ? [
@@ -967,7 +1114,9 @@ class _SchoolTypeAnnouncementsScreenState
                       Icon(
                         Icons.mark_email_unread_rounded,
                         size: 18,
-                        color: _viewMode == 'new' ? Colors.indigo : const Color(0xFF64748B),
+                        color: _viewMode == 'new'
+                            ? Colors.indigo
+                            : const Color(0xFF64748B),
                       ),
                       const SizedBox(width: 8),
                       Text(
@@ -975,7 +1124,9 @@ class _SchoolTypeAnnouncementsScreenState
                         style: GoogleFonts.inter(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: _viewMode == 'new' ? Colors.indigo : const Color(0xFF64748B),
+                          color: _viewMode == 'new'
+                              ? Colors.indigo
+                              : const Color(0xFF64748B),
                         ),
                       ),
                     ],
@@ -991,7 +1142,9 @@ class _SchoolTypeAnnouncementsScreenState
                   height: double.infinity,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: _viewMode == 'past' ? Colors.white : Colors.transparent,
+                    color: _viewMode == 'past'
+                        ? Colors.white
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(8),
                     boxShadow: _viewMode == 'past'
                         ? [
@@ -1009,7 +1162,9 @@ class _SchoolTypeAnnouncementsScreenState
                       Icon(
                         Icons.done_all_rounded,
                         size: 18,
-                        color: _viewMode == 'past' ? Colors.indigo : const Color(0xFF64748B),
+                        color: _viewMode == 'past'
+                            ? Colors.indigo
+                            : const Color(0xFF64748B),
                       ),
                       const SizedBox(width: 8),
                       Text(
@@ -1017,7 +1172,9 @@ class _SchoolTypeAnnouncementsScreenState
                         style: GoogleFonts.inter(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: _viewMode == 'past' ? Colors.indigo : const Color(0xFF64748B),
+                          color: _viewMode == 'past'
+                              ? Colors.indigo
+                              : const Color(0xFF64748B),
                         ),
                       ),
                     ],

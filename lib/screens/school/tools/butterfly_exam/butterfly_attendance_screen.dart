@@ -67,6 +67,21 @@ class _ButterflyAttendanceScreenState extends State<ButterflyAttendanceScreen> {
 
   String get _currentKey => _roomKey(_room, _roomIndex);
 
+  /// Seçili genel oturum slotuna ait gözetmeni (salona özel bölmeleri de dikkate alarak) döner.
+  (String? id, String? name) _currentSlotSupervisor() {
+    final slots = widget.distribution.sessionSlots;
+    if (_sessionSlotIndex >= 0 && _sessionSlotIndex < slots.length) {
+      final s = slots[_sessionSlotIndex];
+      return _room.getSupervisorForSessionSlot(
+        slotIndex: _sessionSlotIndex,
+        sessionIndex: (s['sessionIndex'] as num?)?.toInt() ?? _sessionSlotIndex,
+        dutyIndex: (s['dutyIndex'] as num?)?.toInt() ?? 0,
+        startTime: s['startTime']?.toString() ?? '',
+      );
+    }
+    return _room.getSupervisorForSlot(_sessionSlotIndex);
+  }
+
   bool get _isTeacher {
     final role = (UserPermissionService.cachedUserData?['role'] as String?)?.toLowerCase() ?? '';
     return role.contains('ogretmen') || role.contains('öğretmen') || role == 'teacher';
@@ -951,7 +966,7 @@ class _ButterflyAttendanceScreenState extends State<ButterflyAttendanceScreen> {
                   Text(_room.classroomName,
                       style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 15, color: const Color(0xFF1E293B))),
                   Builder(builder: (_) {
-                    final (_, sup) = _room.getSupervisorForSlot(_sessionSlotIndex);
+                    final (_, sup) = _currentSlotSupervisor();
                     return Text(
                       '${p + a}/$t işaretlendi${sup != null && sup.isNotEmpty ? ' • $sup' : ''}',
                       maxLines: 1,
@@ -977,7 +992,7 @@ class _ButterflyAttendanceScreenState extends State<ButterflyAttendanceScreen> {
     final slots = widget.distribution.sessionSlots;
     if (slots.length <= 1) return const SizedBox.shrink();
 
-    final (_, supName) = _room.getSupervisorForSlot(_sessionSlotIndex);
+    final (_, supName) = _currentSlotSupervisor();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),

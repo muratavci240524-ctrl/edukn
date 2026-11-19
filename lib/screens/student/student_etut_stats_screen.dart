@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -10,11 +10,15 @@ import 'package:intl/date_symbol_data_local.dart';
 class StudentEtutStatsScreen extends StatefulWidget {
   final String institutionId;
   final String studentId;
+  final String studentName;
+  final String classId;
 
   const StudentEtutStatsScreen({
     Key? key,
     required this.institutionId,
     required this.studentId,
+    this.studentName = '',
+    this.classId = '',
   }) : super(key: key);
 
   @override
@@ -47,12 +51,14 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
       final teacherMap = <String, String>{};
       for (final doc in usersSnap.docs) {
         final d = doc.data();
-        final name = (d['fullName'] ??
-                '${d['firstName'] ?? ''} ${d['lastName'] ?? ''}'.trim())
-            .toString()
-            .trim();
+        final name =
+            (d['fullName'] ??
+                    '${d['firstName'] ?? ''} ${d['lastName'] ?? ''}'.trim())
+                .toString()
+                .trim();
         teacherMap[doc.id] = name.isNotEmpty ? name : 'Öğretmen';
-        if (d['uid'] != null) teacherMap[d['uid'].toString()] = teacherMap[doc.id]!;
+        if (d['uid'] != null)
+          teacherMap[d['uid'].toString()] = teacherMap[doc.id]!;
       }
 
       // 2. Fetch etut requests for this student
@@ -86,8 +92,7 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
         if (isRecurring) {
           // Recurring: expand to actual dates (up to today, last 6 months)
           final dayIndex = (d['dayIndex'] as int?) ?? 0; // 0=Mon
-          final cancelledDates =
-              List<String>.from(d['cancelledDates'] ?? []);
+          final cancelledDates = List<String>.from(d['cancelledDates'] ?? []);
           final cutoff = now.subtract(const Duration(days: 180));
 
           // Find start of the recurring sessions from 6 months ago
@@ -100,14 +105,16 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
             final dateStr =
                 '${cursor.year}-${cursor.month.toString().padLeft(2, '0')}-${cursor.day.toString().padLeft(2, '0')}';
             if (!cancelledDates.contains(dateStr)) {
-              records.add(_EtutRecord(
-                date: cursor,
-                teacherId: teacherId,
-                durationMinutes: durationMinutes,
-                isRecurring: true,
-                startTime: startTime,
-                endTime: endTime,
-              ));
+              records.add(
+                _EtutRecord(
+                  date: cursor,
+                  teacherId: teacherId,
+                  durationMinutes: durationMinutes,
+                  isRecurring: true,
+                  startTime: startTime,
+                  endTime: endTime,
+                ),
+              );
             }
             cursor = cursor.add(const Duration(days: 7));
           }
@@ -121,14 +128,16 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
             date = DateTime.tryParse(dateVal);
           }
           if (date != null) {
-            records.add(_EtutRecord(
-              date: date,
-              teacherId: teacherId,
-              durationMinutes: durationMinutes,
-              isRecurring: false,
-              startTime: startTime,
-              endTime: endTime,
-            ));
+            records.add(
+              _EtutRecord(
+                date: date,
+                teacherId: teacherId,
+                durationMinutes: durationMinutes,
+                isRecurring: false,
+                startTime: startTime,
+                endTime: endTime,
+              ),
+            );
           }
         }
       }
@@ -178,17 +187,45 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: EduknAppBar(
-        title: 'Etüt İstatistiklerim',
+        institutionId: widget.institutionId,
+        title: 'Etüt İstatistiklerim & Talepler',
+        subtitle: widget.studentName.isNotEmpty ? widget.studentName : null,
         actions: [
+          TextButton.icon(
+            onPressed: _showCreateEtutRequestDialog,
+            icon: const Icon(
+              Icons.add_circle_outline_rounded,
+              size: 18,
+              color: Color(0xFF7C3AED),
+            ),
+            label: const Text(
+              'Etüt Talebi',
+              style: TextStyle(
+                color: Color(0xFF7C3AED),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Colors.indigo),
             onPressed: _loadData,
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: const Color(0xFF7C3AED),
+        foregroundColor: Colors.white,
+        onPressed: _showCreateEtutRequestDialog,
+        icon: const Icon(Icons.add_rounded),
+        label: const Text(
+          'Online / Birebir Etüt Talebi',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
       body: _loading
           ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF7C3AED)))
+              child: CircularProgressIndicator(color: Color(0xFF7C3AED)),
+            )
           : SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
               child: Center(
@@ -233,8 +270,7 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
             onTap: () => setState(() => _dateFilter = opt),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
               decoration: BoxDecoration(
                 color: sel ? const Color(0xFF7C3AED) : Colors.white,
                 borderRadius: BorderRadius.circular(20),
@@ -247,7 +283,7 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
                           color: const Color(0xFF7C3AED).withValues(alpha: 0.3),
                           blurRadius: 8,
                           offset: const Offset(0, 4),
-                        )
+                        ),
                       ]
                     : [],
               ),
@@ -270,12 +306,17 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
 
   Widget _buildHeroBanner(List<_EtutRecord> records) {
     final totalSessions = records.length;
-    final totalMinutes =
-        records.fold<int>(0, (sum, r) => sum + r.durationMinutes);
+    final totalMinutes = records.fold<int>(
+      0,
+      (sum, r) => sum + r.durationMinutes,
+    );
     final totalHours = totalMinutes ~/ 60;
     final remainingMin = totalMinutes % 60;
-    final uniqueTeachers =
-        records.map((r) => r.teacherId).where((t) => t.isNotEmpty).toSet().length;
+    final uniqueTeachers = records
+        .map((r) => r.teacherId)
+        .where((t) => t.isNotEmpty)
+        .toSet()
+        .length;
 
     return Container(
       width: double.infinity,
@@ -370,22 +411,44 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
 
   Widget _buildStatCards(List<_EtutRecord> records) {
     final totalSessions = records.length;
-    final totalMinutes =
-        records.fold<int>(0, (sum, r) => sum + r.durationMinutes);
+    final totalMinutes = records.fold<int>(
+      0,
+      (sum, r) => sum + r.durationMinutes,
+    );
     final totalHours = (totalMinutes / 60).toStringAsFixed(1);
     final recurring = records.where((r) => r.isRecurring).length;
     final oneTime = records.where((r) => !r.isRecurring).length;
 
     final cards = [
-      _StatData('Toplam Seans', totalSessions, Icons.event_note_rounded,
-          const Color(0xFF7C3AED), const Color(0xFFF5F3FF)),
-      _StatData('Toplam Saat', 0, Icons.timer_rounded,
-          const Color(0xFF0EA5E9), const Color(0xFFE0F2FE),
-          subtitle: '$totalHours saat'),
-      _StatData('Düzenli Etüt', recurring, Icons.repeat_rounded,
-          const Color(0xFF10B981), const Color(0xFFECFDF5)),
-      _StatData('Tek Seferlik', oneTime, Icons.event_rounded,
-          const Color(0xFFF59E0B), const Color(0xFFFFFBEB)),
+      _StatData(
+        'Toplam Seans',
+        totalSessions,
+        Icons.event_note_rounded,
+        const Color(0xFF7C3AED),
+        const Color(0xFFF5F3FF),
+      ),
+      _StatData(
+        'Toplam Saat',
+        0,
+        Icons.timer_rounded,
+        const Color(0xFF0EA5E9),
+        const Color(0xFFE0F2FE),
+        subtitle: '$totalHours saat',
+      ),
+      _StatData(
+        'Düzenli Etüt',
+        recurring,
+        Icons.repeat_rounded,
+        const Color(0xFF10B981),
+        const Color(0xFFECFDF5),
+      ),
+      _StatData(
+        'Tek Seferlik',
+        oneTime,
+        Icons.event_rounded,
+        const Color(0xFFF59E0B),
+        const Color(0xFFFFFBEB),
+      ),
     ];
 
     return LayoutBuilder(
@@ -464,8 +527,7 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
     // Group by month → session count + total minutes
     final monthly = <String, _MonthStats>{};
     for (final r in records) {
-      final key =
-          '${r.date.year}-${r.date.month.toString().padLeft(2, '0')}';
+      final key = '${r.date.year}-${r.date.month.toString().padLeft(2, '0')}';
       monthly.putIfAbsent(key, () => _MonthStats(r.date.year, r.date.month));
       monthly[key]!.sessions++;
       monthly[key]!.minutes += r.durationMinutes;
@@ -475,31 +537,47 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
     if (sortedKeys.isEmpty) return const SizedBox.shrink();
 
     const monthNames = [
-      '', 'Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz',
-      'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'
+      '',
+      'Oca',
+      'Şub',
+      'Mar',
+      'Nis',
+      'May',
+      'Haz',
+      'Tem',
+      'Ağu',
+      'Eyl',
+      'Eki',
+      'Kas',
+      'Ara',
     ];
 
-    final maxSessions =
-        monthly.values.map((m) => m.sessions).reduce((a, b) => a > b ? a : b);
+    final maxSessions = monthly.values
+        .map((m) => m.sessions)
+        .reduce((a, b) => a > b ? a : b);
 
     final barGroups = <BarChartGroupData>[];
     for (int i = 0; i < sortedKeys.length; i++) {
       final m = monthly[sortedKeys[i]]!;
-      barGroups.add(BarChartGroupData(
-        x: i,
-        barRods: [
-          BarChartRodData(
-            toY: m.sessions.toDouble(),
-            gradient: const LinearGradient(
-              colors: [Color(0xFF7C3AED), Color(0xFFBD7BE5)],
-              begin: Alignment.bottomCenter,
-              end: Alignment.topCenter,
+      barGroups.add(
+        BarChartGroupData(
+          x: i,
+          barRods: [
+            BarChartRodData(
+              toY: m.sessions.toDouble(),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF7C3AED), Color(0xFFBD7BE5)],
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+              ),
+              width: 22,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(6),
+              ),
             ),
-            width: 22,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
-          ),
-        ],
-      ));
+          ],
+        ),
+      );
     }
 
     return Container(
@@ -535,10 +613,8 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
                 gridData: FlGridData(
                   show: true,
                   drawVerticalLine: false,
-                  getDrawingHorizontalLine: (v) => FlLine(
-                    color: Colors.grey.shade100,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (v) =>
+                      FlLine(color: Colors.grey.shade100, strokeWidth: 1),
                 ),
                 borderData: FlBorderData(show: false),
                 maxY: (maxSessions + 2).toDouble(),
@@ -686,7 +762,8 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
                       value: ratio,
                       backgroundColor: const Color(0xFFEDE9FE),
                       valueColor: const AlwaysStoppedAnimation<Color>(
-                          Color(0xFF7C3AED)),
+                        Color(0xFF7C3AED),
+                      ),
                       minHeight: 8,
                     ),
                   ),
@@ -719,7 +796,11 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
         ),
         child: Column(
           children: [
-            Icon(Icons.menu_book_outlined, size: 56, color: Colors.grey.shade300),
+            Icon(
+              Icons.menu_book_outlined,
+              size: 56,
+              color: Colors.grey.shade300,
+            ),
             const SizedBox(height: 12),
             Text(
               'Bu dönem için etüt kaydı bulunamadı.',
@@ -748,8 +829,7 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
             ),
             const SizedBox(width: 8),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
                 color: const Color(0xFFEDE9FE),
                 borderRadius: BorderRadius.circular(10),
@@ -767,8 +847,7 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
         ),
         const SizedBox(height: 12),
         ...records.take(50).map((r) {
-          final teacherName =
-              _teacherNames[r.teacherId] ?? 'Öğretmen';
+          final teacherName = _teacherNames[r.teacherId] ?? 'Öğretmen';
           final timeStr = r.startTime != null && r.endTime != null
               ? '${timeFmt.format(r.startTime!)} – ${timeFmt.format(r.endTime!)}'
               : '';
@@ -838,21 +917,33 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
                           spacing: 12,
                           children: [
                             if (teacherName.isNotEmpty)
-                              _infoChip(Icons.person_outline_rounded,
-                                  teacherName, Colors.indigo.shade400),
+                              _infoChip(
+                                Icons.person_outline_rounded,
+                                teacherName,
+                                Colors.indigo.shade400,
+                              ),
                             if (timeStr.isNotEmpty)
-                              _infoChip(Icons.access_time_rounded,
-                                  timeStr, Colors.grey.shade500),
+                              _infoChip(
+                                Icons.access_time_rounded,
+                                timeStr,
+                                Colors.grey.shade500,
+                              ),
                             if (durationStr.isNotEmpty)
-                              _infoChip(Icons.hourglass_bottom_rounded,
-                                  durationStr, Colors.purple.shade400),
+                              _infoChip(
+                                Icons.hourglass_bottom_rounded,
+                                durationStr,
+                                Colors.purple.shade400,
+                              ),
                           ],
                         ),
                       ],
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: r.isRecurring
                           ? const Color(0xFFECFDF5)
@@ -877,6 +968,237 @@ class _StudentEtutStatsScreenState extends State<StudentEtutStatsScreen> {
         }).toList(),
       ],
     );
+  }
+
+  Future<void> _showCreateEtutRequestDialog() async {
+    String? selectedTeacherId = _teacherNames.keys.isNotEmpty
+        ? _teacherNames.keys.first
+        : null;
+    final topicCtrl = TextEditingController();
+    DateTime selectedDate = DateTime.now().add(const Duration(days: 1));
+    bool isOnline = false;
+    bool saving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.record_voice_over_rounded, color: Color(0xFF7C3AED)),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Yeni Etüt Talebi Oluştur',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: selectedTeacherId,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: 'Öğretmen Seçin',
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    items: _teacherNames.entries
+                        .map(
+                          (e) => DropdownMenuItem<String>(
+                            value: e.key,
+                            child: Text(
+                              e.value,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) =>
+                        setModalState(() => selectedTeacherId = v),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: topicCtrl,
+                    maxLines: 2,
+                    decoration: InputDecoration(
+                      labelText: 'Ders / Eksik Konu Başlığı',
+                      hintText: 'Örn: Matematik - Üslü İfadeler Soru Çözümü',
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: selectedDate,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 60)),
+                      );
+                      if (picked != null) {
+                        setModalState(() => selectedDate = picked);
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: InputDecoration(
+                        labelText: 'Tercih Edilen Tarih',
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            DateFormat(
+                              'dd MMMM yyyy',
+                              'tr_TR',
+                            ).format(selectedDate),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const Icon(
+                            Icons.calendar_month_rounded,
+                            size: 18,
+                            color: Color(0xFF7C3AED),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: isOnline,
+                    activeColor: const Color(0xFF7C3AED),
+                    title: const Text(
+                      'Online Etüt Tercih Ediyorum',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Uzaktan / canlı bağlantı ile yapılabilir',
+                      style: TextStyle(fontSize: 11.5),
+                    ),
+                    onChanged: (v) => setModalState(() => isOnline = v),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(ctx),
+              child: const Text('İptal'),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF7C3AED),
+              ),
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final topic = topicCtrl.text.trim();
+                      if (topic.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Lütfen konu başlığını yazınız.'),
+                          ),
+                        );
+                        return;
+                      }
+                      setModalState(() => saving = true);
+                      try {
+                        final start = DateTime(
+                          selectedDate.year,
+                          selectedDate.month,
+                          selectedDate.day,
+                          16,
+                          0,
+                        );
+                        final end = start.add(const Duration(minutes: 40));
+                        await FirebaseFirestore.instance
+                            .collection('etut_requests')
+                            .add({
+                              'institutionId': widget.institutionId,
+                              'studentIds': [widget.studentId],
+                              'studentId': widget.studentId,
+                              'studentName': widget.studentName,
+                              'classId': widget.classId,
+                              'teacherId': selectedTeacherId ?? '',
+                              'teacherName': selectedTeacherId != null
+                                  ? (_teacherNames[selectedTeacherId] ?? '')
+                                  : '',
+                              'topic': topic,
+                              'isOnline': isOnline,
+                              'isRecurring': false,
+                              'status': 'pending',
+                              'requestedByStudent': true,
+                              'date': Timestamp.fromDate(selectedDate),
+                              'startTime': Timestamp.fromDate(start),
+                              'endTime': Timestamp.fromDate(end),
+                              'createdAt': FieldValue.serverTimestamp(),
+                            });
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              backgroundColor: Color(0xFF059669),
+                              content: Text(
+                                'Etüt talebiniz başarıyla oluşturuldu.',
+                              ),
+                            ),
+                          );
+                          _loadData();
+                        }
+                      } catch (e) {
+                        setModalState(() => saving = false);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Talep kaydedilemedi: $e')),
+                          );
+                        }
+                      }
+                    },
+              icon: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.send_rounded, size: 17),
+              label: const Text('Talebi Gönder'),
+            ),
+          ],
+        ),
+      ),
+    );
+    topicCtrl.dispose();
   }
 
   Widget _infoChip(IconData icon, String label, Color color) {
@@ -933,6 +1255,12 @@ class _StatData {
   final Color color;
   final Color bgColor;
   final String? subtitle;
-  const _StatData(this.label, this.count, this.icon, this.color, this.bgColor,
-      {this.subtitle});
+  const _StatData(
+    this.label,
+    this.count,
+    this.icon,
+    this.color,
+    this.bgColor, {
+    this.subtitle,
+  });
 }

@@ -4,6 +4,25 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'web_image_renderer.dart';
 
+/// DOMAIN BAZLI MARKA YARDIMCISI (app.courseappy.com vs eduKN)
+class EduKnBrand {
+  static bool get isCourseAppy =>
+      kIsWeb && Uri.base.host.toLowerCase().contains('courseappy');
+
+  static String get brandName => isCourseAppy ? 'CourseAppy' : 'eduKN';
+
+  static String get appTitle =>
+      isCourseAppy ? 'CourseAppy Yönetim Paneli' : 'eduKN Yönetim Paneli';
+
+  static String get fullLogoAsset => isCourseAppy
+      ? 'assets/images/courseappy_full_logo.png'
+      : 'assets/images/google_auth_full_logo_light.png';
+
+  static String get iconLogoAsset => isCourseAppy
+      ? 'assets/images/courseappy_icon_logo.png'
+      : 'assets/images/google_auth_logo_light.png';
+}
+
 /// LOGO GÖRÜNÜM TİPLERİ
 enum EduKnLogoType { 
   full,       // İkon + Yazı + Slogan
@@ -34,7 +53,7 @@ class EduKnLogo extends StatelessWidget {
     if (kIsWeb) {
       if (type == EduKnLogoType.iconOnly) {
         return buildWebImage(
-          'assets/images/google_auth_logo_light.png',
+          EduKnBrand.iconLogoAsset,
           width: iconSize * 1.2,
           height: iconSize,
           fit: BoxFit.contain,
@@ -47,7 +66,7 @@ class EduKnLogo extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             buildWebImage(
-              'assets/images/google_auth_full_logo_light.png',
+              EduKnBrand.fullLogoAsset,
               width: iconSize * 3.5,
               height: iconSize * 0.9,
               fit: BoxFit.contain,
@@ -121,6 +140,18 @@ class EduKnLogo extends StatelessWidget {
   Widget _buildTextOnlyLogo(Color color) {
     // Yazı boyutunu ikon boyutuna göre orantılıyoruz
     final double fontSize = iconSize * 0.8;
+    if (EduKnBrand.isCourseAppy) {
+      return Text(
+        'COURSEAPPY',
+        style: GoogleFonts.roboto(
+          fontSize: fontSize * 0.72,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.5,
+          color: const Color(0xFF0B69B7),
+          height: 1.0,
+        ),
+      );
+    }
     return RichText(
       text: TextSpan(
         style: GoogleFonts.roboto(

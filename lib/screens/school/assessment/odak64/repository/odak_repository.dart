@@ -95,9 +95,15 @@ class OdakRepository {
     final subjects = <String>[];
 
     for (final item in decoded) {
-      final r = OdakExamResult.fromStudentResult(
-        StudentResult.fromJson(Map<String, dynamic>.from(item as Map)),
-      );
+      final sr = StudentResult.fromJson(Map<String, dynamic>.from(item as Map));
+      if (sr.correctAnswers.isEmpty && exam.answerKeys.isNotEmpty) {
+        final b = sr.booklet.isNotEmpty ? sr.booklet : 'A';
+        final keyMap = exam.answerKeys[b] ??
+            (b.isNotEmpty ? exam.answerKeys[b[0]] : null) ??
+            exam.answerKeys.values.first;
+        sr.correctAnswers = Map<String, String>.from(keyMap);
+      }
+      final r = OdakExamResult.fromStudentResult(sr);
       if (r.subjects.isEmpty) continue;
       if (!seen.add(r.student.id)) continue;
       results.add(r);
@@ -198,6 +204,10 @@ class OdakRepository {
         outList[subject] = outs;
       }
       if (stats.isEmpty) continue;
+      final avgExamScore = per.isEmpty
+          ? 0.0
+          : per.values.fold<double>(0.0, (s, r) => s + r.examScore) /
+              per.length;
       outcomes.putIfAbsent(key, () => {}).addAll(outList);
       results.add(OdakExamResult(
         student: student,
@@ -205,6 +215,8 @@ class OdakRepository {
         subjects: stats,
         answers: answers,
         correctAnswers: correct,
+        examScore: avgExamScore,
+        rawStudentResult: per[latestIdx]!.rawStudentResult,
       ));
     }
 

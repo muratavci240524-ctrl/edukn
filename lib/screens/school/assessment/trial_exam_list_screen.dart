@@ -7,10 +7,9 @@ import '../../../../services/assessment_service.dart';
 import '../../../../services/user_permission_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'trial_exam_form.dart';
-import 'package:google_fonts/google_fonts.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 import '../../../../services/term_service.dart';
-
-
 
 class TrialExamListScreen extends StatefulWidget {
   final String institutionId;
@@ -40,7 +39,8 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
   bool _isLoadingFilter = true;
   String? _realInstitutionId;
   String? _activeTermId;
-
+  bool _viewAllTerms = false;
+  Stream<List<TrialExam>>? _examsStream;
 
   @override
   void initState() {
@@ -54,6 +54,30 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
     });
   }
 
+  @override
+  void didUpdateWidget(covariant TrialExamListScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.institutionId != widget.institutionId ||
+        oldWidget.schoolTypeId != widget.schoolTypeId) {
+      _loadFilterData();
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _refreshExamsStream() {
+    _examsStream = _service
+        .getTrialExams(
+          _realInstitutionId ?? widget.institutionId,
+          termId: _viewAllTerms ? null : _activeTermId,
+        )
+        .map((exams) => exams.where(_matchesSchoolScope).toList());
+  }
+
   Future<void> _loadFilterData() async {
     if (!mounted) return;
     setState(() => _isLoadingFilter = true);
@@ -61,23 +85,36 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
       final userData = await UserPermissionService.loadUserData();
       _realInstitutionId = userData?['institutionId'] ?? widget.institutionId;
 
-      final stDoc = await FirebaseFirestore.instance.collection('schoolTypes').doc(widget.schoolTypeId).get();
-      
+      final stDoc = await FirebaseFirestore.instance
+          .collection('schoolTypes')
+          .doc(widget.schoolTypeId)
+          .get();
+
       if (stDoc.exists) {
         final data = stDoc.data();
         if (data != null && data['activeGrades'] != null) {
-          List<String> grades = List<String>.from(data['activeGrades'].map((e) => e.toString()));
-          
-          if (userData != null && (userData['role'] == 'ogretmen' || userData['role'] == 'teacher')) {
-            final classesQuery = await FirebaseFirestore.instance.collection('classes')
+          List<String> grades = List<String>.from(
+            data['activeGrades'].map((e) => e.toString()),
+          );
+
+          if (userData != null &&
+              (userData['role'] == 'ogretmen' ||
+                  userData['role'] == 'teacher')) {
+            final classesQuery = await FirebaseFirestore.instance
+                .collection('classes')
                 .where('institutionId', isEqualTo: _realInstitutionId)
-                .where('classTeacherId', isEqualTo: userData['authUserId'] ?? userData['id'])
+                .where(
+                  'classTeacherId',
+                  isEqualTo: userData['authUserId'] ?? userData['id'],
+                )
                 .get();
-            
+
             if (classesQuery.docs.isNotEmpty) {
-              final teacherGrades = classesQuery.docs.map((d) => d['classLevel'].toString()).toSet();
+              final teacherGrades = classesQuery.docs
+                  .map((d) => d['classLevel'].toString())
+                  .toSet();
               grades = grades.where((g) => teacherGrades.contains(g)).toList();
-              
+
               if (grades.isEmpty && teacherGrades.isNotEmpty) {
                 grades = teacherGrades.toList();
               }
@@ -87,14 +124,17 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
         }
       }
       // Aktif / seçili dönem ID'sini al
-      _activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+      _activeTermId =
+          await TermService().getSelectedTermId() ??
+          await TermService().getActiveTermId();
+      _refreshExamsStream();
     } catch (e) {
       debugPrint('Error loading filter data: $e');
+      _refreshExamsStream();
     } finally {
       if (mounted) setState(() => _isLoadingFilter = false);
     }
   }
-
 
   void _onCreateNew() {
     setState(() {
@@ -121,14 +161,32 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
     }
   }
 
-  Stream<List<TrialExam>> _getStream() {
-    return _service.getTrialExams(
-      _realInstitutionId ?? widget.institutionId, 
-      classLevels: _filterClassLevels,
-      termId: _activeTermId,
-    );
+  bool _matchesSchoolScope(TrialExam e) {
+    if (e.targetSchoolTypeId != null &&
+        e.targetSchoolTypeId!.isNotEmpty &&
+        widget.schoolTypeId.isNotEmpty &&
+        e.targetSchoolTypeId != widget.schoolTypeId) {
+      return false;
+    }
+    if (e.isCentralExam &&
+        e.targetSchoolTypeId != null &&
+        e.targetSchoolTypeId == widget.schoolTypeId) {
+      return true;
+    }
+    if (_filterClassLevels == null || _filterClassLevels!.isEmpty) {
+      return true;
+    }
+    if (_filterClassLevels!.contains(e.classLevel)) {
+      return true;
+    }
+    final examDigits = e.classLevel.replaceAll(RegExp(r'[^0-9]'), '');
+    if (examDigits.isNotEmpty) {
+      return _filterClassLevels!.any(
+        (g) => g.replaceAll(RegExp(r'[^0-9]'), '') == examDigits,
+      );
+    }
+    return false;
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -156,16 +214,26 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                 title: 'Deneme Sınavları',
                 subtitle: widget.schoolTypeName,
               ),
-              body: _isLoadingFilter 
+              body: _isLoadingFilter
                   ? const Center(child: CircularProgressIndicator())
-                  : Column(
-                children: [
-  
-                  _buildLeftPanelHeader(isMobile: true),
-                  const SizedBox(height: 16),
-                  Expanded(child: _buildList(isMobile: true)),
-                ],
-              ),
+                  : SafeStreamBuilder<List<TrialExam>>(
+                      stream: _examsStream,
+                      builder: (context, snapshot) {
+                        final count = snapshot.data?.length ?? 0;
+                        return Column(
+                          children: [
+                            _buildLeftPanelHeader(isMobile: true, count: count),
+                            const SizedBox(height: 16),
+                            Expanded(
+                              child: _buildList(
+                                isMobile: true,
+                                snapshot: snapshot,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
               floatingActionButton: FloatingActionButton(
                 onPressed: () {
                   Navigator.push(
@@ -177,7 +245,9 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                             backgroundColor: Colors.indigo,
                             elevation: 0,
                             iconTheme: const IconThemeData(color: Colors.white),
-                            actionsIconTheme: const IconThemeData(color: Colors.white),
+                            actionsIconTheme: const IconThemeData(
+                              color: Colors.white,
+                            ),
                             titleTextStyle: GoogleFonts.inter(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
@@ -205,7 +275,10 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                 elevation: 4,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.2), width: 1.5),
+                  side: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    width: 1.5,
+                  ),
                 ),
                 child: const Icon(Icons.add, color: Colors.white, size: 28),
               ),
@@ -229,30 +302,45 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                       right: BorderSide(color: Colors.grey.shade300),
                     ),
                   ),
-                  child: _isLoadingFilter 
-                    ? const Center(child: CircularProgressIndicator())
-                    : Column(
-                    children: [
-
-                      _buildLeftPanelHeader(isMobile: false),
-                      SizedBox(height: 16),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: ElevatedButton.icon(
-                          onPressed: _onCreateNew,
-                          icon: Icon(Icons.add),
-                          label: Text('Yeni Deneme Sınavı'),
-                          style: ElevatedButton.styleFrom(
-                            minimumSize: Size(double.infinity, 45),
-                            backgroundColor: Colors.indigo,
-                            foregroundColor: Colors.white,
-                          ),
+                  child: _isLoadingFilter
+                      ? const Center(child: CircularProgressIndicator())
+                      : SafeStreamBuilder<List<TrialExam>>(
+                          stream: _examsStream,
+                          builder: (context, snapshot) {
+                            final count = snapshot.data?.length ?? 0;
+                            return Column(
+                              children: [
+                                _buildLeftPanelHeader(
+                                  isMobile: false,
+                                  count: count,
+                                ),
+                                SizedBox(height: 16),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16.0,
+                                  ),
+                                  child: ElevatedButton.icon(
+                                    onPressed: _onCreateNew,
+                                    icon: Icon(Icons.add),
+                                    label: Text('Yeni Deneme Sınavı'),
+                                    style: ElevatedButton.styleFrom(
+                                      minimumSize: Size(double.infinity, 45),
+                                      backgroundColor: Colors.indigo,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Expanded(
+                                  child: _buildList(
+                                    isMobile: false,
+                                    snapshot: snapshot,
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
-                      ),
-                      SizedBox(height: 8),
-                      Expanded(child: _buildList(isMobile: false)),
-                    ],
-                  ),
                 ),
                 // Detail Pane
                 Expanded(
@@ -293,7 +381,7 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
     );
   }
 
-  Widget _buildLeftPanelHeader({required bool isMobile}) {
+  Widget _buildLeftPanelHeader({required bool isMobile, required int count}) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -323,25 +411,19 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                 ),
               ),
               Spacer(),
-              SafeStreamBuilder<List<TrialExam>>(
-                stream: _getStream(),
-                builder: (context, snapshot) {
-                  final count = snapshot.hasData ? snapshot.data!.length : 0;
-                  return Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '$count',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  );
-                },
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ],
           ),
@@ -367,8 +449,27 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
             ),
           ),
           SizedBox(height: 12),
-          // Filter Chips (Placeholder)
-          Row(children: [_buildFilterChip('Tümü', true, () {})]),
+          Row(
+            children: [
+              _buildFilterChip('Aktif Dönem', !_viewAllTerms, () {
+                if (_viewAllTerms) {
+                  setState(() {
+                    _viewAllTerms = false;
+                    _refreshExamsStream();
+                  });
+                }
+              }),
+              const SizedBox(width: 8),
+              _buildFilterChip('Tüm Dönemler', _viewAllTerms, () {
+                if (!_viewAllTerms) {
+                  setState(() {
+                    _viewAllTerms = true;
+                    _refreshExamsStream();
+                  });
+                }
+              }),
+            ],
+          ),
         ],
       ),
     );
@@ -380,7 +481,9 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.2),
+          color: isSelected
+              ? Colors.white
+              : Colors.white.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
@@ -396,52 +499,50 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
     );
   }
 
-  Widget _buildList({required bool isMobile}) {
-    return SafeStreamBuilder<List<TrialExam>>(
-      stream: _getStream(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: SelectableText(
-                'Hata: ${snapshot.error}',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.red),
-              ),
-            ),
-          );
-        }
+  Widget _buildList({
+    required bool isMobile,
+    required AsyncSnapshot<List<TrialExam>> snapshot,
+  }) {
+    if (snapshot.connectionState == ConnectionState.waiting &&
+        !snapshot.hasData) {
+      return Center(child: CircularProgressIndicator());
+    }
+    if (snapshot.hasError) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: SelectableText(
+            'Hata: ${snapshot.error}',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.red),
+          ),
+        ),
+      );
+    }
 
-        var exams = snapshot.data ?? [];
-        if (_searchQuery.isNotEmpty) {
-          exams = exams
-              .where((e) => e.name.toLowerCase().contains(_searchQuery))
-              .toList();
-        }
+    var exams = snapshot.data ?? [];
+    if (_searchQuery.isNotEmpty) {
+      exams = exams
+          .where((e) => e.name.toLowerCase().contains(_searchQuery))
+          .toList();
+    }
 
-        if (exams.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.search_off, size: 48, color: Colors.grey[300]),
-                SizedBox(height: 16),
-                Text(
-                  'Kayıtlı sınav yok.',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              ],
-            ),
-          );
-        }
+    if (exams.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off, size: 48, color: Colors.grey[300]),
+            SizedBox(height: 16),
+            Text('Kayıtlı sınav yok.', style: TextStyle(color: Colors.grey)),
+          ],
+        ),
+      );
+    }
 
-        return ListView.builder(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          itemCount: exams.length,
+    return ListView.builder(
+      padding: EdgeInsets.symmetric(horizontal: 16),
+      itemCount: exams.length,
           itemBuilder: (context, index) {
             final exam = exams[index];
             final isSelected = !isMobile && _selectedExam?.id == exam.id;
@@ -494,6 +595,55 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (exam.isCentralExam) ...[
+                      const SizedBox(height: 5),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEEF2FF),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: const Color(0xFFC7D2FE),
+                              ),
+                            ),
+                            child: const Text(
+                              '🏛️ GENEL MERKEZ',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF1E3A8A),
+                              ),
+                            ),
+                          ),
+                          if (exam.centralTotalParticipants != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFECFDF5),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'Genel: ${exam.centralTotalParticipants} Öğr.',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF047857),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                     SizedBox(height: 4),
                     Text('${exam.classLevel} • ${exam.examTypeName}'),
                     SizedBox(height: 2),
@@ -566,8 +716,12 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                             appBarTheme: AppBarTheme(
                               backgroundColor: Colors.indigo,
                               elevation: 0,
-                              iconTheme: const IconThemeData(color: Colors.white),
-                              actionsIconTheme: const IconThemeData(color: Colors.white),
+                              iconTheme: const IconThemeData(
+                                color: Colors.white,
+                              ),
+                              actionsIconTheme: const IconThemeData(
+                                color: Colors.white,
+                              ),
                               titleTextStyle: GoogleFonts.inter(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
@@ -598,7 +752,5 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
             );
           },
         );
-      },
-    );
   }
 }

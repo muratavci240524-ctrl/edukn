@@ -104,6 +104,9 @@ class _TrialExamFormState extends State<TrialExamForm>
 
   // Handled Results (Active State)
   List<StudentResult> _currentResults = [];
+  bool _centralMergeInvalidatedLocally = false;
+
+  bool get _isCentralExam => widget.trialExam?.isCentralExam == true;
 
   @override
   void initState() {
@@ -125,10 +128,13 @@ class _TrialExamFormState extends State<TrialExamForm>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.trialExam?.id != widget.trialExam?.id) {
       _initForm();
+      _loadExamTypes();
+      _loadClassLevels();
     }
   }
 
   void _initForm() {
+    _centralMergeInvalidatedLocally = false;
     _examId = widget.trialExam?.id; // Initialize ID from widget
     _nameController = TextEditingController(text: widget.trialExam?.name ?? '');
 
@@ -224,20 +230,24 @@ class _TrialExamFormState extends State<TrialExamForm>
   Future<void> _loadBranches() async {
     if (_selectedClassLevel == null) return;
     try {
-      final instVariants = UserPermissionService.getInstitutionIdVariants(widget.institutionId);
-      final targetInstId = instVariants.isNotEmpty ? instVariants.first : widget.institutionId;
+      final instVariants = UserPermissionService.getInstitutionIdVariants(
+        widget.institutionId,
+      );
+      final targetInstId = instVariants.isNotEmpty
+          ? instVariants.first
+          : widget.institutionId;
 
       final snapshot = instVariants.length > 1
           ? await FirebaseFirestore.instance
-              .collection('classes')
-              .where('institutionId', whereIn: instVariants)
-              .where('isActive', isEqualTo: true)
-              .get()
+                .collection('classes')
+                .where('institutionId', whereIn: instVariants)
+                .where('isActive', isEqualTo: true)
+                .get()
           : await FirebaseFirestore.instance
-              .collection('classes')
-              .where('institutionId', isEqualTo: targetInstId)
-              .where('isActive', isEqualTo: true)
-              .get();
+                .collection('classes')
+                .where('institutionId', isEqualTo: targetInstId)
+                .where('isActive', isEqualTo: true)
+                .get();
 
       // Robust matching: Compare only digits
       final selectedDigits = _selectedClassLevel!.replaceAll(
@@ -252,7 +262,8 @@ class _TrialExamFormState extends State<TrialExamForm>
             final levelDigits = level.replaceAll(RegExp(r'[^0-9]'), '');
             final name = (data['className'] ?? '').toString();
             final nameDigits = RegExp(r'^\d+').firstMatch(name)?.group(0) ?? '';
-            return (levelDigits == selectedDigits || nameDigits == selectedDigits) &&
+            return (levelDigits == selectedDigits ||
+                    nameDigits == selectedDigits) &&
                 selectedDigits.isNotEmpty;
           })
           .map((doc) => doc.data()['className'].toString())
@@ -368,6 +379,12 @@ class _TrialExamFormState extends State<TrialExamForm>
         }
       }
 
+      if (_selectedClassLevel != null &&
+          _selectedClassLevel!.isNotEmpty &&
+          !allGrades.contains(_selectedClassLevel!)) {
+        allGrades.add(_selectedClassLevel!);
+      }
+
       final sortedGrades = allGrades.toList();
 
       // Sort helper to handle numeric class levels correctly (e.g. 5. Sınıf, 10. Sınıf)
@@ -392,10 +409,23 @@ class _TrialExamFormState extends State<TrialExamForm>
   }
 
   Future<void> _loadExamTypes() async {
+    ExamType? centralOrExternalType;
+    final targetTypeId = widget.trialExam?.examTypeId;
+    if (targetTypeId != null && targetTypeId.isNotEmpty) {
+      try {
+        centralOrExternalType = await _service.getExamType(targetTypeId);
+      } catch (_) {}
+    }
+
     _service.getExamTypes(widget.institutionId).listen((types) {
+      final merged = List<ExamType>.from(types);
+      if (centralOrExternalType != null &&
+          !merged.any((t) => t.id == centralOrExternalType!.id)) {
+        merged.insert(0, centralOrExternalType);
+      }
       if (mounted) {
         setState(() {
-          _examTypes = types;
+          _examTypes = merged;
         });
       }
     });
@@ -490,6 +520,102 @@ class _TrialExamFormState extends State<TrialExamForm>
     }
   }
 
+  void _showReadOnlyCentralAnswerKeyDialog(ExamType examType) {
+    final booklets = List.generate(
+      _bookletCount,
+      (i) => String.fromCharCode(65 + i),
+    );
+    showDialog(
+      context: context,
+      builder: (ctx) => DefaultTabController(
+        length: booklets.length,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '🏛️ Genel Merkez Cevap Anahtarı ve Kazanımlar (Salt Okunur)',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              if (booklets.length > 1)
+                TabBar(
+                  isScrollable: true,
+                  labelColor: Colors.indigo,
+                  tabs: booklets.map((b) => Tab(text: '$b Kitapçığı')).toList(),
+                ),
+            ],
+          ),
+          content: SizedBox(
+            width: 720,
+            height: 460,
+            child: TabBarView(
+              children: booklets.map((booklet) {
+                final bKeys = _answerKeys[booklet] ?? {};
+                final bOutcomes = _outcomes[booklet] ?? {};
+                return ListView(
+                  children: examType.subjects.map((subj) {
+                    final ans = bKeys[subj.branchName] ?? '';
+                    final outList =
+                        bOutcomes[subj.branchName] ?? const <String>[];
+                    return ExpansionTile(
+                      initiallyExpanded: examType.subjects.first == subj,
+                      title: Text(
+                        '${subj.branchName} (${subj.questionCount} Soru)',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        ans.isNotEmpty
+                            ? 'Anahtar: $ans'
+                            : 'Cevap anahtarı girilmemiş',
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                        ),
+                      ),
+                      children: List.generate(subj.questionCount, (idx) {
+                        final ch = idx < ans.length ? ans[idx] : '-';
+                        final out = idx < outList.length ? outList[idx] : '';
+                        return ListTile(
+                          dense: true,
+                          leading: CircleAvatar(
+                            radius: 13,
+                            backgroundColor: Colors.indigo.shade50,
+                            child: Text(
+                              '${idx + 1}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.indigo,
+                              ),
+                            ),
+                          ),
+                          title: Text(
+                            'Doğru Cevap: $ch',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: out.isNotEmpty ? Text(out) : null,
+                        );
+                      }),
+                    );
+                  }).toList(),
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Kapat'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _openAnswerKeyScreen() async {
     if (_selectedExamTypeId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -504,6 +630,11 @@ class _TrialExamFormState extends State<TrialExamForm>
     );
 
     if (selectedExamType == null) return;
+
+    if (_isCentralExam) {
+      _showReadOnlyCentralAnswerKeyDialog(selectedExamType);
+      return;
+    }
 
     final result = await Navigator.push(
       context,
@@ -539,10 +670,13 @@ class _TrialExamFormState extends State<TrialExamForm>
         ),
       );
 
-      final newMapping = (result['bookletMapping'] as Map?)?.map(
+      final newMapping =
+          (result['bookletMapping'] as Map?)?.map(
             (key, value) => MapEntry(
               key.toString(),
-              (value as Map).map((k, v) => MapEntry(k.toString(), v.toString())),
+              (value as Map).map(
+                (k, v) => MapEntry(k.toString(), v.toString()),
+              ),
             ),
           ) ??
           {};
@@ -587,23 +721,24 @@ class _TrialExamFormState extends State<TrialExamForm>
           );
         });
 
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.hourglass_top, color: Colors.white, size: 18),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '"${file.name}" okunuyor, eşleşmeler hesaplanıyor...',
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.hourglass_top, color: Colors.white, size: 18),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '"${file.name}" okunuyor, eşleşmeler hesaplanıyor...',
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
+              backgroundColor: Colors.indigo,
+              duration: Duration(seconds: 3),
             ),
-            backgroundColor: Colors.indigo,
-            duration: Duration(seconds: 3),
-          ),
-        );
+          );
 
         // Öğrenci listesi henüz yoksa çek
         if (_systemStudentsMap.isEmpty && _selectedClassLevel != null) {
@@ -614,9 +749,10 @@ class _TrialExamFormState extends State<TrialExamForm>
         await _previewMatchSession(index);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Dosya seçimi hatası: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Dosya seçimi hatası: $e')));
     }
   }
 
@@ -802,9 +938,10 @@ class _TrialExamFormState extends State<TrialExamForm>
 
     // 3. Save to Firestore
     await _saveData(showFeedback: false);
-    if (mounted) ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Dosya kaldırıldı.')));
+    if (mounted)
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Dosya kaldırıldı.')));
   }
 
   Future<void> _publishExam() async {
@@ -915,7 +1052,15 @@ class _TrialExamFormState extends State<TrialExamForm>
         }
 
         // Aktif / seçili dönem ID'sini al veya mevcut sınavın termId'sini koru
-        final activeTermId = widget.trialExam?.termId ?? await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+        final activeTermId =
+            widget.trialExam?.termId ??
+            await TermService().getSelectedTermId() ??
+            await TermService().getActiveTermId();
+
+        final bool clearCentralMerge =
+            _centralMergeInvalidatedLocally ||
+            finalResultsJson == null ||
+            finalResultsJson.isEmpty;
 
         final exam = TrialExam(
           id: _examId ?? '', // Use consistent ID
@@ -935,13 +1080,40 @@ class _TrialExamFormState extends State<TrialExamForm>
           isActive: true,
           isPublished: _isPublished,
           isLaunched: _isLaunched,
+          durationMinutes: widget.trialExam?.durationMinutes ?? 0,
           resultsJson: finalResultsJson,
           sharingSettings: _sharingSettings,
           bookletMapping: _bookletMapping,
           termId: activeTermId,
+          centralExamId: widget.trialExam?.centralExamId,
+          isCentralExam: widget.trialExam?.isCentralExam ?? false,
+          targetSchoolTypeId: widget.trialExam?.targetSchoolTypeId,
+          centralTotalParticipants: clearCentralMerge
+              ? null
+              : widget.trialExam?.centralTotalParticipants,
+          centralEvaluatedAt: clearCentralMerge
+              ? null
+              : widget.trialExam?.centralEvaluatedAt,
+          centralSummary: clearCentralMerge
+              ? const {}
+              : (widget.trialExam?.centralSummary ?? const {}),
         );
 
         await _service.saveTrialExam(exam);
+
+        if (clearCentralMerge &&
+            _isCentralExam &&
+            _examId != null &&
+            _examId!.isNotEmpty) {
+          await FirebaseFirestore.instance
+              .collection('trial_exams')
+              .doc(_examId!)
+              .update({
+                'centralTotalParticipants': FieldValue.delete(),
+                'centralEvaluatedAt': FieldValue.delete(),
+                'centralSummary': <String, dynamic>{},
+              });
+        }
       }
 
       if (showFeedback && mounted) {
@@ -1013,7 +1185,7 @@ class _TrialExamFormState extends State<TrialExamForm>
     if (_isLoading) return Center(child: CircularProgressIndicator());
 
     // Determine if we show Execution tools (Sessions) or Definition tools (Publish button)
-    final bool showExecution = widget.isExamExecution;
+    final bool showExecution = widget.isExamExecution || _isCentralExam;
 
     return Form(
       key: _formKey,
@@ -1028,17 +1200,27 @@ class _TrialExamFormState extends State<TrialExamForm>
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 if (_examId != null) // Only show delete for existing exams
-                  TextButton.icon(
-                    onPressed: _deleteTrialExam,
-                    icon: Icon(Icons.delete_forever, color: Colors.red),
-                    label: Text(
-                      'Sınavı Kaldır',
-                      style: TextStyle(color: Colors.red),
-                    ),
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
+                  Tooltip(
+                    message: _isCentralExam
+                        ? 'Genel Merkez tarafından tanımlanan sınav silinemez'
+                        : '',
+                    child: TextButton.icon(
+                      onPressed: _isCentralExam ? null : _deleteTrialExam,
+                      icon: Icon(
+                        Icons.delete_forever,
+                        color: _isCentralExam ? Colors.grey : Colors.red,
+                      ),
+                      label: Text(
+                        'Sınavı Kaldır',
+                        style: TextStyle(
+                          color: _isCentralExam ? Colors.grey : Colors.red,
+                        ),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
                       ),
                     ),
                   ),
@@ -1063,6 +1245,80 @@ class _TrialExamFormState extends State<TrialExamForm>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (_isCentralExam) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFEEF2FF), Color(0xFFE0E7FF)],
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFC7D2FE)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.account_balance_rounded,
+                            color: Color(0xFF1E3A8A),
+                            size: 26,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  '🏛️ Genel Merkez Merkezi Deneme Sınavı',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 14.5,
+                                    color: Color(0xFF1E3A8A),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Bu deneme Genel Merkez tarafından tanımlanmıştır. Kendi optik formunuzu seçip optik (.txt/.dat) dosyanızı yükleyerek değerlendirme yapabilirsiniz. Genel Merkez birleştirme yaptığında öğrencilerinizin Türkiye/Genel sıralaması otomatik güncellenir.',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    height: 1.4,
+                                    color: Color(0xFF1E293B),
+                                  ),
+                                ),
+                                if (widget
+                                        .trialExam
+                                        ?.centralTotalParticipants !=
+                                    null) ...[
+                                  const SizedBox(height: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(
+                                        0xFF059669,
+                                      ).withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      'Genel Birleştirme Tamamlandı • Toplam Katılımcı: ${widget.trialExam!.centralTotalParticipants} Öğrenci',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF065F46),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   _buildInfoCard(),
                   if (_selectedExamTypeId != null) ...[
                     SizedBox(height: 24),
@@ -1139,6 +1395,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                   SizedBox(height: 20),
                   TextFormField(
                     controller: _nameController,
+                    readOnly: _isCentralExam,
                     decoration: InputDecoration(
                       labelText: 'Sınav Adı',
                       hintText: 'Örn: 8. Sınıf LGS Deneme 1',
@@ -1146,8 +1403,13 @@ class _TrialExamFormState extends State<TrialExamForm>
                         borderRadius: BorderRadius.circular(12),
                       ),
                       prefixIcon: Icon(Icons.description, color: Colors.indigo),
+                      suffixIcon: _isCentralExam
+                          ? const Icon(Icons.lock_outline, size: 18)
+                          : null,
                       filled: true,
-                      fillColor: Colors.grey[50],
+                      fillColor: _isCentralExam
+                          ? Colors.grey[200]
+                          : Colors.grey[50],
                     ),
                     validator: (v) => v!.isEmpty ? 'Zorunlu' : null,
                   ),
@@ -1158,23 +1420,30 @@ class _TrialExamFormState extends State<TrialExamForm>
                       // Class Level
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          initialValue: _selectedClassLevel,
+                          initialValue:
+                              _classLevels.contains(_selectedClassLevel)
+                              ? _selectedClassLevel
+                              : null,
                           decoration: InputDecoration(
                             labelText: 'Sınıf Seviyesi',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                             filled: true,
-                            fillColor: Colors.grey[50],
+                            fillColor: _isCentralExam
+                                ? Colors.grey[200]
+                                : Colors.grey[50],
                           ),
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedClassLevel = value;
-                              _selectedBranches.clear();
-                            });
-                            _loadBranches();
-                            _fetchSystemStudents();
-                          },
+                          onChanged: _isCentralExam
+                              ? null
+                              : (value) {
+                                  setState(() {
+                                    _selectedClassLevel = value;
+                                    _selectedBranches.clear();
+                                  });
+                                  _loadBranches();
+                                  _fetchSystemStudents();
+                                },
                           items: _classLevels
                               .map(
                                 (level) => DropdownMenuItem(
@@ -1242,7 +1511,10 @@ class _TrialExamFormState extends State<TrialExamForm>
                   ),
                   SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    initialValue: _selectedExamTypeId,
+                    initialValue:
+                        _examTypes.any((e) => e.id == _selectedExamTypeId)
+                        ? _selectedExamTypeId
+                        : null,
                     items: _examTypes
                         .map(
                           (e) => DropdownMenuItem(
@@ -1251,27 +1523,31 @@ class _TrialExamFormState extends State<TrialExamForm>
                           ),
                         )
                         .toList(),
-                    onChanged: (v) {
-                      setState(() {
-                        _selectedExamTypeId = v;
-                        if (v != null) {
-                          _selectedExamTypeName = _examTypes
-                              .firstWhere((e) => e.id == v)
-                              .name;
-                          if (widget.trialExam?.examTypeId != v) {
-                            _answerKeys = {};
-                            _outcomes = {};
-                          }
-                        }
-                      });
-                    },
+                    onChanged: _isCentralExam
+                        ? null
+                        : (v) {
+                            setState(() {
+                              _selectedExamTypeId = v;
+                              if (v != null) {
+                                _selectedExamTypeName = _examTypes
+                                    .firstWhere((e) => e.id == v)
+                                    .name;
+                                if (widget.trialExam?.examTypeId != v) {
+                                  _answerKeys = {};
+                                  _outcomes = {};
+                                }
+                              }
+                            });
+                          },
                     decoration: InputDecoration(
                       labelText: 'Sınav Türü',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                       filled: true,
-                      fillColor: Colors.grey[50],
+                      fillColor: _isCentralExam
+                          ? Colors.grey[200]
+                          : Colors.grey[50],
                     ),
                   ),
                   SizedBox(height: 20),
@@ -1284,7 +1560,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                   ),
                   SizedBox(height: 20),
                   InkWell(
-                    onTap: _pickDate,
+                    onTap: _isCentralExam ? null : _pickDate,
                     child: InputDecorator(
                       decoration: InputDecoration(
                         labelText: 'Sınav Tarihi ve Saati',
@@ -1296,7 +1572,9 @@ class _TrialExamFormState extends State<TrialExamForm>
                           color: Colors.indigo,
                         ),
                         filled: true,
-                        fillColor: Colors.grey[50],
+                        fillColor: _isCentralExam
+                            ? Colors.grey[200]
+                            : Colors.grey[50],
                       ),
                       child: Text(
                         DateFormat('dd.MM.yyyy HH:mm').format(_selectedDate),
@@ -1338,7 +1616,9 @@ class _TrialExamFormState extends State<TrialExamForm>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Cevap Anahtarı ve Kazanım Tablosu',
+                      _isCentralExam
+                          ? 'Cevap Anahtarı ve Kazanım Tablosu (Salt Okunur)'
+                          : 'Cevap Anahtarı ve Kazanım Tablosu',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -1347,7 +1627,9 @@ class _TrialExamFormState extends State<TrialExamForm>
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Cevap anahtarlarını, soru eşleşmelerini ve kazanımları buradan yönetebilirsiniz.',
+                      _isCentralExam
+                          ? 'Genel Merkez tarafından tanımlanan cevap anahtarını ve kazanım eşleşmelerini inceleyebilirsiniz.'
+                          : 'Cevap anahtarlarını, soru eşleşmelerini ve kazanımları buradan yönetebilirsiniz.',
                       style: TextStyle(
                         color: Colors.grey.shade600,
                         fontSize: 14,
@@ -1625,10 +1907,11 @@ class _TrialExamFormState extends State<TrialExamForm>
                                   foregroundColor: session.lineEdits.isEmpty
                                       ? Colors.indigo
                                       : Colors.orange.shade800,
-                                  backgroundColor: (session.lineEdits.isEmpty
-                                          ? Colors.indigo
-                                          : Colors.orange)
-                                      .withValues(alpha: 0.06),
+                                  backgroundColor:
+                                      (session.lineEdits.isEmpty
+                                              ? Colors.indigo
+                                              : Colors.orange)
+                                          .withValues(alpha: 0.06),
                                   padding: EdgeInsets.symmetric(vertical: 12),
                                 ),
                               ),
@@ -1770,7 +2053,10 @@ class _TrialExamFormState extends State<TrialExamForm>
             children: [
               Text(
                 label,
-                style: TextStyle(fontSize: 12, color: color.withValues(alpha: 0.8)),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: color.withValues(alpha: 0.8),
+                ),
               ),
               if (isClickable) ...[
                 SizedBox(width: 4),
@@ -2036,8 +2322,12 @@ class _TrialExamFormState extends State<TrialExamForm>
     try {
       if (_selectedClassLevel == null) return;
 
-      final instVariants = UserPermissionService.getInstitutionIdVariants(widget.institutionId);
-      final targetInstId = instVariants.isNotEmpty ? instVariants.first : widget.institutionId;
+      final instVariants = UserPermissionService.getInstitutionIdVariants(
+        widget.institutionId,
+      );
+      final targetInstId = instVariants.isNotEmpty
+          ? instVariants.first
+          : widget.institutionId;
 
       // 1. Sınıfları çek (classId eşleştirmesi için)
       QuerySnapshot<Map<String, dynamic>> classesSnap;
@@ -2073,8 +2363,10 @@ class _TrialExamFormState extends State<TrialExamForm>
 
         final cLevelDigits = cLevel.replaceAll(RegExp(r'[^0-9]'), '');
         final cNameDigits = RegExp(r'^\d+').firstMatch(cName)?.group(0) ?? '';
-        if ((cLevelDigits == selectedLevelDigits && selectedLevelDigits.isNotEmpty) ||
-            (cNameDigits == selectedLevelDigits && selectedLevelDigits.isNotEmpty)) {
+        if ((cLevelDigits == selectedLevelDigits &&
+                selectedLevelDigits.isNotEmpty) ||
+            (cNameDigits == selectedLevelDigits &&
+                selectedLevelDigits.isNotEmpty)) {
           targetClassIds.add(cDoc.id);
         }
       }
@@ -2110,16 +2402,21 @@ class _TrialExamFormState extends State<TrialExamForm>
         data['id'] = doc.id;
 
         // TC Kimlik ve Telefon gibi şifreli verileri çöz
-        data = CryptoService.decryptMap(data, institutionId: widget.institutionId);
+        data = CryptoService.decryptMap(
+          data,
+          institutionId: widget.institutionId,
+        );
 
         // classId varsa eksik className veya classLevel alanlarını doldur
         final cid = data['classId']?.toString();
         if (cid != null && cid.isNotEmpty) {
-          if ((data['className'] == null || data['className'].toString().isEmpty) &&
+          if ((data['className'] == null ||
+                  data['className'].toString().isEmpty) &&
               classIdToName.containsKey(cid)) {
             data['className'] = classIdToName[cid];
           }
-          if ((data['classLevel'] == null || data['classLevel'].toString().isEmpty) &&
+          if ((data['classLevel'] == null ||
+                  data['classLevel'].toString().isEmpty) &&
               classIdToLevel.containsKey(cid)) {
             data['classLevel'] = classIdToLevel[cid];
           }
@@ -2128,14 +2425,22 @@ class _TrialExamFormState extends State<TrialExamForm>
         allSchoolMap[doc.id] = data;
 
         // Hedef sınıf seviyesine ait mi kontrol et
-        final sLevelStr = (data['classLevel'] ?? data['level'] ?? data['grade'] ?? '').toString();
+        final sLevelStr =
+            (data['classLevel'] ?? data['level'] ?? data['grade'] ?? '')
+                .toString();
         final sLevelDigits = sLevelStr.replaceAll(RegExp(r'[^0-9]'), '');
 
-        final sClassName = (data['className'] ?? data['branch'] ?? '').toString().trim();
-        final sClassDigits = RegExp(r'^\d+').firstMatch(sClassName)?.group(0) ?? '';
+        final sClassName = (data['className'] ?? data['branch'] ?? '')
+            .toString()
+            .trim();
+        final sClassDigits =
+            RegExp(r'^\d+').firstMatch(sClassName)?.group(0) ?? '';
 
-        final bool isTargetGrade = (sLevelDigits == selectedLevelDigits && selectedLevelDigits.isNotEmpty) ||
-            (sClassDigits == selectedLevelDigits && selectedLevelDigits.isNotEmpty) ||
+        final bool isTargetGrade =
+            (sLevelDigits == selectedLevelDigits &&
+                selectedLevelDigits.isNotEmpty) ||
+            (sClassDigits == selectedLevelDigits &&
+                selectedLevelDigits.isNotEmpty) ||
             (cid != null && targetClassIds.contains(cid));
 
         if (isTargetGrade) {
@@ -2144,7 +2449,9 @@ class _TrialExamFormState extends State<TrialExamForm>
             final matchesSelectedBranch = _selectedBranches.any((b) {
               final bClean = b.trim().toLowerCase();
               final sClean = sBranch.toLowerCase();
-              return bClean == sClean || bClean.contains(sClean) || sClean.contains(bClean);
+              return bClean == sClean ||
+                  bClean.contains(sClean) ||
+                  sClean.contains(bClean);
             });
             if (!matchesSelectedBranch) continue;
           }
@@ -2155,7 +2462,9 @@ class _TrialExamFormState extends State<TrialExamForm>
       if (mounted) {
         setState(() {
           _allSchoolStudentsMap = allSchoolMap;
-          _systemStudentsMap = targetGradeMap.isNotEmpty ? targetGradeMap : allSchoolMap;
+          _systemStudentsMap = targetGradeMap.isNotEmpty
+              ? targetGradeMap
+              : allSchoolMap;
           _totalSystemStudents = _systemStudentsMap.length;
           _recalculateStats();
         });
@@ -2289,6 +2598,7 @@ class _TrialExamFormState extends State<TrialExamForm>
       });
 
       _currentResults = resultsMap.values.toList();
+      _centralMergeInvalidatedLocally = true;
       setState(() {}); // Refresh stats panel
 
       messageNotifier.value = "Kaydediliyor...";
@@ -2310,24 +2620,27 @@ class _TrialExamFormState extends State<TrialExamForm>
       Navigator.pop(context); // Close Dialog
 
       if (resultsList.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Hiçbir öğrenci okunamadı veya eşleştirilemedi.'),
-          ),
-        );
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Hiçbir öğrenci okunamadı veya eşleştirilemedi.'),
+            ),
+          );
       } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Sınav başarıyla değerlendirildi ve kaydedildi.'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Sınav başarıyla değerlendirildi ve kaydedildi.'),
+              backgroundColor: Colors.green,
+            ),
+          );
       }
     } catch (e) {
       Navigator.pop(context); // Close Dialog on Error
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
     } finally {
       progressNotifier.dispose();
       messageNotifier.dispose();
@@ -2379,31 +2692,30 @@ class _TrialExamFormState extends State<TrialExamForm>
     ExamType? currentExamType;
     if (_selectedExamTypeId != null) {
       try {
-        currentExamType = _examTypes.firstWhere((e) => e.id == _selectedExamTypeId);
-      } catch (silentError) { debugPrint('[trial_exam_form] hata yutuldu: $silentError'); }
+        currentExamType = _examTypes.firstWhere(
+          (e) => e.id == _selectedExamTypeId,
+        );
+      } catch (silentError) {
+        debugPrint('[trial_exam_form] hata yutuldu: $silentError');
+      }
     }
 
     // Düzeltme yapılmış satırların öğrenci anahtarları (eski sonuçları silinecek)
     final touched = <String>{};
     for (int i = 0; i < _sessions.length; i++) {
       sessionTasks.add(
-        _processSessionSingle(
-          _sessions[i],
-          i,
-          matcher,
-          currentExamType,
-          (sessionP) {
-            sessionProgress[i] = sessionP;
-            // Calculate total progress in 20-80 range
-            double totalP = 0;
-            for (var v in sessionProgress.values) {
-              totalP += v;
-            }
-            double weightedP = 0.2 + (totalP / _sessions.length) * 0.6;
-            onProgress(weightedP, "${i + 1}. Oturum işleniyor...");
-          },
-          touchedKeys: touched,
-        ),
+        _processSessionSingle(_sessions[i], i, matcher, currentExamType, (
+          sessionP,
+        ) {
+          sessionProgress[i] = sessionP;
+          // Calculate total progress in 20-80 range
+          double totalP = 0;
+          for (var v in sessionProgress.values) {
+            totalP += v;
+          }
+          double weightedP = 0.2 + (totalP / _sessions.length) * 0.6;
+          onProgress(weightedP, "${i + 1}. Oturum işleniyor...");
+        }, touchedKeys: touched),
       );
     }
     final results = await Future.wait(sessionTasks);
@@ -2457,7 +2769,9 @@ class _TrialExamFormState extends State<TrialExamForm>
     if (_selectedExamTypeId != null) {
       try {
         examType = _examTypes.firstWhere((e) => e.id == _selectedExamTypeId);
-      } catch (silentError) { debugPrint('[trial_exam_form] hata yutuldu: $silentError'); }
+      } catch (silentError) {
+        debugPrint('[trial_exam_form] hata yutuldu: $silentError');
+      }
     }
 
     // Calculate Scores
@@ -2481,6 +2795,9 @@ class _TrialExamFormState extends State<TrialExamForm>
       if (score < 0) score = 0;
       student.score = score;
     }
+
+    // Local optical score calculation invalidates any prior central merge rank
+    _centralMergeInvalidatedLocally = true;
 
     // Calculate Ranks
     List<StudentResult> allList = mergedStudents.values.toList();
@@ -2513,7 +2830,6 @@ class _TrialExamFormState extends State<TrialExamForm>
         list[i].rankBranch = branchRank;
       }
     });
-
 
     return mergedStudents;
   }
@@ -2548,11 +2864,11 @@ class _TrialExamFormState extends State<TrialExamForm>
           content: Text(
             noUrl
                 ? '"${session.fileName ?? ''}" dosyası sunucuya yüklenmemiş görünüyor, '
-                    'bu yüzden okunamadı.\n\nAynı dosyayı bilgisayarınızdan seçerseniz '
-                    'veriyi görüntüleyip düzeltebilirsiniz. Mevcut sonuçlar değişmez.'
+                      'bu yüzden okunamadı.\n\nAynı dosyayı bilgisayarınızdan seçerseniz '
+                      'veriyi görüntüleyip düzeltebilirsiniz. Mevcut sonuçlar değişmez.'
                 : '"${session.fileName ?? ''}" dosyası sunucudan indirilemedi.\n\n'
-                    'Aynı dosyayı bilgisayarınızdan seçerek devam edebilirsiniz. '
-                    'Mevcut sonuçlar değişmez.',
+                      'Aynı dosyayı bilgisayarınızdan seçerek devam edebilirsiniz. '
+                      'Mevcut sonuçlar değişmez.',
           ),
           actions: [
             TextButton(
@@ -2650,7 +2966,9 @@ class _TrialExamFormState extends State<TrialExamForm>
             return latin1.decode(response.bodyBytes);
           }
         }
-        debugPrint('[trial_exam_form] dosya indirilemedi: HTTP ${response.statusCode}');
+        debugPrint(
+          '[trial_exam_form] dosya indirilemedi: HTTP ${response.statusCode}',
+        );
       } catch (e) {
         debugPrint('[trial_exam_form] dosya indirilemedi: $e');
       }
@@ -2667,7 +2985,8 @@ class _TrialExamFormState extends State<TrialExamForm>
     String name,
     String cls,
     String branch,
-  })? _identifyLine(String line, OpticalForm opticalForm, StudentMatcher matcher) {
+  })?
+  _identifyLine(String line, OpticalForm opticalForm, StudentMatcher matcher) {
     final fileTc = _extract(line, opticalForm.identityNo).trim();
     String fileNo = _extract(line, opticalForm.studentNo).trim();
     if (fileNo.isNotEmpty) fileNo = fileNo.replaceFirst(RegExp(r'^0+'), '');
@@ -2692,7 +3011,8 @@ class _TrialExamFormState extends State<TrialExamForm>
       key = 'UNMATCHED_NO_$fileNo';
     } else {
       final n = StudentMatcher.normalizeTurkishForSearch(
-          StudentMatcher.fixWindows1254(fileName)).trim();
+        StudentMatcher.fixWindows1254(fileName),
+      ).trim();
       if (n.isEmpty) return null;
       key = 'UNMATCHED_NAME_$n';
     }
@@ -2713,6 +3033,7 @@ class _TrialExamFormState extends State<TrialExamForm>
     StudentMatcher matcher,
     ExamType? examType,
     Function(double) onProgressCallback, {
+
     /// Verilirse: düzeltilen satırların (düzeltme öncesi ve sonrası) öğrenci
     /// anahtarları eklenir; çağıran, havuzdaki eski sonuçları bunlarla temizler.
     Set<String>? touchedKeys,
@@ -2738,8 +3059,11 @@ class _TrialExamFormState extends State<TrialExamForm>
 
     final rawLines = content.split('\n');
     // Okuma ekranında yapılan düzeltmeler (dosyaya dokunmadan) uygulanır.
-    final lines =
-        OpticalLineEdits.apply(rawLines, opticalForm, session.lineEdits);
+    final lines = OpticalLineEdits.apply(
+      rawLines,
+      opticalForm,
+      session.lineEdits,
+    );
     if (touchedKeys != null && session.lineEdits.isNotEmpty) {
       final valid = OpticalLineEdits.validEdits(rawLines, session.lineEdits);
       for (final li in valid.keys) {
@@ -2781,7 +3105,11 @@ class _TrialExamFormState extends State<TrialExamForm>
         if (systemData != null) {
           localResults[key] = StudentResult(
             tcNo: (systemData['tcNo'] ?? fileTc).toString(),
-            studentNo: (systemData['studentNo'] ?? systemData['studentNumber'] ?? fileNo).toString(),
+            studentNo:
+                (systemData['studentNo'] ??
+                        systemData['studentNumber'] ??
+                        fileNo)
+                    .toString(),
             name: (systemData['fullName'] ?? systemData['name'] ?? fileName)
                 .toString(),
             classLevel: (systemData['classLevel'] ?? fileCls).toString(),
@@ -2813,7 +3141,10 @@ class _TrialExamFormState extends State<TrialExamForm>
           ? _answerKeys.keys.first
           : 'A';
       if (opticalForm.bookletType.length > 0) {
-        String bVal = _extract(line, opticalForm.bookletType).trim().toUpperCase();
+        String bVal = _extract(
+          line,
+          opticalForm.bookletType,
+        ).trim().toUpperCase();
         if (bVal.isNotEmpty) booklet = bVal;
       }
       if (!_answerKeys.containsKey(booklet)) {
@@ -2876,9 +3207,9 @@ class _TrialExamFormState extends State<TrialExamForm>
             }
           }
 
-            double ratio = examType?.wrongCorrectRatio ?? 3.0;
-            if (ratio <= 0) ratio = 3.0; // Fail-safe
-            double net = correct - (wrong / ratio);
+          double ratio = examType?.wrongCorrectRatio ?? 3.0;
+          if (ratio <= 0) ratio = 3.0; // Fail-safe
+          double net = correct - (wrong / ratio);
 
           final existing = student.subjects[subjectName];
 
@@ -2975,6 +3306,9 @@ class _TrialExamFormState extends State<TrialExamForm>
           isRankingVisible:
               widget.trialExam?.sharingSettings['isRankingVisible'] ?? true,
           trialExamId: widget.trialExam?.id,
+          centralTotalParticipants: _centralMergeInvalidatedLocally
+              ? null
+              : widget.trialExam?.centralTotalParticipants,
         ),
       ),
     );
@@ -3006,6 +3340,7 @@ class _TrialExamFormState extends State<TrialExamForm>
 
     if (confirm == true) {
       setState(() {
+        _centralMergeInvalidatedLocally = true;
         _currentResults.clear();
         _currentResultsJson = null;
         _recalculateStats(); // Resets stats
@@ -3198,9 +3533,12 @@ class _TrialExamFormState extends State<TrialExamForm>
                       });
                       await _saveData(showFeedback: false, onlySettings: true);
                       if (mounted) {
-                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Sınav yayından kaldırıldı.')),
-                        );
+                        if (mounted)
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Sınav yayından kaldırıldı.'),
+                            ),
+                          );
                       }
                     },
                     style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -3282,7 +3620,8 @@ class _TrialExamFormState extends State<TrialExamForm>
                         );
                         for (final p in parents) {
                           final pid = p['id']?.toString();
-                          if (pid != null && pid.isNotEmpty) recipients.add(pid);
+                          if (pid != null && pid.isNotEmpty)
+                            recipients.add(pid);
                         }
                       }
                       recipients = recipients.toSet().toList();
@@ -3301,23 +3640,25 @@ class _TrialExamFormState extends State<TrialExamForm>
                       );
 
                       if (mounted) {
-                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Sınav paylaşıldı ve duyuru oluşturuldu.',
+                        if (mounted)
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Sınav paylaşıldı ve duyuru oluşturuldu.',
+                              ),
+                              backgroundColor: Colors.green,
                             ),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
+                          );
                       }
                     } catch (e) {
                       if (mounted) {
-                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Duyuru oluşturulamadı: $e'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
+                        if (mounted)
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Duyuru oluşturulamadı: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
                       }
                     }
                   },
@@ -3341,18 +3682,20 @@ class _TrialExamFormState extends State<TrialExamForm>
         labelText: 'Kitapçık Sayısı',
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         filled: true,
-        fillColor: Colors.grey[50],
+        fillColor: _isCentralExam ? Colors.grey[200] : Colors.grey[50],
       ),
       items: List.generate(
         8,
         (index) => index + 1,
       ).map((i) => DropdownMenuItem(value: i, child: Text('$i Adet'))).toList(),
-      onChanged: (v) {
-        if (v != null)
-          setState(() {
-            _bookletCount = v;
-          });
-      },
+      onChanged: _isCentralExam
+          ? null
+          : (v) {
+              if (v != null)
+                setState(() {
+                  _bookletCount = v;
+                });
+            },
     );
   }
 
@@ -3364,19 +3707,21 @@ class _TrialExamFormState extends State<TrialExamForm>
         labelText: 'Oturum Sayısı',
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         filled: true,
-        fillColor: Colors.grey[50],
+        fillColor: _isCentralExam ? Colors.grey[200] : Colors.grey[50],
       ),
       items: List.generate(
         4,
         (index) => index + 1,
       ).map((i) => DropdownMenuItem(value: i, child: Text('$i'))).toList(),
-      onChanged: (v) {
-        if (v != null)
-          setState(() {
-            _sessionCount = v;
-            _adjustSessionsList();
-          });
-      },
+      onChanged: _isCentralExam
+          ? null
+          : (v) {
+              if (v != null)
+                setState(() {
+                  _sessionCount = v;
+                  _adjustSessionsList();
+                });
+            },
     );
   }
 
@@ -3392,6 +3737,7 @@ class ResultsTableDialog extends StatefulWidget {
   final Map<String, Map<String, List<String>>> outcomes;
   final bool isRankingVisible;
   final String? trialExamId;
+  final int? centralTotalParticipants;
 
   const ResultsTableDialog({
     Key? key,
@@ -3401,6 +3747,7 @@ class ResultsTableDialog extends StatefulWidget {
     this.outcomes = const {},
     this.isRankingVisible = true,
     this.trialExamId,
+    this.centralTotalParticipants,
   }) : super(key: key);
 
   @override
@@ -3420,15 +3767,14 @@ class _ResultsTableDialogState extends State<ResultsTableDialog> {
   }
 
   void _showDetail(StudentResult student) {
-    int total = widget.results.length;
+    int schoolCount = widget.results.length;
+    int total = widget.centralTotalParticipants ?? schoolCount;
     int branchCount = widget.results
         .where(
           (r) =>
               r.classLevel == student.classLevel && r.branch == student.branch,
         )
         .length;
-    // Assuming school count is same as total for this trial exam context
-    int schoolCount = total;
 
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -3588,9 +3934,9 @@ class _ResultsTableDialogState extends State<ResultsTableDialog> {
                   Container(height: 1, color: Colors.grey.shade300),
                   Expanded(
                     child: ListView.builder(
-                      cacheExtent: 500, itemCount: _sortedResults.length,
-                      itemExtent:
-                          45, // Pre-render more pixels
+                      cacheExtent: 500,
+                      itemCount: _sortedResults.length,
+                      itemExtent: 45, // Pre-render more pixels
                       addAutomaticKeepAlives: false,
                       addRepaintBoundaries: true,
                       itemBuilder: (context, index) {
@@ -4026,4 +4372,3 @@ class _ResultsTableDialogState extends State<ResultsTableDialog> {
     );
   }
 }
-

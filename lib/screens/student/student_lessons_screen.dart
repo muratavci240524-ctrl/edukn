@@ -27,8 +27,7 @@ class StudentLessonsScreen extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  State<StudentLessonsScreen> createState() =>
-      _StudentLessonsScreenState();
+  State<StudentLessonsScreen> createState() => _StudentLessonsScreenState();
 }
 
 class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
@@ -59,10 +58,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
   void initState() {
     super.initState();
     _weekStart = _startOfWeek(DateTime.now());
-    _selectedClass = {
-      'id': widget.classId,
-      'name': widget.className,
-    };
+    _selectedClass = {'id': widget.classId, 'name': widget.className};
     _loadData(reloadSidebar: false);
   }
 
@@ -137,7 +133,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
     try {
       final instIds = [
         widget.institutionId.toUpperCase(),
-        widget.institutionId.toLowerCase()
+        widget.institutionId.toLowerCase(),
       ].toSet().toList();
 
       // Yayınlanmış aktif dönemleri bul
@@ -338,7 +334,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
     try {
       final instIds = [
         widget.institutionId.toUpperCase(),
-        widget.institutionId.toLowerCase()
+        widget.institutionId.toLowerCase(),
       ].toSet().toList();
 
       // Paralel olarak hem schedule hem lessonAssignments çek
@@ -401,8 +397,14 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
       // Dinamik Kur ve Kulüp derslerini öğrenciye özel çözümle
       if (widget.studentId.isNotEmpty) {
         try {
-          final studentDoc = await FirebaseFirestore.instance.collection('students').doc(widget.studentId).get();
-          final enrollments = studentDoc.data()?['courseGroupEnrollments'] as Map<String, dynamic>? ?? {};
+          final studentDoc = await FirebaseFirestore.instance
+              .collection('students')
+              .doc(widget.studentId)
+              .get();
+          final enrollments =
+              studentDoc.data()?['courseGroupEnrollments']
+                  as Map<String, dynamic>? ??
+              {};
 
           if (enrollments.isNotEmpty) {
             final dynamicGroups = await DynamicGroupService().fetchGroups(
@@ -419,14 +421,20 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
               for (var dg in dynamicGroups) {
                 // Kulüp: type=club olması yeterli (lessonName kontrolüne gerek yok)
                 // Track: lessonId veya lessonName eşleşmesi gerekli
-                final bool isMatch = dg.lessonId == lId ||
+                final bool isMatch =
+                    dg.lessonId == lId ||
                     dg.lessonName.toLowerCase() == lName ||
                     dg.type == DynamicCourseGroupType.club;
                 if (!isMatch) continue;
                 final subId = enrollments[dg.id];
                 if (subId != null) {
-                  final sub = dg.subGroups.firstWhere((s) => s.id == subId, orElse: () => dg.subGroups.first);
-                  slot['lessonName'] = dg.type == DynamicCourseGroupType.club ? sub.name : '${dg.lessonName} (${sub.name})';
+                  final sub = dg.subGroups.firstWhere(
+                    (s) => s.id == subId,
+                    orElse: () => dg.subGroups.first,
+                  );
+                  slot['lessonName'] = dg.type == DynamicCourseGroupType.club
+                      ? sub.name
+                      : '${dg.lessonName} (${sub.name})';
                   if (sub.teacherNames.isNotEmpty) {
                     slot['teacherName'] = sub.teacherNames.join(', ');
                   }
@@ -446,35 +454,58 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
         try {
           final etutSnap = await FirebaseFirestore.instance
               .collection('etut_requests')
-              .where('institutionId', isEqualTo: widget.institutionId.toUpperCase())
+              .where(
+                'institutionId',
+                isEqualTo: widget.institutionId.toUpperCase(),
+              )
               .where('studentIds', arrayContains: widget.studentId)
               .get();
-              
-          final daysTr = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
+
+          final daysTr = [
+            'Pazartesi',
+            'Salı',
+            'Çarşamba',
+            'Perşembe',
+            'Cuma',
+            'Cumartesi',
+            'Pazar',
+          ];
           for (var doc in etutSnap.docs) {
             final etutData = doc.data();
-            if (etutData['status'] == 'approved' || etutData['status'] == 'completed') {
+            if (etutData['status'] == 'approved' ||
+                etutData['status'] == 'completed') {
               final dateVal = etutData['date'];
               DateTime? etutDate;
-              if (dateVal is Timestamp) etutDate = dateVal.toDate();
-              else if (dateVal is String) etutDate = DateTime.tryParse(dateVal);
-              
+              if (dateVal is Timestamp)
+                etutDate = dateVal.toDate();
+              else if (dateVal is String)
+                etutDate = DateTime.tryParse(dateVal);
+
               if (etutDate != null) {
-                if (etutDate.isAfter(_weekStart.subtract(const Duration(days: 1))) && 
-                    etutDate.isBefore(_weekStart.add(const Duration(days: 7)))) {
-                   final hourIndex = etutData['hourIndex'] is int ? etutData['hourIndex'] : int.tryParse(etutData['hourIndex']?.toString() ?? '0') ?? 0;
-                   final dayName = daysTr[etutDate.weekday - 1];
-                   if (_days.contains(dayName)) {
-                     final key = '${widget.classId}_${dayName}_$hourIndex';
-                     scheduleData[key] = {
-                       'id': doc.id,
-                       'lessonName': 'ETÜT: ${etutData['subject'] ?? ''}',
-                       'teacherName': etutData['teacherName'] ?? 'Etüt',
-                       'roomName': etutData['roomName'] ?? '',
-                       'isEtut': true,
-                       'color': 'indigo',
-                     };
-                   }
+                if (etutDate.isAfter(
+                      _weekStart.subtract(const Duration(days: 1)),
+                    ) &&
+                    etutDate.isBefore(
+                      _weekStart.add(const Duration(days: 7)),
+                    )) {
+                  final hourIndex = etutData['hourIndex'] is int
+                      ? etutData['hourIndex']
+                      : int.tryParse(
+                              etutData['hourIndex']?.toString() ?? '0',
+                            ) ??
+                            0;
+                  final dayName = daysTr[etutDate.weekday - 1];
+                  if (_days.contains(dayName)) {
+                    final key = '${widget.classId}_${dayName}_$hourIndex';
+                    scheduleData[key] = {
+                      'id': doc.id,
+                      'lessonName': 'ETÜT: ${etutData['subject'] ?? ''}',
+                      'teacherName': etutData['teacherName'] ?? 'Etüt',
+                      'roomName': etutData['roomName'] ?? '',
+                      'isEtut': true,
+                      'color': 'indigo',
+                    };
+                  }
                 }
               }
             }
@@ -524,7 +555,9 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.2),
+          color: isSelected
+              ? Colors.white
+              : Colors.white.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Text(
@@ -550,7 +583,9 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
             icon: const Icon(Icons.print, color: Colors.indigo),
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Yazdırma özelliği yakında eklenecek')),
+                const SnackBar(
+                  content: Text('Yazdırma özelliği yakında eklenecek'),
+                ),
               );
             },
             tooltip: 'Yazdır',
@@ -567,24 +602,20 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
     return _isScheduleLoading
         ? const Center(child: CircularProgressIndicator())
         : _selectedClass == null
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.touch_app,
-                      size: 64,
-                      color: Colors.grey.shade400,
-                    ),
-                    SizedBox(height: 16),
-                    Text(
-                      'Program Bulunamadı',
-                      style: TextStyle(color: Colors.grey.shade600),
-                    ),
-                  ],
+        ? Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.touch_app, size: 64, color: Colors.grey.shade400),
+                SizedBox(height: 16),
+                Text(
+                  'Program Bulunamadı',
+                  style: TextStyle(color: Colors.grey.shade600),
                 ),
-              )
-            : _buildScheduleView();
+              ],
+            ),
+          )
+        : _buildScheduleView();
   }
 
   Widget _buildClassList() {
@@ -983,10 +1014,10 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
           child: _activePeriodId == null
               ? _buildNoPublishedSchedule()
               : _days.isEmpty
-                  ? const Center(child: Text('Ders saati tanımlanmamış'))
-                  : (_showTableViewWide
-                      ? _buildTableScheduleWide(maxHours)
-                      : _buildCardScheduleWide()),
+              ? const Center(child: Text('Ders saati tanımlanmamış'))
+              : (_showTableViewWide
+                    ? _buildTableScheduleWide(maxHours)
+                    : _buildCardScheduleWide()),
         ),
       ],
     );
@@ -1025,7 +1056,11 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
                     }
                   });
                 },
-                icon: Icon(Icons.arrow_back_ios_new, size: 14, color: Colors.purple.shade700),
+                icon: Icon(
+                  Icons.arrow_back_ios_new,
+                  size: 14,
+                  color: Colors.purple.shade700,
+                ),
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.purple.shade50,
                   padding: const EdgeInsets.all(8),
@@ -1038,7 +1073,8 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    _selectedClass?['className']?.toString().toUpperCase() ?? 'ŞUBE PROGRAMI',
+                    _selectedClass?['className']?.toString().toUpperCase() ??
+                        'ŞUBE PROGRAMI',
                     style: TextStyle(
                       fontSize: 9,
                       color: Colors.purple.shade300,
@@ -1069,7 +1105,11 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
                     }
                   });
                 },
-                icon: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.purple.shade700),
+                icon: Icon(
+                  Icons.arrow_forward_ios,
+                  size: 14,
+                  color: Colors.purple.shade700,
+                ),
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.purple.shade50,
                   padding: const EdgeInsets.all(8),
@@ -1080,7 +1120,9 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
           ),
           IconButton(
             icon: Icon(
-              _showTableViewWide ? Icons.table_rows_outlined : Icons.view_agenda_outlined,
+              _showTableViewWide
+                  ? Icons.table_rows_outlined
+                  : Icons.view_agenda_outlined,
               color: Colors.purple.shade700,
               size: 20,
             ),
@@ -1093,7 +1135,9 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
               backgroundColor: Colors.purple.shade50,
               padding: const EdgeInsets.all(8),
               minimumSize: const Size(36, 36),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
           ),
         ],
@@ -1856,11 +1900,8 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
 
     return Scaffold(
       appBar: EduknAppBar(
+        institutionId: widget.institutionId,
         title: '$className - Ders Programı',
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.purple),
-          onPressed: () => Navigator.pop(context),
-        ),
         actions: [
           IconButton(
             icon: Icon(
@@ -1919,7 +1960,11 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
                   });
                   _loadSchedule();
                 },
-                icon: Icon(Icons.arrow_back_ios_new, size: 14, color: Colors.purple.shade700),
+                icon: Icon(
+                  Icons.arrow_back_ios_new,
+                  size: 14,
+                  color: Colors.purple.shade700,
+                ),
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.purple.shade50,
                   padding: const EdgeInsets.all(8),
@@ -1959,7 +2004,11 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
                   });
                   _loadSchedule();
                 },
-                icon: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.purple.shade700),
+                icon: Icon(
+                  Icons.arrow_forward_ios,
+                  size: 14,
+                  color: Colors.purple.shade700,
+                ),
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.purple.shade50,
                   padding: const EdgeInsets.all(8),
@@ -1970,7 +2019,9 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
           ),
           IconButton(
             icon: Icon(
-              _showTableView ? Icons.table_rows_outlined : Icons.view_agenda_outlined,
+              _showTableView
+                  ? Icons.table_rows_outlined
+                  : Icons.view_agenda_outlined,
               color: Colors.purple.shade700,
               size: 20,
             ),
@@ -1983,7 +2034,9 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
               backgroundColor: Colors.purple.shade50,
               padding: const EdgeInsets.all(8),
               minimumSize: const Size(36, 36),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
           ),
         ],

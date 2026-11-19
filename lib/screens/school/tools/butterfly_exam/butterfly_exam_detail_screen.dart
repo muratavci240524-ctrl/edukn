@@ -7,6 +7,7 @@ import '../../../../models/school/butterfly_exam_model.dart';
 import '../../../../models/school/seating_plan_model.dart';
 import '../../../../services/butterfly_pdf_service.dart';
 import '../../../../services/butterfly_distribution_service.dart';
+import '../../../../services/user_permission_service.dart';
 import '../../../../widgets/edukn_app_bar.dart';
 import 'butterfly_exam_wizard_screen.dart';
 
@@ -28,7 +29,8 @@ class ButterflyExamDetailScreen extends StatefulWidget {
   });
 
   @override
-  State<ButterflyExamDetailScreen> createState() => _ButterflyExamDetailScreenState();
+  State<ButterflyExamDetailScreen> createState() =>
+      _ButterflyExamDetailScreenState();
 }
 
 class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
@@ -51,7 +53,9 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
   void initState() {
     super.initState();
     _currentDistribution = widget.distribution.clone();
-    _isDraft = widget.isDraft || (_currentDistribution.id == null || _currentDistribution.id!.isEmpty);
+    _isDraft =
+        widget.isDraft ||
+        (_currentDistribution.id == null || _currentDistribution.id!.isEmpty);
     if (!_isDraft && widget.distribution.updatedAt != null) {
       _hasUnsavedChanges = true;
     }
@@ -65,7 +69,13 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
   }
 
   ExamRoom get _currentRoom =>
-      _currentDistribution.rooms[_selectedRoomIndex.clamp(0, _currentDistribution.rooms.length - 1)];
+      _currentDistribution.rooms[_selectedRoomIndex.clamp(
+        0,
+        _currentDistribution.rooms.length - 1,
+      )];
+
+  bool get _canEditPlan => UserPermissionService.canCreateExamPlan();
+  bool get _canPublish => UserPermissionService.canPublishExam();
 
   // ===========================================================================
   // ARAYÜZ (DETAY GÖVDE)
@@ -73,13 +83,16 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 700;
-    final dateStr = DateFormat('dd.MM.yyyy').format(_currentDistribution.examDate);
+    final dateStr = DateFormat(
+      'dd.MM.yyyy',
+    ).format(_currentDistribution.examDate);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: EduknAppBar(
         title: _currentDistribution.title,
-        subtitle: '${_currentDistribution.lessonName} • $dateStr (${_currentDistribution.examTime})',
+        subtitle:
+            '${_currentDistribution.lessonName} • $dateStr (${_currentDistribution.examTime})',
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF1E293B),
         subtitleColor: const Color(0xFF64748B),
@@ -87,38 +100,60 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
         borderColor: const Color(0xFFE2E8F0),
         actions: [
           // Farklı Dağıt (Yeniden Karıştır) Butonu
-          if (_isDraft)
+          if (_isDraft && _canEditPlan)
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFF4F46E5),
                   side: const BorderSide(color: Color(0xFF818CF8)),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 onPressed: _isSaving ? null : _reshuffleDistribution,
                 icon: const Icon(Icons.shuffle_rounded, size: 18),
-                label: const Text('Farklı Dağıt', style: TextStyle(fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'Farklı Dağıt',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
               ),
             ),
           // Değişiklikleri Kaydet Butonu
-          if (_isDraft || _hasUnsavedChanges)
+          if ((_isDraft || _hasUnsavedChanges) && _canEditPlan)
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF10B981),
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 onPressed: _isSaving ? null : _saveChangesToFirestore,
                 icon: _isSaving
-                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                     : const Icon(Icons.save_rounded, size: 18),
                 label: Text(
-                  _isSaving ? 'Kaydediliyor...' : (_isDraft ? 'Oturumu Kaydet' : 'Kaydet'),
+                  _isSaving
+                      ? 'Kaydediliyor...'
+                      : (_isDraft ? 'Oturumu Kaydet' : 'Kaydet'),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
@@ -129,20 +164,31 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
         child: Column(
           children: [
             // Önizleme / Kaydedilmemiş Değişiklik Bilgi Şeridi
-            if (_isDraft || _hasUnsavedChanges)
+            if ((_isDraft || _hasUnsavedChanges) && _canEditPlan)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
                 color: const Color(0xFFEFF6FF),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline_rounded, color: Color(0xFF2563EB), size: 20),
+                    const Icon(
+                      Icons.info_outline_rounded,
+                      color: Color(0xFF2563EB),
+                      size: 20,
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         _isDraft
                             ? '✨ Dağıtım önizlemesi hazır. Koltuklara dokunarak öğrencileri takas edebilir, ardından "Oturumu Kaydet" butonuna basabilirsiniz.'
                             : 'Oturma planında kaydedilmemiş değişiklikler var.',
-                        style: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF1E40AF), fontWeight: FontWeight.w600),
+                        style: GoogleFonts.inter(
+                          fontSize: 12.5,
+                          color: const Color(0xFF1E40AF),
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
@@ -157,12 +203,27 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                 indicatorWeight: 3,
                 labelColor: const Color(0xFF4F46E5),
                 unselectedLabelColor: const Color(0xFF64748B),
-                labelStyle: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13),
-                unselectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13),
+                labelStyle: GoogleFonts.inter(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                ),
+                unselectedLabelStyle: GoogleFonts.inter(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
                 tabs: const [
-                  Tab(icon: Icon(Icons.grid_on_rounded, size: 18), text: 'Gözetmen Krokisi'),
-                  Tab(icon: Icon(Icons.door_front_door_outlined, size: 18), text: 'Kapı Listesi'),
-                  Tab(icon: Icon(Icons.picture_as_pdf_rounded, size: 18), text: 'PDF Çıktıları'),
+                  Tab(
+                    icon: Icon(Icons.grid_on_rounded, size: 18),
+                    text: 'Gözetmen Krokisi',
+                  ),
+                  Tab(
+                    icon: Icon(Icons.door_front_door_outlined, size: 18),
+                    text: 'Kapı Listesi',
+                  ),
+                  Tab(
+                    icon: Icon(Icons.picture_as_pdf_rounded, size: 18),
+                    text: 'PDF Çıktıları',
+                  ),
                 ],
               ),
             ),
@@ -187,7 +248,9 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
           ],
         ),
       ),
-      bottomNavigationBar: (!_currentDistribution.isProctoringPublished || _isDraft)
+      bottomNavigationBar:
+          (_canEditPlan &&
+              (!_currentDistribution.isProctoringPublished || _isDraft))
           ? _buildBottomDistributionToolbar(isMobile)
           : null,
     );
@@ -204,7 +267,9 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       ),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: const Border(top: BorderSide(color: Color(0xFFE2E8F0), width: 1.2)),
+        border: const Border(
+          top: BorderSide(color: Color(0xFFE2E8F0), width: 1.2),
+        ),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF64748B).withValues(alpha: 0.08),
@@ -225,13 +290,24 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                       foregroundColor: Colors.white,
                       elevation: 0,
                       minimumSize: const Size.fromHeight(44),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
                     ),
-                    icon: const Icon(Icons.settings_backup_restore_rounded, size: 20),
+                    icon: const Icon(
+                      Icons.settings_backup_restore_rounded,
+                      size: 20,
+                    ),
                     label: Text(
                       'Dağıtım Öncesine Dön (Adı, Saati, Salonlar)',
-                      style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13),
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
                     ),
                     onPressed: _returnToDistributionWizard,
                   ),
@@ -245,7 +321,11 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                       color: const Color(0xFFEEF2FF),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.tune_rounded, color: Color(0xFF4F46E5), size: 20),
+                    child: const Icon(
+                      Icons.tune_rounded,
+                      color: Color(0xFF4F46E5),
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -255,11 +335,18 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                       children: [
                         Text(
                           'Sınav Parametreleri Düzenleme Modu',
-                          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF1E293B)),
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: const Color(0xFF1E293B),
+                          ),
                         ),
                         Text(
                           'Sınav adı, saati, şubeler, salonlar ve gözetmenlik ayarlarını değiştirebilirsiniz.',
-                          style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+                          style: GoogleFonts.inter(
+                            fontSize: 11.5,
+                            color: const Color(0xFF64748B),
+                          ),
                         ),
                       ],
                     ),
@@ -270,13 +357,24 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                       backgroundColor: const Color(0xFF4F46E5),
                       foregroundColor: Colors.white,
                       elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                    icon: const Icon(Icons.settings_backup_restore_rounded, size: 18),
+                    icon: const Icon(
+                      Icons.settings_backup_restore_rounded,
+                      size: 18,
+                    ),
                     label: Text(
                       'Dağıtım Öncesine Dön',
-                      style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13),
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
                     ),
                     onPressed: _returnToDistributionWizard,
                   ),
@@ -299,29 +397,54 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                 color: const Color(0xFFEEF2FF),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.settings_backup_restore_rounded, color: Color(0xFF4F46E5), size: 22),
+              child: const Icon(
+                Icons.settings_backup_restore_rounded,
+                color: Color(0xFF4F46E5),
+                size: 22,
+              ),
             ),
             const SizedBox(width: 12),
-            Text('Dağıtım Öncesine Dön', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(
+              'Dağıtım Öncesine Dön',
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
           ],
         ),
         content: Text(
           'Sınav sihirbazına dönerek sınav adını, saatini, dahil edilen şubeleri ve sınav salonlarını dilediğiniz gibi düzenleyebilir, ardından yeni dağıtımı oluşturabilirsiniz.\n\nDevam etmek istiyor musunuz?',
-          style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155), height: 1.4),
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            color: const Color(0xFF334155),
+            height: 1.4,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Vazgeç', style: GoogleFonts.inter(color: const Color(0xFF64748B), fontWeight: FontWeight.w600)),
+            child: Text(
+              'Vazgeç',
+              style: GoogleFonts.inter(
+                color: const Color(0xFF64748B),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF4F46E5),
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Evet, Dağıtım Öncesine Dön', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+            child: Text(
+              'Evet, Dağıtım Öncesine Dön',
+              style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
@@ -358,7 +481,9 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
         color: isPublished ? const Color(0xFFF0FDF4) : const Color(0xFFFEF3C7),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: isPublished ? const Color(0xFF86EFAC) : const Color(0xFFFDE68A),
+          color: isPublished
+              ? const Color(0xFF86EFAC)
+              : const Color(0xFFFDE68A),
         ),
       ),
       child: isMobile
@@ -368,8 +493,12 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                 Row(
                   children: [
                     Icon(
-                      isPublished ? Icons.check_circle_rounded : Icons.schedule_rounded,
-                      color: isPublished ? const Color(0xFF16A34A) : const Color(0xFFD97706),
+                      isPublished
+                          ? Icons.check_circle_rounded
+                          : Icons.schedule_rounded,
+                      color: isPublished
+                          ? const Color(0xFF16A34A)
+                          : const Color(0xFFD97706),
                       size: 18,
                     ),
                     const SizedBox(width: 8),
@@ -381,69 +510,123 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                         style: GoogleFonts.inter(
                           fontWeight: FontWeight.bold,
                           fontSize: 13,
-                          color: isPublished ? const Color(0xFF15803D) : const Color(0xFFB45309),
+                          color: isPublished
+                              ? const Color(0xFF15803D)
+                              : const Color(0xFFB45309),
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    if (hasInstructions) ...[
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          icon: const Icon(Icons.gavel_rounded, size: 14),
-                          label: Text(
-                            'Yönerge (${_currentDistribution.instructions.length})',
-                            style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.bold),
-                          ),
-                          onPressed: _showExamInstructionsModal,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    Expanded(
-                      child: isPublished
-                          ? OutlinedButton(
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.red,
-                                side: const BorderSide(color: Colors.red),
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                if (hasInstructions || _canPublish) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      if (hasInstructions) ...[
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                              onPressed: _isPublishing ? null : _unpublishProctoringDuties,
-                              child: _isPublishing
-                                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                                  : Text('Yayından Kaldır', style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                            )
-                          : ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF4F46E5),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
-                              icon: _isPublishing
-                                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                  : const Icon(Icons.send_rounded, size: 14),
-                              label: Text('Gözetmenlikleri Yayınla', style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                              onPressed: _isPublishing ? null : _publishProctoringDuties,
                             ),
-                    ),
-                  ],
-                ),
+                            icon: const Icon(Icons.gavel_rounded, size: 14),
+                            label: Text(
+                              'Yönerge (${_currentDistribution.instructions.length})',
+                              style: GoogleFonts.inter(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            onPressed: _showExamInstructionsModal,
+                          ),
+                        ),
+                        if (_canPublish) const SizedBox(width: 8),
+                      ],
+                      if (_canPublish)
+                        Expanded(
+                          child: isPublished
+                              ? OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.red,
+                                    side: const BorderSide(color: Colors.red),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  onPressed: _isPublishing
+                                      ? null
+                                      : _unpublishProctoringDuties,
+                                  child: _isPublishing
+                                      ? const SizedBox(
+                                          width: 14,
+                                          height: 14,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : Text(
+                                          'Yayından Kaldır',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                )
+                              : ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF4F46E5),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  icon: _isPublishing
+                                      ? const SizedBox(
+                                          width: 14,
+                                          height: 14,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : const Icon(
+                                          Icons.send_rounded,
+                                          size: 14,
+                                        ),
+                                  label: Text(
+                                    'Gözetmenlikleri Yayınla',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  onPressed: _isPublishing
+                                      ? null
+                                      : _publishProctoringDuties,
+                                ),
+                        ),
+                    ],
+                  ),
+                ],
               ],
             )
           : Row(
               children: [
                 Icon(
-                  isPublished ? Icons.check_circle_rounded : Icons.schedule_rounded,
-                  color: isPublished ? const Color(0xFF16A34A) : const Color(0xFFD97706),
+                  isPublished
+                      ? Icons.check_circle_rounded
+                      : Icons.schedule_rounded,
+                  color: isPublished
+                      ? const Color(0xFF16A34A)
+                      : const Color(0xFFD97706),
                   size: 20,
                 ),
                 const SizedBox(width: 10),
@@ -458,14 +641,21 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                         style: GoogleFonts.inter(
                           fontWeight: FontWeight.bold,
                           fontSize: 13,
-                          color: isPublished ? const Color(0xFF15803D) : const Color(0xFFB45309),
+                          color: isPublished
+                              ? const Color(0xFF15803D)
+                              : const Color(0xFFB45309),
                         ),
                       ),
                       Text(
                         isPublished
                             ? 'Öğretmenler takvimlerinde görevi görebilir, yönergeyi inceleyebilir ve canlı yoklama alabilir.'
-                            : 'Öğretmenlerin takviminde görünmez. Planlamanızı bitirdiğinizde dilediğiniz zaman yayınlayabilirsiniz.',
-                        style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+                            : (_canPublish
+                                  ? 'Öğretmenlerin takviminde görünmez. Planlamanızı bitirdiğinizde dilediğiniz zaman yayınlayabilirsiniz.'
+                                  : 'Plan taslak olarak kaydedildi. Yayınlama yetkisi olan yönetici / öğretmen tarafından yayınlandığında takvime işlenir.'),
+                        style: GoogleFonts.inter(
+                          fontSize: 11.5,
+                          color: const Color(0xFF64748B),
+                        ),
                       ),
                     ],
                   ),
@@ -474,47 +664,88 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                 if (hasInstructions) ...[
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                     icon: const Icon(Icons.gavel_rounded, size: 16),
                     label: Text(
                       'Sınav Yönergesi (${_currentDistribution.instructions.length} Madde)',
-                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold),
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     onPressed: _showExamInstructionsModal,
                   ),
-                  const SizedBox(width: 8),
+                  if (_canPublish) const SizedBox(width: 8),
                 ],
-                if (isPublished)
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      side: const BorderSide(color: Color(0xFFFCA5A5)),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                if (_canPublish)
+                  if (isPublished)
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Color(0xFFFCA5A5)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      icon: const Icon(Icons.unpublished_outlined, size: 16),
+                      label: const Text(
+                        'Yayından Kaldır',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      onPressed: _isPublishing
+                          ? null
+                          : _unpublishProctoringDuties,
+                    )
+                  else
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4F46E5),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      icon: _isPublishing
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.campaign_rounded, size: 18),
+                      label: Text(
+                        _isPublishing
+                            ? 'Yayınlanıyor...'
+                            : 'Gözetmenlikleri Yayınla & Bildir',
+                        style: GoogleFonts.inter(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      onPressed: _isPublishing
+                          ? null
+                          : _publishProctoringDuties,
                     ),
-                    icon: const Icon(Icons.unpublished_outlined, size: 16),
-                    label: const Text('Yayından Kaldır', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                    onPressed: _isPublishing ? null : _unpublishProctoringDuties,
-                  )
-                else
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF4F46E5),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    icon: _isPublishing
-                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.campaign_rounded, size: 18),
-                    label: Text(
-                      _isPublishing ? 'Yayınlanıyor...' : 'Gözetmenlikleri Yayınla & Bildir',
-                      style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.bold),
-                    ),
-                    onPressed: _isPublishing ? null : _publishProctoringDuties,
-                  ),
               ],
             ),
     );
@@ -547,10 +778,14 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                     Icon(
                       Icons.meeting_room_rounded,
                       size: 15,
-                      color: isSelected ? Colors.white : const Color(0xFF4F46E5),
+                      color: isSelected
+                          ? Colors.white
+                          : const Color(0xFF4F46E5),
                     ),
                     const SizedBox(width: 6),
-                    Text('${room.classroomName} (${room.seatedStudentCount}/${room.totalCapacity})'),
+                    Text(
+                      '${room.classroomName} (${room.seatedStudentCount}/${room.totalCapacity})',
+                    ),
                   ],
                 ),
                 selected: isSelected,
@@ -607,17 +842,29 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.swap_horiz_rounded, color: Color(0xFFD97706), size: 22),
+                  const Icon(
+                    Icons.swap_horiz_rounded,
+                    color: Color(0xFFD97706),
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       'Seçili: ${_selectedSeatForSwap!.student?.fullName ?? "Sıra ${_selectedSeatForSwap!.seatNumber}"} -> Yerini değiştirmek istediğiniz diğer sıraya dokunun.',
-                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF92400E)),
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF92400E),
+                      ),
                     ),
                   ),
                   TextButton(
-                    onPressed: () => setState(() => _selectedSeatForSwap = null),
-                    child: const Text('İptal Et', style: TextStyle(color: Color(0xFFB45309))),
+                    onPressed: () =>
+                        setState(() => _selectedSeatForSwap = null),
+                    child: const Text(
+                      'İptal Et',
+                      style: TextStyle(color: Color(0xFFB45309)),
+                    ),
                   ),
                 ],
               ),
@@ -628,7 +875,13 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
             margin: const EdgeInsets.symmetric(horizontal: 40),
             padding: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [Color(0xFF1E293B), Color(0xFF334155), Color(0xFF1E293B)]),
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFF1E293B),
+                  Color(0xFF334155),
+                  Color(0xFF1E293B),
+                ],
+              ),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(6),
                 topRight: Radius.circular(6),
@@ -636,14 +889,22 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                 bottomRight: Radius.circular(22),
               ),
               boxShadow: [
-                BoxShadow(color: const Color(0xFF1E293B).withValues(alpha: 0.25), blurRadius: 10, offset: const Offset(0, 4)),
+                BoxShadow(
+                  color: const Color(0xFF1E293B).withValues(alpha: 0.25),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
               ],
             ),
             child: Center(
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.co_present_rounded, size: 16, color: Color(0xFFFCD34D)),
+                  const Icon(
+                    Icons.co_present_rounded,
+                    size: 16,
+                    color: Color(0xFFFCD34D),
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     'ÖĞRETMEN KÜRSÜSÜ  •  YAZI TAHTASI',
@@ -677,12 +938,19 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                         decoration: BoxDecoration(
                           color: const Color(0xFFF1F5F9).withValues(alpha: 0.6),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFE2E8F0), style: BorderStyle.none),
+                          border: Border.all(
+                            color: const Color(0xFFE2E8F0),
+                            style: BorderStyle.none,
+                          ),
                         ),
                         child: Center(
                           child: Text(
                             'KORİDOR',
-                            style: GoogleFonts.inter(fontSize: 10, color: const Color(0xFFCBD5E1), fontWeight: FontWeight.bold),
+                            style: GoogleFonts.inter(
+                              fontSize: 10,
+                              color: const Color(0xFFCBD5E1),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ),
@@ -692,7 +960,9 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                   // Masa Hücresi
                   final isDouble = cell.deskType == DeskType.double;
                   final leftSeat = seatMap['$rowIndex-$colIndex-0'];
-                  final rightSeat = isDouble ? seatMap['$rowIndex-$colIndex-1'] : null;
+                  final rightSeat = isDouble
+                      ? seatMap['$rowIndex-$colIndex-1']
+                      : null;
 
                   return Expanded(
                     child: Container(
@@ -702,10 +972,15 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFC7D2FE), width: 1.2),
+                        border: Border.all(
+                          color: const Color(0xFFC7D2FE),
+                          width: 1.2,
+                        ),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF4F46E5).withValues(alpha: 0.04),
+                            color: const Color(
+                              0xFF4F46E5,
+                            ).withValues(alpha: 0.04),
                             blurRadius: 6,
                             offset: const Offset(0, 2),
                           ),
@@ -714,9 +989,25 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                       child: isDouble
                           ? Row(
                               children: [
-                                Expanded(child: _buildInteractiveSeat(leftSeat, isMobile)),
-                                Container(width: 1, color: const Color(0xFFE2E8F0), margin: const EdgeInsets.symmetric(horizontal: 2)),
-                                Expanded(child: _buildInteractiveSeat(rightSeat, isMobile)),
+                                Expanded(
+                                  child: _buildInteractiveSeat(
+                                    leftSeat,
+                                    isMobile,
+                                  ),
+                                ),
+                                Container(
+                                  width: 1,
+                                  color: const Color(0xFFE2E8F0),
+                                  margin: const EdgeInsets.symmetric(
+                                    horizontal: 2,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: _buildInteractiveSeat(
+                                    rightSeat,
+                                    isMobile,
+                                  ),
+                                ),
                               ],
                             )
                           : _buildInteractiveSeat(leftSeat, isMobile),
@@ -760,10 +1051,12 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
 
     final student = seat.student;
     final isSelectedForSwap = _selectedSeatForSwap == seat;
-    final accent = student != null ? _classAccent(student.className) : const Color(0xFF94A3B8);
+    final accent = student != null
+        ? _classAccent(student.className)
+        : const Color(0xFF94A3B8);
 
     return InkWell(
-      onTap: () => _handleSeatTap(seat),
+      onTap: _canEditPlan ? () => _handleSeatTap(seat) : null,
       borderRadius: BorderRadius.circular(10),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
@@ -774,11 +1067,19 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
               : (student != null ? Colors.white : const Color(0xFFF8FAFC)),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: isSelectedForSwap ? const Color(0xFFF59E0B) : const Color(0xFFE2E8F0),
+            color: isSelectedForSwap
+                ? const Color(0xFFF59E0B)
+                : const Color(0xFFE2E8F0),
             width: isSelectedForSwap ? 2 : 1,
           ),
           boxShadow: student != null
-              ? [BoxShadow(color: accent.withValues(alpha: 0.12), blurRadius: 6, offset: const Offset(0, 2))]
+              ? [
+                  BoxShadow(
+                    color: accent.withValues(alpha: 0.12),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
               : null,
         ),
         child: Row(
@@ -793,12 +1094,22 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text('${seat.seatNumber}',
-                                style: GoogleFonts.inter(
-                                    fontSize: 11, fontWeight: FontWeight.w800, color: const Color(0xFFA7B1C2))),
-                            Text('BOŞ',
-                                style: GoogleFonts.inter(
-                                    fontSize: 8.5, fontWeight: FontWeight.w700, color: const Color(0xFFA7B1C2))),
+                            Text(
+                              '${seat.seatNumber}',
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: const Color(0xFFA7B1C2),
+                              ),
+                            ),
+                            Text(
+                              'BOŞ',
+                              style: GoogleFonts.inter(
+                                fontSize: 8.5,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFFA7B1C2),
+                              ),
+                            ),
                           ],
                         ),
                       )
@@ -813,35 +1124,57 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                                 width: 18,
                                 height: 18,
                                 alignment: Alignment.center,
-                                decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
-                                child: Text('${seat.seatNumber}',
-                                    style: GoogleFonts.inter(
-                                        fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white)),
+                                decoration: BoxDecoration(
+                                  color: accent,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Text(
+                                  '${seat.seatNumber}',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
+                                ),
                               ),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 1.5,
+                                ),
                                 decoration: BoxDecoration(
                                   color: accent.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: Text(student.className,
-                                    style: GoogleFonts.inter(
-                                        fontSize: 8.5, fontWeight: FontWeight.w800, color: accent)),
+                                child: Text(
+                                  student.className,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: accent,
+                                  ),
+                                ),
                               ),
                             ],
                           ),
                           Text(
                             student.fullName,
                             style: GoogleFonts.inter(
-                                fontWeight: FontWeight.w700,
-                                fontSize: isMobile ? 9 : 10.5,
-                                height: 1.1,
-                                color: const Color(0xFF1E293B)),
+                              fontWeight: FontWeight.w700,
+                              fontSize: isMobile ? 9 : 10.5,
+                              height: 1.1,
+                              color: const Color(0xFF1E293B),
+                            ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          Text('No: ${student.studentNumber}',
-                              style: GoogleFonts.inter(fontSize: 8, color: const Color(0xFF64748B))),
+                          Text(
+                            'No: ${student.studentNumber}',
+                            style: GoogleFonts.inter(
+                              fontSize: 8,
+                              color: const Color(0xFF64748B),
+                            ),
+                          ),
                         ],
                       ),
               ),
@@ -874,7 +1207,11 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Öğrencilerin yerleri başarıyla değiştirildi. Değişiklikleri kaydetmeyi unutmayın.')),
+          const SnackBar(
+            content: Text(
+              'Öğrencilerin yerleri başarıyla değiştirildi. Değişiklikleri kaydetmeyi unutmayın.',
+            ),
+          ),
         );
       } else {
         setState(() => _selectedSeatForSwap = null);
@@ -888,7 +1225,9 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
   Widget _buildGateListTab(bool isMobile) {
     final room = _currentRoom;
     final students = List<ExamStudent>.from(room.seatedStudents);
-    students.sort((a, b) => a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()));
+    students.sort(
+      (a, b) => a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
+    );
 
     final filtered = students.where((s) {
       if (_gateSearchQuery.isEmpty) return true;
@@ -921,8 +1260,13 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                     hintText: 'Öğrenci adı, no veya şube ara...',
                     hintStyle: GoogleFonts.inter(fontSize: 12.5),
                     prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                   ),
                 ),
               ),
@@ -931,7 +1275,9 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF4F46E5),
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 onPressed: () => _printRoomGateList(room),
                 icon: const Icon(Icons.print_rounded, size: 16),
@@ -953,7 +1299,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
 
               return Container(
                 color: index % 2 == 0 ? Colors.white : const Color(0xFFF8FAFC),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 child: Row(
                   children: [
                     Container(
@@ -966,7 +1315,11 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                       child: Center(
                         child: Text(
                           '${index + 1}',
-                          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12, color: const Color(0xFF4F46E5)),
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            color: const Color(0xFF4F46E5),
+                          ),
                         ),
                       ),
                     ),
@@ -977,17 +1330,27 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                         children: [
                           Text(
                             student.fullName,
-                            style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF1E293B)),
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: const Color(0xFF1E293B),
+                            ),
                           ),
                           Text(
                             'Okul No: ${student.studentNumber} • Şube: ${student.className}',
-                            style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+                            style: GoogleFonts.inter(
+                              fontSize: 11.5,
+                              color: const Color(0xFF64748B),
+                            ),
                           ),
                         ],
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFEEF2FF),
                         borderRadius: BorderRadius.circular(8),
@@ -995,7 +1358,11 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                       ),
                       child: Text(
                         'Sıra $seatNo',
-                        style: GoogleFonts.robotoMono(fontWeight: FontWeight.w900, color: const Color(0xFF312E81), fontSize: 12),
+                        style: GoogleFonts.robotoMono(
+                          fontWeight: FontWeight.w900,
+                          color: const Color(0xFF312E81),
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                   ],
@@ -1018,7 +1385,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // 1. BÖLÜM: TÜM SINAV OTURUMU TOPLU RAPORLARI
-          _buildSectionHeader('Tüm Sınav Oturumu Toplu Raporları', 'Sınavın tamamına ait toplu listeleri ve krokileri tek tıkla PDF olarak yazdırın.'),
+          _buildSectionHeader(
+            'Tüm Sınav Oturumu Toplu Raporları',
+            'Sınavın tamamına ait toplu listeleri ve krokileri tek tıkla PDF olarak yazdırın.',
+          ),
           const SizedBox(height: 10),
 
           // PDF Başlığında Sınav Adını Gösterme / Gizleme Switch'i
@@ -1045,7 +1415,11 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                     color: const Color(0xFFEEF2FF),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.picture_as_pdf_rounded, color: Color(0xFF4F46E5), size: 20),
+                  child: const Icon(
+                    Icons.picture_as_pdf_rounded,
+                    color: Color(0xFF4F46E5),
+                    size: 20,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1054,13 +1428,20 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                     children: [
                       Text(
                         'PDF Başlığında Gerçek Sınav Adını Göster',
-                        style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF1E293B)),
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: const Color(0xFF1E293B),
+                        ),
                       ),
                       Text(
                         _currentDistribution.showExamTitleOnPdf
                             ? 'PDF çıktılarında "${_currentDistribution.title}" yazılacak'
                             : 'PDF çıktılarında sınav adı gizlenecek, sadece "Deneme Sınavı" yazacak',
-                        style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+                        style: GoogleFonts.inter(
+                          fontSize: 11.5,
+                          color: const Color(0xFF64748B),
+                        ),
                       ),
                     ],
                   ),
@@ -1073,7 +1454,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                     setState(() {
                       final updated = _currentDistribution.toMap();
                       updated['showExamTitleOnPdf'] = val;
-                      _currentDistribution = ExamDistribution.fromMap(updated, _currentDistribution.id ?? '');
+                      _currentDistribution = ExamDistribution.fromMap(
+                        updated,
+                        _currentDistribution.id ?? '',
+                      );
                     });
                   },
                 ),
@@ -1088,10 +1472,13 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
             children: [
               // 1. GENEL ALFABETİK LİSTE (A-Z)
               SizedBox(
-                width: isMobile ? double.infinity : (MediaQuery.of(context).size.width - 64) / 2,
+                width: isMobile
+                    ? double.infinity
+                    : (MediaQuery.of(context).size.width - 64) / 2,
                 child: _buildReportActionCard(
                   title: 'Genel Alfabetik Yerleşim Listesi',
-                  subtitle: 'Tüm okul / öğrencilerin A-Z isim sırasına göre salon ve sıra numaraları',
+                  subtitle:
+                      'Tüm okul / öğrencilerin A-Z isim sırasına göre salon ve sıra numaraları',
                   icon: Icons.sort_by_alpha_rounded,
                   iconColor: const Color(0xFF4F46E5),
                   badgeText: 'A - Z Liste',
@@ -1102,10 +1489,13 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
 
               // 2. TÜM KAPI LİSTELERİ
               SizedBox(
-                width: isMobile ? double.infinity : (MediaQuery.of(context).size.width - 64) / 2,
+                width: isMobile
+                    ? double.infinity
+                    : (MediaQuery.of(context).size.width - 64) / 2,
                 child: _buildReportActionCard(
                   title: 'Tüm Salonların Kapı Listeleri',
-                  subtitle: 'Her salon için kapıya asılacak öğrenci listeleri tek dosyada',
+                  subtitle:
+                      'Her salon için kapıya asılacak öğrenci listeleri tek dosyada',
                   icon: Icons.door_front_door_rounded,
                   iconColor: const Color(0xFF0284C7),
                   badgeText: '${_currentDistribution.rooms.length} Salon',
@@ -1116,10 +1506,13 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
 
               // 3. TÜM YOKLAMA LİSTELERİ (+/-)
               SizedBox(
-                width: isMobile ? double.infinity : (MediaQuery.of(context).size.width - 64) / 2,
+                width: isMobile
+                    ? double.infinity
+                    : (MediaQuery.of(context).size.width - 64) / 2,
                 child: _buildReportActionCard(
                   title: 'Tüm Salon Yoklama Listeleri',
-                  subtitle: 'Gözetmenlerin yoklama alıp (+ / -) imzalayacağı resmi tutanak listeleri',
+                  subtitle:
+                      'Gözetmenlerin yoklama alıp (+ / -) imzalayacağı resmi tutanak listeleri',
                   icon: Icons.fact_check_rounded,
                   iconColor: const Color(0xFFD97706),
                   badgeText: 'Yoklama & İmza',
@@ -1130,10 +1523,13 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
 
               // 4. TÜM GÖZETMEN KROKİLERİ
               SizedBox(
-                width: isMobile ? double.infinity : (MediaQuery.of(context).size.width - 64) / 2,
+                width: isMobile
+                    ? double.infinity
+                    : (MediaQuery.of(context).size.width - 64) / 2,
                 child: _buildReportActionCard(
                   title: 'Tüm Gözetmen Krokileri',
-                  subtitle: 'Her salonun kuşbakışı fiziksel masa oturma planı (İmzasız temiz görünüm)',
+                  subtitle:
+                      'Her salonun kuşbakışı fiziksel masa oturma planı (İmzasız temiz görünüm)',
                   icon: Icons.grid_view_rounded,
                   iconColor: const Color(0xFF059669),
                   badgeText: 'Kuşbakışı',
@@ -1144,10 +1540,13 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
 
               // 5. TÜM SINAV DAVRANIŞLARI GÖZLEM FORMLARI (YATAY)
               SizedBox(
-                width: isMobile ? double.infinity : (MediaQuery.of(context).size.width - 64) / 2,
+                width: isMobile
+                    ? double.infinity
+                    : (MediaQuery.of(context).size.width - 64) / 2,
                 child: _buildReportActionCard(
                   title: 'Sınav Davranışları Gözlem Formları',
-                  subtitle: 'Her salon için yatay, 25 öğrencilik gözlem kâğıdı (gözetmen doldurur)',
+                  subtitle:
+                      'Her salon için yatay, 25 öğrencilik gözlem kâğıdı (gözetmen doldurur)',
                   icon: Icons.visibility_rounded,
                   iconColor: const Color(0xFF9333EA),
                   badgeText: 'Gözlem Formu',
@@ -1158,10 +1557,13 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
 
               // 6. TÜM SINAV PAKETİ (TEK PDF)
               SizedBox(
-                width: isMobile ? double.infinity : (MediaQuery.of(context).size.width - 64) / 2,
+                width: isMobile
+                    ? double.infinity
+                    : (MediaQuery.of(context).size.width - 64) / 2,
                 child: _buildReportActionCard(
                   title: 'Tüm Sınav Paketini Yazdır',
-                  subtitle: 'Alfabetik liste, kapı listeleri, yoklama listeleri, gözetmen krokileri ve gözlem formları tek PDF\'de',
+                  subtitle:
+                      'Alfabetik liste, kapı listeleri, yoklama listeleri, gözetmen krokileri ve gözlem formları tek PDF\'de',
                   icon: Icons.print_rounded,
                   iconColor: const Color(0xFFE11D48),
                   badgeText: 'Tek PDF',
@@ -1204,7 +1606,11 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                         color: const Color(0xFFEEF2FF),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.meeting_room_rounded, color: Color(0xFF4F46E5), size: 20),
+                      child: const Icon(
+                        Icons.meeting_room_rounded,
+                        color: Color(0xFF4F46E5),
+                        size: 20,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -1213,11 +1619,18 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                         children: [
                           Text(
                             _currentRoom.classroomName,
-                            style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 14, color: const Color(0xFF1E293B)),
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                              color: const Color(0xFF1E293B),
+                            ),
                           ),
                           Text(
                             'Kapasite: ${_currentRoom.totalCapacity} | Oturan: ${_currentRoom.seatedStudentCount} Öğrenci ${_currentRoom.supervisorName != null && _currentRoom.supervisorName!.isNotEmpty ? "• Gözetmen: ${_currentRoom.supervisorName}" : ""}',
-                            style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+                            style: GoogleFonts.inter(
+                              fontSize: 11.5,
+                              color: const Color(0xFF64748B),
+                            ),
                           ),
                         ],
                       ),
@@ -1231,47 +1644,82 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                   children: [
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                         foregroundColor: const Color(0xFF4F46E5),
                         side: const BorderSide(color: Color(0xFFC7D2FE)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                       onPressed: () => _printRoomGateList(_currentRoom),
-                      icon: const Icon(Icons.door_front_door_outlined, size: 16),
-                      label: const Text('Bu Salonun Kapı Listesi', style: TextStyle(fontSize: 12)),
+                      icon: const Icon(
+                        Icons.door_front_door_outlined,
+                        size: 16,
+                      ),
+                      label: const Text(
+                        'Bu Salonun Kapı Listesi',
+                        style: TextStyle(fontSize: 12),
+                      ),
                     ),
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                         foregroundColor: const Color(0xFFD97706),
                         side: const BorderSide(color: Color(0xFFFDE68A)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                       onPressed: () => _printRoomAttendanceList(_currentRoom),
                       icon: const Icon(Icons.fact_check_outlined, size: 16),
-                      label: const Text('Bu Salonun Yoklama Listesi', style: TextStyle(fontSize: 12)),
+                      label: const Text(
+                        'Bu Salonun Yoklama Listesi',
+                        style: TextStyle(fontSize: 12),
+                      ),
                     ),
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                         foregroundColor: const Color(0xFF0284C7),
                         side: const BorderSide(color: Color(0xFFBAE6FD)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                       onPressed: () => _printRoomSupervisorPlan(_currentRoom),
                       icon: const Icon(Icons.grid_on_rounded, size: 16),
-                      label: const Text('Bu Salonun Krokisi', style: TextStyle(fontSize: 12)),
+                      label: const Text(
+                        'Bu Salonun Krokisi',
+                        style: TextStyle(fontSize: 12),
+                      ),
                     ),
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                         foregroundColor: const Color(0xFF9333EA),
                         side: const BorderSide(color: Color(0xFFE9D5FF)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                       onPressed: () => _printRoomObservationForm(_currentRoom),
                       icon: const Icon(Icons.visibility_outlined, size: 16),
-                      label: const Text('Bu Salonun Gözlem Formu', style: TextStyle(fontSize: 12)),
+                      label: const Text(
+                        'Bu Salonun Gözlem Formu',
+                        style: TextStyle(fontSize: 12),
+                      ),
                     ),
                   ],
                 ),
@@ -1330,21 +1778,32 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                       Flexible(
                         child: Text(
                           title,
-                          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF1E293B)),
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: const Color(0xFF1E293B),
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       const SizedBox(width: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: badgeColor,
                           borderRadius: BorderRadius.circular(5),
                         ),
                         child: Text(
                           badgeText,
-                          style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 9.5, color: iconColor),
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 9.5,
+                            color: iconColor,
+                          ),
                         ),
                       ),
                     ],
@@ -1352,7 +1811,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
-                    style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: const Color(0xFF64748B),
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1372,12 +1834,19 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       children: [
         Text(
           title,
-          style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 15, color: const Color(0xFF1E293B)),
+          style: GoogleFonts.inter(
+            fontWeight: FontWeight.w800,
+            fontSize: 15,
+            color: const Color(0xFF1E293B),
+          ),
         ),
         const SizedBox(height: 2),
         Text(
           subtitle,
-          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            color: const Color(0xFF64748B),
+          ),
         ),
       ],
     );
@@ -1395,14 +1864,20 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
 
     if (allStudents.isEmpty) return;
 
-    final roomConfigs = _currentDistribution.rooms.map((r) => {
-      'classroomId': r.classroomId,
-      'classroomName': r.classroomName,
-      'layout': r.layoutSnapshot,
-      'customCapacity': r.seats.length,
-      'supervisorId': r.supervisorId,
-      'supervisorName': r.supervisorName,
-    }).toList();
+    final roomConfigs = _currentDistribution.rooms
+        .map(
+          (r) => {
+            'classroomId': r.classroomId,
+            'classroomName': r.classroomName,
+            'layout': r.layoutSnapshot,
+            'customCapacity': r.seats.length,
+            'supervisorId': r.supervisorId,
+            'supervisorName': r.supervisorName,
+            'supervisors': r.supervisors,
+            'sessionSplits': r.sessionSplits,
+          },
+        )
+        .toList();
 
     final params = ButterflyDistributionParams(
       title: _currentDistribution.title,
@@ -1419,6 +1894,8 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       roomConfigs: roomConfigs,
       notes: _currentDistribution.notes,
       showExamTitleOnPdf: _currentDistribution.showExamTitleOnPdf,
+      sessionSlots: _currentDistribution.sessionSlots,
+      instructions: _currentDistribution.instructions,
     );
 
     setState(() => _isSaving = true);
@@ -1433,7 +1910,9 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('🎲 Öğrenciler tamamen yeni bir rastgele dizilimle yeniden dağıtıldı!'),
+            content: Text(
+              '🎲 Öğrenciler tamamen yeni bir rastgele dizilimle yeniden dağıtıldı!',
+            ),
             backgroundColor: Color(0xFF4F46E5),
             duration: Duration(seconds: 2),
           ),
@@ -1443,7 +1922,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       setState(() => _isSaving = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Yeniden dağıtım hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Yeniden dağıtım hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -1493,7 +1975,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       // Gözetmen görevlendirmeleri manuel yayınlama butonuna basıldığında iletilecek.
       // Sınav kaydedildiğinde öğretmenlere otomatik düşmez (idareci kontrolünde yayınlanır).
 
-      _currentDistribution = ExamDistribution.fromMap(_currentDistribution.toMap(), savedId);
+      _currentDistribution = ExamDistribution.fromMap(
+        _currentDistribution.toMap(),
+        savedId,
+      );
 
       setState(() {
         _isDraft = false;
@@ -1504,7 +1989,9 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('✅ Sınav oturumu ve oturma planları başarıyla kaydedildi!'),
+            content: Text(
+              '✅ Sınav oturumu ve oturma planları başarıyla kaydedildi!',
+            ),
             backgroundColor: Color(0xFF10B981),
           ),
         );
@@ -1514,7 +2001,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       setState(() => _isSaving = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Kaydetme hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Kaydetme hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -1527,7 +2017,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
     final savedId = _currentDistribution.id;
     if (savedId == null || savedId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lütfen önce sınav oturumunu kaydedin.'), backgroundColor: Colors.orange),
+        const SnackBar(
+          content: Text('Lütfen önce sınav oturumunu kaydedin.'),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
@@ -1540,17 +2033,33 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
           children: [
             const Icon(Icons.campaign_rounded, color: Color(0xFF4F46E5)),
             const SizedBox(width: 8),
-            Text('Gözetmenlikleri Yayınla', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(
+              'Gözetmenlikleri Yayınla',
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
           ],
         ),
         content: Text(
           'Gözetmenlik görevleri atanmış tüm öğretmenlerin görev takvimine işlenecek ve bildirim kutularına gönderilecektir. Öğretmenler kendi panellerinden sınav yönergesini inceleyip salonda yoklama alabileceklerdir.\n\nOnaylıyor musunuz?',
-          style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF334155), height: 1.4),
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            color: const Color(0xFF334155),
+            height: 1.4,
+          ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4F46E5),
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Evet, Yayınla & Bildir'),
           ),
@@ -1574,32 +2083,48 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
             final sIdx = (supEntry['slotIndex'] as int?) ?? 0;
             if (tId.isEmpty) continue;
 
-            final slotInfo = (sIdx >= 0 && sIdx < slots.length) ? slots[sIdx] : null;
-            final slotLabel = slotInfo?['label']?.toString() ?? '${sIdx + 1}. Oturum';
-            final slotTime = (slotInfo != null && slotInfo['startTime'] != null)
-                ? '${slotInfo['startTime']} - ${slotInfo['endTime']}'
+            final slotInfo = (sIdx >= 0 && sIdx < slots.length)
+                ? slots[sIdx]
+                : null;
+            final entryLabel = supEntry['slotLabel']?.toString().trim() ?? '';
+            final slotLabel = entryLabel.isNotEmpty
+                ? entryLabel
+                : (slotInfo?['label']?.toString() ?? '${sIdx + 1}. Oturum');
+            final entryStart = supEntry['startTime']?.toString().trim() ?? '';
+            final entryEnd = supEntry['endTime']?.toString().trim() ?? '';
+            final effStart = entryStart.isNotEmpty
+                ? entryStart
+                : (slotInfo?['startTime']?.toString() ?? '');
+            final effEnd = entryEnd.isNotEmpty
+                ? entryEnd
+                : (slotInfo?['endTime']?.toString() ?? '');
+            final slotTime = (effStart.isNotEmpty && effEnd.isNotEmpty)
+                ? '$effStart - $effEnd'
                 : _currentDistribution.examTime;
 
-            final dutyTitle = 'Sınav Gözetmenliği: ${_currentDistribution.title} ($slotLabel)';
+            final dutyTitle =
+                'Sınav Gözetmenliği: ${_currentDistribution.title} ($slotLabel)';
 
             // 1. Takvim Kaydı
-            await FirebaseFirestore.instance.collection('dutyScheduleItems').add({
-              'institutionId': widget.institutionId,
-              'teacherId': tId,
-              'teacherName': tName,
-              'dutyTitle': dutyTitle,
-              'locationName': room.classroomName,
-              'dutyDate': Timestamp.fromDate(_currentDistribution.examDate),
-              'dutyTime': slotTime,
-              'examDistributionId': savedId,
-              'roomId': room.id,
-              'roomName': room.classroomName,
-              'slotIndex': sIdx,
-              'slotLabel': slotLabel,
-              'instructions': _currentDistribution.instructions,
-              'createdAt': Timestamp.now(),
-              'attendanceCompleted': false,
-            });
+            await FirebaseFirestore.instance
+                .collection('dutyScheduleItems')
+                .add({
+                  'institutionId': widget.institutionId,
+                  'teacherId': tId,
+                  'teacherName': tName,
+                  'dutyTitle': dutyTitle,
+                  'locationName': room.classroomName,
+                  'dutyDate': Timestamp.fromDate(_currentDistribution.examDate),
+                  'dutyTime': slotTime,
+                  'examDistributionId': savedId,
+                  'roomId': room.id,
+                  'roomName': room.classroomName,
+                  'slotIndex': sIdx,
+                  'slotLabel': slotLabel,
+                  'instructions': _currentDistribution.instructions,
+                  'createdAt': Timestamp.now(),
+                  'attendanceCompleted': false,
+                });
 
             // 2. Gözetmenlik Görevleri Sayfası Slotu
             await FirebaseFirestore.instance.collection('proctoringSlots').add({
@@ -1612,8 +2137,8 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
               'roomId': room.id,
               'slotIndex': sIdx,
               'slotLabel': slotLabel,
-              'startTime': slotInfo?['startTime']?.toString() ?? '',
-              'endTime': slotInfo?['endTime']?.toString() ?? '',
+              'startTime': effStart,
+              'endTime': effEnd,
               'examDate': Timestamp.fromDate(_currentDistribution.examDate),
               'isPublished': true,
               'instructions': _currentDistribution.instructions,
@@ -1625,7 +2150,8 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
               'institutionId': widget.institutionId,
               'userId': tId,
               'title': 'Sınav Gözetmenlik Görevi',
-              'body': '${DateFormat("dd.MM.yyyy").format(_currentDistribution.examDate)} $slotTime saatinde ${room.classroomName} salonunda $slotLabel gözetmenlik göreviniz bulunmaktadır.',
+              'body':
+                  '${DateFormat("dd.MM.yyyy").format(_currentDistribution.examDate)} $slotTime saatinde ${room.classroomName} salonunda $slotLabel gözetmenlik göreviniz bulunmaktadır.',
               'type': 'exam_supervisor_duty',
               'examDistributionId': savedId,
               'roomName': room.classroomName,
@@ -1678,7 +2204,8 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
             'institutionId': widget.institutionId,
             'userId': tId,
             'title': 'Sınav Gözetmenlik Görevi',
-            'body': '${DateFormat("dd.MM.yyyy").format(_currentDistribution.examDate)} ${_currentDistribution.examTime} tarihinde ${room.classroomName} salonunda gözetmenlik göreviniz bulunmaktadır.',
+            'body':
+                '${DateFormat("dd.MM.yyyy").format(_currentDistribution.examDate)} ${_currentDistribution.examTime} tarihinde ${room.classroomName} salonunda gözetmenlik göreviniz bulunmaktadır.',
             'type': 'exam_supervisor_duty',
             'examDistributionId': savedId,
             'roomName': room.classroomName,
@@ -1691,10 +2218,13 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
         }
       }
 
-      await FirebaseFirestore.instance.collection('butterfly_exams').doc(savedId).update({
-        'isProctoringPublished': true,
-        'proctoringPublishedAt': Timestamp.now(),
-      });
+      await FirebaseFirestore.instance
+          .collection('butterfly_exams')
+          .doc(savedId)
+          .update({
+            'isProctoringPublished': true,
+            'proctoringPublishedAt': Timestamp.now(),
+          });
 
       final updatedMap = _currentDistribution.toMap();
       updatedMap['isProctoringPublished'] = true;
@@ -1705,7 +2235,9 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✅ Toplam $publishedCount gözetmenlik görevi yayınlandı ve öğretmenlere bildirildi!'),
+            content: Text(
+              '✅ Toplam $publishedCount gözetmenlik görevi yayınlandı ve öğretmenlere bildirildi!',
+            ),
             backgroundColor: const Color(0xFF10B981),
           ),
         );
@@ -1715,7 +2247,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       setState(() => _isPublishing = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Yayınlama hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Yayınlama hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -1734,9 +2269,15 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
           'Gözetmenlik görevleri öğretmenlerin takvim ve panelinden kaldırılacaktır. Onaylıyor musunuz?',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Yayından Kaldır'),
           ),
@@ -1765,9 +2306,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
         await doc.reference.delete();
       }
 
-      await FirebaseFirestore.instance.collection('butterfly_exams').doc(savedId).update({
-        'isProctoringPublished': false,
-      });
+      await FirebaseFirestore.instance
+          .collection('butterfly_exams')
+          .doc(savedId)
+          .update({'isProctoringPublished': false});
 
       final updatedMap = _currentDistribution.toMap();
       updatedMap['isProctoringPublished'] = false;
@@ -1814,7 +2356,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
                 child: Row(
                   children: [
                     Container(
@@ -1823,7 +2368,11 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                         color: const Color(0xFFEEF2FF),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.gavel_rounded, color: Color(0xFF4F46E5), size: 20),
+                      child: const Icon(
+                        Icons.gavel_rounded,
+                        color: Color(0xFF4F46E5),
+                        size: 20,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -1832,11 +2381,18 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                         children: [
                           Text(
                             'Sınav Uygulama Yönergesi',
-                            style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFF1E293B)),
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: const Color(0xFF1E293B),
+                            ),
                           ),
                           Text(
                             'Gözetmen öğretmenlerin ve öğrencilerin uyması gereken kurallar',
-                            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: const Color(0xFF64748B),
+                            ),
                           ),
                         ],
                       ),
@@ -1854,7 +2410,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                     ? Center(
                         child: Text(
                           'Bu sınav için özel yönerge maddesi belirlenmemiş.',
-                          style: GoogleFonts.inter(color: Colors.grey.shade600, fontSize: 13),
+                          style: GoogleFonts.inter(
+                            color: Colors.grey.shade600,
+                            fontSize: 13,
+                          ),
                         ),
                       )
                     : ListView.separated(
@@ -1863,11 +2422,16 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, idx) {
                           return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFFF8FAFC),
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                              border: Border.all(
+                                color: const Color(0xFFE2E8F0),
+                              ),
                             ),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1880,14 +2444,22 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
                                   ),
                                   child: Text(
                                     '${idx + 1}',
-                                    style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 12, color: const Color(0xFF4F46E5)),
+                                    style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                      color: const Color(0xFF4F46E5),
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
                                     rules[idx],
-                                    style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF1E293B), height: 1.4),
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      color: const Color(0xFF1E293B),
+                                      height: 1.4,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -1914,12 +2486,16 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       );
       await Printing.layoutPdf(
         onLayout: (_) => bytes,
-        name: '${_currentDistribution.title}_${room.classroomName}_Kapi_Listesi.pdf',
+        name:
+            '${_currentDistribution.title}_${room.classroomName}_Kapi_Listesi.pdf',
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('PDF hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -1933,12 +2509,16 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       );
       await Printing.layoutPdf(
         onLayout: (_) => bytes,
-        name: '${_currentDistribution.title}_${room.classroomName}_Yoklama_Listesi.pdf',
+        name:
+            '${_currentDistribution.title}_${room.classroomName}_Yoklama_Listesi.pdf',
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('PDF hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -1952,12 +2532,16 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       );
       await Printing.layoutPdf(
         onLayout: (_) => bytes,
-        name: '${_currentDistribution.title}_${room.classroomName}_Gozetmen_Krokisi.pdf',
+        name:
+            '${_currentDistribution.title}_${room.classroomName}_Gozetmen_Krokisi.pdf',
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('PDF hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -1971,12 +2555,16 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       );
       await Printing.layoutPdf(
         onLayout: (_) => bytes,
-        name: '${_currentDistribution.title}_${room.classroomName}_Gozlem_Formu.pdf',
+        name:
+            '${_currentDistribution.title}_${room.classroomName}_Gozlem_Formu.pdf',
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('PDF hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -1994,7 +2582,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('PDF hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -2012,7 +2603,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('PDF hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -2030,7 +2624,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('PDF hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -2048,7 +2645,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('PDF hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -2066,7 +2666,10 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('PDF hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -2079,12 +2682,16 @@ class _ButterflyExamDetailScreenState extends State<ButterflyExamDetailScreen>
       );
       await Printing.layoutPdf(
         onLayout: (_) => bytes,
-        name: '${_currentDistribution.title}_Genel_Alfabetik_Yerlesim_Listesi.pdf',
+        name:
+            '${_currentDistribution.title}_Genel_Alfabetik_Yerlesim_Listesi.pdf',
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF hatası: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('PDF hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }

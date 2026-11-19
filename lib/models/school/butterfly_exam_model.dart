@@ -140,6 +140,10 @@ class ExamRoom {
   final List<Map<String, dynamic>> supervisors; // Her oturum için gözetmen atamaları: [{'slotIndex': 0, 'supervisorId': '...', 'supervisorName': '...', 'slotLabel': '1. Oturum', 'startTime': '...', 'endTime': '...'}]
   final List<SeatCoordinate> seats;
 
+  /// Yalnızca bu salona özel oturum bölme ayarları (global oturum düzenini değiştirmez).
+  /// Anahtar: oturum indeksi (String), değer: {'splitCount': 2, 'durations': [40, 35]}
+  final Map<String, dynamic> sessionSplits;
+
   ExamRoom({
     required this.id,
     required this.classroomId,
@@ -150,6 +154,7 @@ class ExamRoom {
     this.supervisorId,
     this.supervisorName,
     this.supervisors = const [],
+    this.sessionSplits = const {},
     required this.seats,
   });
 
@@ -172,6 +177,40 @@ class ExamRoom {
     return (null, null);
   }
 
+  /// Genel oturum düzenindeki bir slot (oturum + başlangıç saati) için, salona özel
+  /// bölmeleri de dikkate alarak gözetmeni döner.
+  (String? id, String? name) getSupervisorForSessionSlot({
+    required int slotIndex,
+    required int sessionIndex,
+    int dutyIndex = 0,
+    String startTime = '',
+  }) {
+    final entries = supervisors.where((s) {
+      final si = s['sessionIndex'];
+      return si is num && si.toInt() == sessionIndex;
+    }).toList();
+
+    if (entries.isNotEmpty) {
+      if (startTime.isNotEmpty) {
+        for (final e in entries) {
+          final st = e['startTime']?.toString() ?? '';
+          final et = e['endTime']?.toString() ?? '';
+          if (st.isNotEmpty && et.isNotEmpty && st.compareTo(startTime) <= 0 && startTime.compareTo(et) < 0) {
+            return (e['supervisorId']?.toString(), e['supervisorName']?.toString());
+          }
+        }
+      }
+      for (final e in entries) {
+        if (((e['dutyIndex'] as num?)?.toInt() ?? 0) == dutyIndex) {
+          return (e['supervisorId']?.toString(), e['supervisorName']?.toString());
+        }
+      }
+      final first = entries.first;
+      return (first['supervisorId']?.toString(), first['supervisorName']?.toString());
+    }
+    return getSupervisorForSlot(slotIndex);
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -183,6 +222,7 @@ class ExamRoom {
       'supervisorId': supervisorId,
       'supervisorName': supervisorName,
       'supervisors': supervisors,
+      'sessionSplits': sessionSplits,
       'seats': seats.map((s) => s.toMap()).toList(),
     };
   }
@@ -212,6 +252,9 @@ class ExamRoom {
       supervisorId: map['supervisorId']?.toString(),
       supervisorName: map['supervisorName']?.toString(),
       supervisors: supervisors,
+      sessionSplits: map['sessionSplits'] is Map
+          ? Map<String, dynamic>.from(map['sessionSplits'] as Map)
+          : const {},
       seats: seats,
     );
   }
@@ -227,6 +270,7 @@ class ExamRoom {
       supervisorId: supervisorId,
       supervisorName: supervisorName,
       supervisors: supervisors.map((s) => Map<String, dynamic>.from(s)).toList(),
+      sessionSplits: Map<String, dynamic>.from(sessionSplits),
       seats: seats.map((s) => s.clone()).toList(),
     );
   }

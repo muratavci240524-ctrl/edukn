@@ -1775,30 +1775,27 @@ class ButterflyPdfService {
       }
     }
 
+    // Tek sayfaya sığdırma: madde sayısı / uzunluğuna göre yoğunluk ayarı
+    final int totalRuleChars = instructions.fold<int>(0, (acc, e) => acc + e.length);
+    final bool compactRules = instructions.length > 8 || totalRuleChars > 1100;
+    final bool tightRules = instructions.length > 12 || totalRuleChars > 1900;
+    final double ruleFont = tightRules ? 8.5 : (compactRules ? 9.2 : 10);
+    final double ruleGap = tightRules ? 3 : (compactRules ? 4.5 : 8);
+    final double rulePad = tightRules ? 5 : (compactRules ? 7 : 10);
+    final double badgeSize = tightRules ? 17 : (compactRules ? 19 : 22);
+
     pdf.addPage(
-      pw.MultiPage(
+      pw.Page(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.symmetric(horizontal: 28, vertical: 26),
-        footer: (ctx) => pw.Container(
-          padding: const pw.EdgeInsets.only(top: 8),
-          decoration: const pw.BoxDecoration(
-            border: pw.Border(top: pw.BorderSide(color: PdfColors.grey300, width: 0.8)),
-          ),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Text(
-                'Tüm salon görevlileri ve gözetmen öğretmenler bu yönergeye uymakla yükümlüdür.',
-                style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey700),
-              ),
-              pw.Text(
-                'Sayfa ${ctx.pageNumber} / ${ctx.pagesCount}  •  ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}',
-                style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey600),
-              ),
-            ],
-          ),
-        ),
-        build: (ctx) => [
+        build: (ctx) => pw.Column(children: [
+          pw.Expanded(
+            child: pw.FittedBox(
+              fit: pw.BoxFit.scaleDown,
+              alignment: pw.Alignment.topCenter,
+              child: pw.SizedBox(
+                width: 539,
+                child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
           // Başlık Bandı
           pw.Container(
             width: double.infinity,
@@ -1856,9 +1853,9 @@ class ButterflyPdfService {
                     pw.Container(
                       padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: pw.BoxDecoration(
-                        color: PdfColor.fromInt(0x28FFFFFF),
+                        color: PdfColors.white,
                         borderRadius: pw.BorderRadius.circular(6),
-                        border: pw.Border.all(color: PdfColor.fromInt(0x40FFFFFF), width: 0.5),
+                        border: pw.Border.all(color: PdfColors.indigo200, width: 1),
                       ),
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -1867,24 +1864,24 @@ class ButterflyPdfService {
                           pw.Row(
                             mainAxisSize: pw.MainAxisSize.min,
                             children: [
-                              pw.Text('Sınav Tarihi: ', style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.indigo100)),
-                              pw.Text(dateStr, style: pw.TextStyle(font: fontBold, fontSize: 8.5, color: PdfColors.white)),
+                              pw.Text('Sınav Tarihi: ', style: pw.TextStyle(font: fontBold, fontSize: 9.5, color: PdfColors.grey800)),
+                              pw.Text(dateStr, style: pw.TextStyle(font: fontBold, fontSize: 11, color: PdfColors.indigo900)),
                             ],
                           ),
                           pw.SizedBox(height: 2.5),
                           pw.Row(
                             mainAxisSize: pw.MainAxisSize.min,
                             children: [
-                              pw.Text('Sınav Saati: ', style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.indigo100)),
-                              pw.Text(distribution.examTime, style: pw.TextStyle(font: fontBold, fontSize: 8.5, color: PdfColors.white)),
+                              pw.Text('Sınav Saati: ', style: pw.TextStyle(font: fontBold, fontSize: 9.5, color: PdfColors.grey800)),
+                              pw.Text(distribution.examTime, style: pw.TextStyle(font: fontBold, fontSize: 11, color: PdfColors.indigo900)),
                             ],
                           ),
                           pw.SizedBox(height: 2.5),
                           pw.Row(
                             mainAxisSize: pw.MainAxisSize.min,
                             children: [
-                              pw.Text('Toplam Öğrenci: ', style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.indigo100)),
-                              pw.Text('${distribution.totalStudents} Öğrenci', style: pw.TextStyle(font: fontBold, fontSize: 8.5, color: PdfColors.white)),
+                              pw.Text('Toplam Öğrenci: ', style: pw.TextStyle(font: fontBold, fontSize: 9.5, color: PdfColors.grey800)),
+                              pw.Text('${distribution.totalStudents} Öğrenci', style: pw.TextStyle(font: fontBold, fontSize: 11, color: PdfColors.indigo900)),
                             ],
                           ),
                         ],
@@ -1971,8 +1968,8 @@ class ButterflyPdfService {
           // Yönerge Maddeleri
           for (int i = 0; i < instructions.length; i++) ...[
             pw.Container(
-              margin: const pw.EdgeInsets.only(bottom: 8),
-              padding: const pw.EdgeInsets.all(10),
+              margin: pw.EdgeInsets.only(bottom: ruleGap),
+              padding: pw.EdgeInsets.all(rulePad),
               decoration: pw.BoxDecoration(
                 color: i.isEven ? PdfColors.white : PdfColors.grey50,
                 borderRadius: pw.BorderRadius.circular(6),
@@ -1982,8 +1979,8 @@ class ButterflyPdfService {
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.Container(
-                    width: 22,
-                    height: 22,
+                    width: badgeSize,
+                    height: badgeSize,
                     alignment: pw.Alignment.center,
                     decoration: pw.BoxDecoration(
                       color: PdfColors.indigo900,
@@ -1998,7 +1995,7 @@ class ButterflyPdfService {
                   pw.Expanded(
                     child: pw.Text(
                       instructions[i],
-                      style: pw.TextStyle(font: font, fontSize: 10, color: PdfColors.grey900, lineSpacing: 2),
+                      style: pw.TextStyle(font: font, fontSize: ruleFont, color: PdfColors.grey900, lineSpacing: 2),
                     ),
                   ),
                 ],
@@ -2006,38 +2003,30 @@ class ButterflyPdfService {
             ),
           ],
 
-          pw.SizedBox(height: 20),
-
-          // Onay ve İmza Alanı
+          ]),
+            ),
+          ),
+          ),
           pw.Container(
-            padding: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: pw.BoxDecoration(
-              border: pw.Border.all(color: PdfColors.grey300, width: 0.6),
-              borderRadius: pw.BorderRadius.circular(8),
+            padding: const pw.EdgeInsets.only(top: 6),
+            decoration: const pw.BoxDecoration(
+              border: pw.Border(top: pw.BorderSide(color: PdfColors.grey300, width: 0.8)),
             ),
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text('Bina Sınav Komisyon Başkanı', style: pw.TextStyle(font: fontBold, fontSize: 9, color: PdfColors.grey800)),
-                    pw.SizedBox(height: 25),
-                    pw.Text('İmza / Mühür: .......................................', style: pw.TextStyle(font: font, fontSize: 8.5, color: PdfColors.grey700)),
-                  ],
+                pw.Text(
+                  'Tüm salon görevlileri ve gözetmen öğretmenler bu yönergeye uymakla yükümlüdür.',
+                  style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey700),
                 ),
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text('Sınav Yürütme ve Güvenlik', style: pw.TextStyle(font: fontBold, fontSize: 9, color: PdfColors.grey800)),
-                    pw.SizedBox(height: 25),
-                    pw.Text('İmza: .......................................', style: pw.TextStyle(font: font, fontSize: 8.5, color: PdfColors.grey700)),
-                  ],
+                pw.Text(
+                  'Sayfa 1 / 1  •  ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}',
+                  style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey600),
                 ),
               ],
             ),
           ),
-        ],
+        ]),
       ),
     );
 

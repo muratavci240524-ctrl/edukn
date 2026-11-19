@@ -12,8 +12,13 @@ import 'random_student_picker/random_student_picker_hub_screen.dart';
 import 'quick_performance_tracker/quick_performance_tracker_hub_screen.dart';
 import 'classroom_timer/classroom_timer_hub_screen.dart';
 import 'noise_meter/noise_meter_hub_screen.dart';
+import 'smart_whiteboard/smart_whiteboard_screen.dart';
 import 'butterfly_exam/butterfly_exam_hub_screen.dart';
+import 'butterfly_exam/butterfly_exam_wizard_screen.dart';
 import 'optical_guide/pre_printer_omr_hub_screen.dart';
+import 'academic_tracking/academic_tracking_hub_screen.dart';
+import 'official_documents/official_documents_hub_screen.dart';
+import 'student_movements/student_movement_hub_screen.dart';
 import '../notes/personal_notes_screen.dart';
 
 class ToolsHubScreen extends StatefulWidget {
@@ -40,7 +45,8 @@ class ToolsHubScreen extends StatefulWidget {
   State<ToolsHubScreen> createState() => _ToolsHubScreenState();
 }
 
-class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProviderStateMixin {
+class _ToolsHubScreenState extends State<ToolsHubScreen>
+    with SingleTickerProviderStateMixin {
   late int _selectedCategoryIndex;
   late final AnimationController _animationController;
   late final Animation<double> _fadeAnimation;
@@ -57,32 +63,44 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
       gradient: [Color(0xFF5C6BC0), Color(0xFF3949AB)],
       tools: [
         _ToolItem(
+          title: 'Akıllı Beyaz Tahta',
+          subtitle:
+              'Tam ekran dijital tahta: kalem, şekiller, cetvel-iletki-gönye, grafik çizici, zamanlayıcı, hesap makinesi ve daha fazlası',
+          icon: Icons.draw_rounded,
+          color: Color(0xFF0EA5E9),
+        ),
+        _ToolItem(
           title: 'Sınıf Oturma Planı Oluşturucu',
-          subtitle: 'Boy, cinsiyet veya özel durum parametrelerine göre otomatik yerleştirme',
+          subtitle:
+              'Boy, cinsiyet veya özel durum parametrelerine göre otomatik yerleştirme',
           icon: Icons.grid_view_rounded,
           color: Color(0xFF5C6BC0),
         ),
         _ToolItem(
           title: 'Homojen/Rastgele Gruplama',
-          subtitle: 'Belirlenen kişi sayısına göre sınıfı çalışma gruplarına bölme',
+          subtitle:
+              'Belirlenen kişi sayısına göre sınıfı çalışma gruplarına bölme',
           icon: Icons.group_work_rounded,
           color: Color(0xFF7E57C2),
         ),
         _ToolItem(
           title: 'Rastgele Öğrenci Seçici',
-          subtitle: 'Görsel animasyonla derste söz hakkı verilecek öğrenci seçme',
+          subtitle:
+              'Görsel animasyonla derste söz hakkı verilecek öğrenci seçme',
           icon: Icons.casino_rounded,
           color: Color(0xFFAB47BC),
         ),
         _ToolItem(
           title: 'Hızlı Performans Takibi',
-          subtitle: 'Tek tıkla artı/eksi vererek günlük performans değerlendirme',
+          subtitle:
+              'Tek tıkla artı/eksi vererek günlük performans değerlendirme',
           icon: Icons.trending_up_rounded,
           color: Color(0xFF26A69A),
         ),
         _ToolItem(
           title: 'Sınıf Zamanlayıcısı / Kronometre',
-          subtitle: 'Deneme sınavları veya etkinlikler için tam ekran geri sayım',
+          subtitle:
+              'Deneme sınavları veya etkinlikler için tam ekran geri sayım',
           icon: Icons.timer_rounded,
           color: Color(0xFFEF5350),
         ),
@@ -102,14 +120,23 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
       gradient: [Color(0xFFEF5350), Color(0xFFE53935)],
       tools: [
         _ToolItem(
+          title: 'Yeni Sınav Planı Hazırlama',
+          subtitle:
+              'Kelebek sınav oturma düzeni, sınav salonları ve gözetmenlik görevlendirme planı oluşturma sihirbazı.',
+          icon: Icons.add_task_rounded,
+          color: Color(0xFF4F46E5),
+        ),
+        _ToolItem(
           title: 'Sınava Özel Oturma Planı ve Sınav Yoklaması',
-          subtitle: 'Kelebek dağıtımla sınıf seviyelerini karıştırıp salonlara yerleştirin; kapı listesi, gözetmen krokisi, gözlem formu ve alfabetik listeyi tek PDF paketinde alın. Salon bazlı sınav yoklamasını tutup raporu WhatsApp ile paylaşın.',
+          subtitle:
+              'Kelebek dağıtımla sınıf seviyelerini karıştırıp salonlara yerleştirin; kapı listesi, gözetmen krokisi, gözlem formu ve alfabetik listeyi tek PDF paketinde alın. Salon bazlı sınav yoklamasını tutup raporu WhatsApp ile paylaşın.',
           icon: Icons.door_front_door_rounded,
           color: Color(0xFFEC407A),
         ),
         _ToolItem(
           title: 'Optik Form Kodlama Kılavuzu Jeneratörü',
-          subtitle: 'Öğrenci bilgilerinin optik forma doldurulmuş halini PDF olarak üretme',
+          subtitle:
+              'Öğrenci bilgilerinin optik forma doldurulmuş halini PDF olarak üretme',
           icon: Icons.qr_code_scanner_rounded,
           color: Color(0xFFAB47BC),
         ),
@@ -119,73 +146,25 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
       title: 'Akademik Ölçme ve Başarı Takibi',
       shortTitle: 'Akademik',
       icon: Icons.analytics_rounded,
-      color: Color(0xFF66BB6A),
-      gradient: [Color(0xFF66BB6A), Color(0xFF43A047)],
-      tools: [
-        _ToolItem(
-          title: 'LGS / YKS Hedef Simülatörü',
-          subtitle: 'Deneme netlerinden puan ve yüzdelik dilim hesaplama',
-          icon: Icons.calculate_rounded,
-          color: Color(0xFF66BB6A),
-        ),
-        _ToolItem(
-          title: 'Kazanım Isı Haritası (Heat Map)',
-          subtitle: 'Deneme sonuçlarını renk kodlamasıyla görsel analiz tablosu',
-          icon: Icons.grid_on_rounded,
-          color: Color(0xFFFFA726),
-        ),
-        _ToolItem(
-          title: 'Hızlı Test Notu Dönüştürücü',
-          subtitle: 'Soru sayısı ve puan değerine göre 100 üzerinden not hesaplama',
-          icon: Icons.speed_rounded,
-          color: Color(0xFF42A5F5),
-        ),
-        _ToolItem(
-          title: 'Devamsızlık Radar Paneli',
-          subtitle: 'Kritik eşiğe yaklaşan öğrencileri otomatik filtreleyen uyarı listesi',
-          icon: Icons.radar_rounded,
-          color: Color(0xFFEF5350),
-        ),
-      ],
+      color: Color(0xFF059669),
+      gradient: [Color(0xFF059669), Color(0xFF0D9488)],
+      tools: [],
     ),
     _ToolCategory(
-      title: 'Evrak, Liste ve Şablon Otomasyonları',
+      title: 'Resmi Evrak ve Matbu Şablon Merkezi',
       shortTitle: 'Evrak',
       icon: Icons.description_rounded,
       color: Color(0xFFFFA726),
       gradient: [Color(0xFFFFA726), Color(0xFFFB8C00)],
-      tools: [
-        _ToolItem(
-          title: 'Dinamik PDF Liste Jeneratörü',
-          subtitle: 'Filtreler ile yoklama fişi, imza sirküsü veya gezi listesi şablonları',
-          icon: Icons.picture_as_pdf_rounded,
-          color: Color(0xFFEF5350),
-        ),
-        _ToolItem(
-          title: 'Toplu Veli İzin Belgesi Üretici',
-          subtitle: 'Standart dilekçe şablonundaki değişkenlere basarak toplu PDF üretme',
-          icon: Icons.family_restroom_rounded,
-          color: Color(0xFF5C6BC0),
-        ),
-        _ToolItem(
-          title: 'Parametrik Tutanak Hazırlayıcı',
-          subtitle: 'Disiplin, kaza veya nöbet raporu gibi resmi PDF evrak hazırlama',
-          icon: Icons.gavel_rounded,
-          color: Color(0xFF78909C),
-        ),
-        _ToolItem(
-          title: 'QR / Barkod ve Yaka Kartı Üretici',
-          subtitle: 'Öğrenci listesinden toplu QR kod üretip A4 kağıda grid yerleştirme',
-          icon: Icons.qr_code_rounded,
-          color: Color(0xFF26A69A),
-        ),
-        _ToolItem(
-          title: 'Çakışmasız Nöbet Dağıtıcı',
-          subtitle: 'Öğretmenlerin boş günleriyle nöbet alanlarını matris eşleştirme',
-          icon: Icons.calendar_month_rounded,
-          color: Color(0xFFAB47BC),
-        ),
-      ],
+      tools: [],
+    ),
+    _ToolCategory(
+      title: 'Geç - İzin - Erken - Revir - Görüşme (Canlı İzleme)',
+      shortTitle: 'Geç • İzin • Erken • Revir',
+      icon: Icons.radar_rounded,
+      color: Color(0xFFE11D48),
+      gradient: [Color(0xFFE11D48), Color(0xFF7C3AED)],
+      tools: [],
     ),
     _ToolCategory(
       title: 'Notlarım',
@@ -250,20 +229,23 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
           .orderBy('order')
           .get();
 
-      final services = snap.docs.map((doc) {
-        final data = doc.data();
-        return _OnlineServiceItem(
-          id: doc.id,
-          title: data['title'] ?? '',
-          subtitle: data['subtitle'] ?? '',
-          url: data['url'] ?? '',
-          iconName: data['icon'] ?? 'language',
-          colorHex: data['color'] ?? '00897B',
-          type: data['type'] ?? 'web', // 'web', 'sso', 'app'
-          order: data['order'] ?? 0,
-          isActive: data['isActive'] ?? true,
-        );
-      }).where((s) => s.isActive).toList();
+      final services = snap.docs
+          .map((doc) {
+            final data = doc.data();
+            return _OnlineServiceItem(
+              id: doc.id,
+              title: data['title'] ?? '',
+              subtitle: data['subtitle'] ?? '',
+              url: data['url'] ?? '',
+              iconName: data['icon'] ?? 'language',
+              colorHex: data['color'] ?? '00897B',
+              type: data['type'] ?? 'web', // 'web', 'sso', 'app'
+              order: data['order'] ?? 0,
+              isActive: data['isActive'] ?? true,
+            );
+          })
+          .where((s) => s.isActive)
+          .toList();
 
       // Always add LinGoKN as the first item (built-in)
       final lingoknService = _OnlineServiceItem(
@@ -297,7 +279,8 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
     super.dispose();
   }
 
-  int get _totalCategoryCount => _staticCategories.length + 1; // +1 for Online Hizmetler
+  int get _totalCategoryCount =>
+      _staticCategories.length + 1; // +1 for Online Hizmetler
 
   _ToolCategory _getCategoryAt(int index) {
     if (index < _staticCategories.length) return _staticCategories[index];
@@ -310,11 +293,14 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
     'sinav_gozetmenlik',
     'akademik_olcme',
     'evrak_sablon',
+    'ogrenci_hareket_takip',
     'notlarim',
     'online_hizmetler',
   ];
 
   static const Map<String, String> _toolPermKeys = {
+    'Akıllı Beyaz Tahta': 'sinif_akilli_tahta',
+    'Geç - İzin - Erken - Revir - Görüşme Merkezi': 'ogrenci_hareket_takip',
     'Sınıf Oturma Planı Oluşturucu': 'sinif_oturma_plani',
     'Homojen/Rastgele Gruplama': 'sinif_gruplama',
     'Rastgele Öğrenci Seçici': 'sinif_ogrenci_secici',
@@ -322,6 +308,7 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
     'Sınıf Zamanlayıcısı / Kronometre': 'sinif_zamanlayici',
     'Sınıf Termometresi (Gürültü Ölçer)': 'sinif_termometre',
     'Notlarım': 'notlarim',
+    'Yeni Sınav Planı Hazırlama': 'sinav_plan_olusturma',
     'Sınava Özel Oturma Planı ve Sınav Yoklaması': 'sinav_oturma_yoklama',
     'Optik Form Kodlama Kılavuzu Jeneratörü': 'sinav_optik_kilavuz',
     'LGS / YKS Hedef Simülatörü': 'akademik_hedef_simulator',
@@ -337,9 +324,16 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
 
   bool _isCategoryAllowed(int index) {
     if (!widget.isTeacher) return true;
+    if (index == 1 && UserPermissionService.canCreateExamPlan()) return true;
     if (!UserPermissionService.hasTeacherModuleAccess('araclar')) return false;
-    if (!UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: _categoryPermKeys[index])) {
+    if (!UserPermissionService.hasTeacherModuleAccess(
+      'araclar',
+      subModuleKey: _categoryPermKeys[index],
+    )) {
       return false;
+    }
+    if (index == 2 || index == 3 || index == 4) {
+      return true;
     }
     if (index < _staticCategories.length) {
       return _staticCategories[index].tools.any(_isToolAllowed);
@@ -348,24 +342,26 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
   }
 
   bool _isToolAllowed(_ToolItem tool) {
+    if (tool.title == 'Yeni Sınav Planı Hazırlama') {
+      return UserPermissionService.canCreateExamPlan();
+    }
     if (!widget.isTeacher) return true;
+    if (tool.title == 'Sınava Özel Oturma Planı ve Sınav Yoklaması' &&
+        UserPermissionService.canCreateExamPlan()) {
+      return true;
+    }
     final key = _toolPermKeys[tool.title];
     if (key == null) return true;
-    return UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: key);
+    return UserPermissionService.hasTeacherModuleAccess(
+      'araclar',
+      subModuleKey: key,
+    );
   }
 
   List<int> get _visibleCategoryIndexes {
     final all = List<int>.generate(_totalCategoryCount, (i) => i);
     if (!widget.isTeacher) return all;
     return all.where(_isCategoryAllowed).toList();
-  }
-
-  void _switchCategory(int index) {
-    if (index == _selectedCategoryIndex) return;
-    _animationController.reverse().then((_) {
-      setState(() => _selectedCategoryIndex = index);
-      _animationController.forward();
-    });
   }
 
   bool get _isAdmin {
@@ -377,152 +373,98 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 768;
+    final activeCategory = _getCategoryAt(_selectedCategoryIndex);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
       appBar: EduknAppBar(
-        title: 'Araçlar',
+        title: isMobile ? activeCategory.shortTitle : activeCategory.title,
         subtitle: widget.schoolTypeName,
       ),
-      body: Column(
-        children: [
-          _buildCategoryTabs(isMobile),
-          Expanded(
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: _selectedCategoryIndex < _staticCategories.length
+      body: FadeTransition(
+        opacity: _fadeAnimation,
+        child: _selectedCategoryIndex == 2
+            ? AcademicTrackingHubBody(
+                institutionId: widget.institutionId,
+                schoolTypeId: widget.schoolTypeId,
+                schoolTypeName: widget.schoolTypeName,
+                isTeacher: widget.isTeacher,
+                teacherId: widget.teacherId,
+                allowedClassIds: widget.allowedClassIds,
+              )
+            : _selectedCategoryIndex == 3
+            ? OfficialDocumentsHubBody(
+                institutionId: widget.institutionId,
+                schoolTypeId: widget.schoolTypeId,
+                schoolTypeName: widget.schoolTypeName,
+                isTeacher: widget.isTeacher,
+                teacherId: widget.teacherId,
+                allowedClassIds: widget.allowedClassIds,
+              )
+            : _selectedCategoryIndex == 4
+            ? StudentMovementHubBody(
+                institutionId: widget.institutionId,
+                schoolTypeId: widget.schoolTypeId,
+                schoolTypeName: widget.schoolTypeName,
+                isTeacher: widget.isTeacher,
+                teacherId: widget.teacherId,
+                allowedClassIds: widget.allowedClassIds,
+              )
+            : (_selectedCategoryIndex < _staticCategories.length
                   ? _buildToolsList(isMobile)
-                  : _buildOnlineServicesList(isMobile),
-            ),
-          ),
-        ],
+                  : _buildOnlineServicesList(isMobile)),
       ),
-      floatingActionButton: (_selectedCategoryIndex >= _staticCategories.length && _isAdmin)
+      floatingActionButton:
+          (_selectedCategoryIndex >= _staticCategories.length && _isAdmin)
           ? FloatingActionButton.extended(
               onPressed: () => _showAddServiceDialog(),
               backgroundColor: const Color(0xFF00897B),
               icon: const Icon(Icons.add_rounded, color: Colors.white),
-              label: Text('Hizmet Ekle', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),
-            )
-          : null,
-    );
-  }
-
-  Widget _buildCategoryTabs(bool isMobile) {
-    final visibleIndexes = _visibleCategoryIndexes;
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: visibleIndexes.map((index) {
-            final cat = _getCategoryAt(index);
-            final isSelected = _selectedCategoryIndex == index;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => _switchCategory(index),
-                  borderRadius: BorderRadius.circular(12),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    curve: Curves.easeOutCubic,
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isMobile ? 14 : 20,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      gradient: isSelected
-                          ? LinearGradient(colors: cat.gradient)
-                          : null,
-                      color: isSelected ? null : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: isSelected
-                          ? [
-                              BoxShadow(
-                                color: cat.color.withValues(alpha: 0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ]
-                          : null,
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          cat.icon,
-                          size: 20,
-                          color: isSelected ? Colors.white : Colors.grey.shade600,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          cat.shortTitle,
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                            color: isSelected ? Colors.white : Colors.grey.shade700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+              label: Text(
+                'Hizmet Ekle',
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            );
-          }).toList(),
-        ),
-      ),
+            )
+          : null,
     );
   }
 
   Widget _buildToolsList(bool isMobile) {
     final category = _staticCategories[_selectedCategoryIndex];
     final tools = category.tools.where(_isToolAllowed).toList();
-    final crossAxisCount = isMobile ? 1 : (MediaQuery.of(context).size.width > 1200 ? 3 : 2);
+    final crossAxisCount = isMobile
+        ? 1
+        : (MediaQuery.of(context).size.width > 1200 ? 3 : 2);
+    final hPad = isMobile ? 14.0 : 20.0;
 
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
       slivers: [
         // Category header
-        SliverToBoxAdapter(
-          child: _buildCategoryHeader(category, isMobile),
-        ),
+        SliverToBoxAdapter(child: _buildCategoryHeader(category, isMobile)),
         const SliverToBoxAdapter(child: SizedBox(height: 8)),
         // Tools grid
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 24),
           sliver: SliverGrid(
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: crossAxisCount,
-              mainAxisSpacing: 16,
+              mainAxisSpacing: isMobile ? 12 : 16,
               crossAxisSpacing: 16,
-              childAspectRatio: isMobile ? 2.65 : 2.8,
+              mainAxisExtent: isMobile ? 98 : null,
+              childAspectRatio: 2.8,
             ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final tool = tools[index];
-                return _ToolCard(
-                  tool: tool,
-                  index: index,
-                  onTap: () => _onToolTap(tool),
-                );
-              },
-              childCount: tools.length,
-            ),
+            delegate: SliverChildBuilderDelegate((context, index) {
+              final tool = tools[index];
+              return _ToolCard(
+                tool: tool,
+                index: index,
+                onTap: () => _onToolTap(tool),
+              );
+            }, childCount: tools.length),
           ),
         ),
       ],
@@ -531,7 +473,10 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
 
   Widget _buildOnlineServicesList(bool isMobile) {
     final category = _onlineHizmetlerMeta;
-    final crossAxisCount = isMobile ? 1 : (MediaQuery.of(context).size.width > 1200 ? 3 : 2);
+    final crossAxisCount = isMobile
+        ? 1
+        : (MediaQuery.of(context).size.width > 1200 ? 3 : 2);
+    final hPad = isMobile ? 14.0 : 20.0;
 
     if (_loadingServices) {
       return const Center(child: CircularProgressIndicator());
@@ -540,28 +485,38 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
       slivers: [
-        SliverToBoxAdapter(
-          child: _buildCategoryHeader(category, isMobile),
-        ),
+        SliverToBoxAdapter(child: _buildCategoryHeader(category, isMobile)),
         const SliverToBoxAdapter(child: SizedBox(height: 8)),
         if (_onlineServices.isEmpty)
           SliverToBoxAdapter(
             child: Center(
               child: Padding(
-                padding: const EdgeInsets.all(48),
+                padding: EdgeInsets.all(isMobile ? 28 : 48),
                 child: Column(
                   children: [
-                    Icon(Icons.cloud_off_rounded, size: 64, color: Colors.grey.shade300),
+                    Icon(
+                      Icons.cloud_off_rounded,
+                      size: 64,
+                      color: Colors.grey.shade300,
+                    ),
                     const SizedBox(height: 16),
                     Text(
                       'Henüz online hizmet eklenmemiş',
-                      style: GoogleFonts.inter(fontSize: 16, color: Colors.grey.shade500),
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        color: Colors.grey.shade500,
+                      ),
                     ),
                     if (_isAdmin) ...[
                       const SizedBox(height: 8),
                       Text(
                         'Sağ alttaki butona tıklayarak yeni hizmet ekleyebilirsiniz',
-                        style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          color: Colors.grey.shade400,
+                        ),
                       ),
                     ],
                   ],
@@ -571,28 +526,28 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
           )
         else
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 24),
             sliver: SliverGrid(
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: crossAxisCount,
-                mainAxisSpacing: 16,
+                mainAxisSpacing: isMobile ? 12 : 16,
                 crossAxisSpacing: 16,
-                childAspectRatio: isMobile ? 2.65 : 2.8,
+                mainAxisExtent: isMobile ? 98 : null,
+                childAspectRatio: 2.8,
               ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final service = _onlineServices[index];
-                  return _OnlineServiceCard(
-                    service: service,
-                    index: index,
-                    isAdmin: _isAdmin,
-                    onTap: () => _onServiceTap(service),
-                    onEdit: _isAdmin ? () => _showEditServiceDialog(service) : null,
-                    onDelete: _isAdmin ? () => _deleteService(service) : null,
-                  );
-                },
-                childCount: _onlineServices.length,
-              ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final service = _onlineServices[index];
+                return _OnlineServiceCard(
+                  service: service,
+                  index: index,
+                  isAdmin: _isAdmin,
+                  onTap: () => _onServiceTap(service),
+                  onEdit: _isAdmin
+                      ? () => _showEditServiceDialog(service)
+                      : null,
+                  onDelete: _isAdmin ? () => _deleteService(service) : null,
+                );
+              }, childCount: _onlineServices.length),
             ),
           ),
       ],
@@ -601,7 +556,12 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
 
   Widget _buildCategoryHeader(_ToolCategory category, bool isMobile) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+      padding: EdgeInsets.fromLTRB(
+        isMobile ? 16 : 24,
+        isMobile ? 16 : 24,
+        isMobile ? 16 : 24,
+        8,
+      ),
       child: Row(
         children: [
           Container(
@@ -652,7 +612,34 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
   }
 
   void _onToolTap(_ToolItem tool) {
-    if (tool.title == 'Sınıf Oturma Planı Oluşturucu') {
+    if (tool.title == 'Akıllı Beyaz Tahta') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SmartWhiteboardScreen(
+            institutionId: widget.institutionId,
+            schoolTypeId: widget.schoolTypeId,
+            allowedClassIds: widget.allowedClassIds,
+          ),
+        ),
+      );
+      return;
+    } else if (tool.title == 'Geç - İzin - Erken - Revir - Görüşme Merkezi') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => StudentMovementHubScreen(
+            institutionId: widget.institutionId,
+            schoolTypeId: widget.schoolTypeId,
+            schoolTypeName: widget.schoolTypeName,
+            isTeacher: widget.isTeacher,
+            teacherId: widget.teacherId,
+            allowedClassIds: widget.allowedClassIds,
+          ),
+        ),
+      );
+      return;
+    } else if (tool.title == 'Sınıf Oturma Planı Oluşturucu') {
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -742,6 +729,18 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
         ),
       );
       return;
+    } else if (tool.title == 'Yeni Sınav Planı Hazırlama') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ButterflyExamWizardScreen(
+            institutionId: widget.institutionId,
+            schoolTypeId: widget.schoolTypeId,
+            schoolTypeName: widget.schoolTypeName,
+          ),
+        ),
+      );
+      return;
     } else if (tool.title == 'Sınava Özel Oturma Planı ve Sınav Yoklaması') {
       Navigator.push(
         context,
@@ -772,7 +771,11 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.construction_rounded, color: Colors.white, size: 20),
+            const Icon(
+              Icons.construction_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -805,7 +808,9 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
               content: Text('Bağlantı açılamadı: ${service.url}'),
               backgroundColor: Colors.red.shade400,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               margin: const EdgeInsets.all(16),
             ),
           );
@@ -827,8 +832,10 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
               children: [
                 CircularProgressIndicator(),
                 SizedBox(height: 16),
-                Text('LinGoKN Portalına güvenli yönlendirme yapılıyor...',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
+                Text(
+                  'LinGoKN Portalına güvenli yönlendirme yapılıyor...',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
               ],
             ),
           ),
@@ -837,15 +844,19 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
     );
 
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('generateSsoToken');
+      final callable = FirebaseFunctions.instance.httpsCallable(
+        'generateSsoToken',
+      );
       final result = await callable.call();
       final token = result.data['token'] as String;
 
       if (mounted) Navigator.pop(context);
 
-      final url = Uri.parse(kDebugMode
-          ? 'http://localhost:5501/#/auth?token=$token'
-          : 'https://lingokn.web.app/#/auth?token=$token');
+      final url = Uri.parse(
+        kDebugMode
+            ? 'http://localhost:5501/#/auth?token=$token'
+            : 'https://lingokn.web.app/#/auth?token=$token',
+      );
 
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.externalApplication);
@@ -886,7 +897,9 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
 
   void _showServiceFormDialog(_OnlineServiceItem? existing) {
     final titleController = TextEditingController(text: existing?.title ?? '');
-    final subtitleController = TextEditingController(text: existing?.subtitle ?? '');
+    final subtitleController = TextEditingController(
+      text: existing?.subtitle ?? '',
+    );
     final urlController = TextEditingController(text: existing?.url ?? '');
     String selectedIcon = existing?.iconName ?? 'language';
     String selectedColor = existing?.colorHex ?? '00897B';
@@ -929,7 +942,9 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: Row(
             children: [
               Container(
@@ -939,15 +954,22 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  existing == null ? Icons.add_link_rounded : Icons.edit_rounded,
+                  existing == null
+                      ? Icons.add_link_rounded
+                      : Icons.edit_rounded,
                   color: const Color(0xFF00897B),
                   size: 22,
                 ),
               ),
               const SizedBox(width: 12),
               Text(
-                existing == null ? 'Yeni Online Hizmet Ekle' : 'Hizmeti Düzenle',
-                style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w700),
+                existing == null
+                    ? 'Yeni Online Hizmet Ekle'
+                    : 'Hizmeti Düzenle',
+                style: GoogleFonts.inter(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),
@@ -963,7 +985,9 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                     decoration: InputDecoration(
                       labelText: 'Hizmet Adı *',
                       hintText: 'Örn: EBA, Morpa Kampüs, Khan Academy',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       prefixIcon: const Icon(Icons.title_rounded),
                     ),
                   ),
@@ -973,7 +997,9 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                     decoration: InputDecoration(
                       labelText: 'Açıklama',
                       hintText: 'Kısa bir açıklama yazın',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       prefixIcon: const Icon(Icons.description_rounded),
                     ),
                   ),
@@ -983,13 +1009,21 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                     decoration: InputDecoration(
                       labelText: 'Web Adresi (URL) *',
                       hintText: 'https://www.example.com',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       prefixIcon: const Icon(Icons.link_rounded),
                     ),
                     keyboardType: TextInputType.url,
                   ),
                   const SizedBox(height: 20),
-                  Text('İkon Seçin', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13)),
+                  Text(
+                    'İkon Seçin',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
@@ -997,32 +1031,45 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                     children: availableIcons.entries.map((entry) {
                       final isSelected = selectedIcon == entry.key;
                       return InkWell(
-                        onTap: () => setDialogState(() => selectedIcon = entry.key),
+                        onTap: () =>
+                            setDialogState(() => selectedIcon = entry.key),
                         borderRadius: BorderRadius.circular(10),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? const Color(0xFF00897B).withValues(alpha: 0.15)
+                                ? const Color(
+                                    0xFF00897B,
+                                  ).withValues(alpha: 0.15)
                                 : Colors.grey.shade100,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: isSelected ? const Color(0xFF00897B) : Colors.transparent,
+                              color: isSelected
+                                  ? const Color(0xFF00897B)
+                                  : Colors.transparent,
                               width: 2,
                             ),
                           ),
                           child: Icon(
                             entry.value,
                             size: 22,
-                            color: isSelected ? const Color(0xFF00897B) : Colors.grey.shade600,
+                            color: isSelected
+                                ? const Color(0xFF00897B)
+                                : Colors.grey.shade600,
                           ),
                         ),
                       );
                     }).toList(),
                   ),
                   const SizedBox(height: 20),
-                  Text('Renk Seçin', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13)),
+                  Text(
+                    'Renk Seçin',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
@@ -1030,7 +1077,8 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                     children: availableColors.entries.map((entry) {
                       final isSelected = selectedColor == entry.key;
                       return InkWell(
-                        onTap: () => setDialogState(() => selectedColor = entry.key),
+                        onTap: () =>
+                            setDialogState(() => selectedColor = entry.key),
                         borderRadius: BorderRadius.circular(10),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
@@ -1040,15 +1088,26 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                             color: entry.value,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: isSelected ? Colors.white : Colors.transparent,
+                              color: isSelected
+                                  ? Colors.white
+                                  : Colors.transparent,
                               width: 3,
                             ),
                             boxShadow: isSelected
-                                ? [BoxShadow(color: entry.value.withValues(alpha: 0.5), blurRadius: 8)]
+                                ? [
+                                    BoxShadow(
+                                      color: entry.value.withValues(alpha: 0.5),
+                                      blurRadius: 8,
+                                    ),
+                                  ]
                                 : null,
                           ),
                           child: isSelected
-                              ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
+                              ? const Icon(
+                                  Icons.check_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                )
                               : null,
                         ),
                       );
@@ -1061,7 +1120,10 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text('İptal', style: GoogleFonts.inter(color: Colors.grey.shade600)),
+              child: Text(
+                'İptal',
+                style: GoogleFonts.inter(color: Colors.grey.shade600),
+              ),
             ),
             ElevatedButton.icon(
               onPressed: () async {
@@ -1069,7 +1131,9 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                 final url = urlController.text.trim();
                 if (title.isEmpty || url.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Hizmet adı ve URL zorunludur')),
+                    const SnackBar(
+                      content: Text('Hizmet adı ve URL zorunludur'),
+                    ),
                   );
                   return;
                 }
@@ -1103,28 +1167,45 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                 await _loadOnlineServices();
 
                 if (mounted) {
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(existing == null
-                          ? '✅ "$title" başarıyla eklendi'
-                          : '✅ "$title" güncellendi'),
-                      backgroundColor: const Color(0xFF00897B),
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      margin: const EdgeInsets.all(16),
-                    ),
-                  );
+                  if (mounted)
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          existing == null
+                              ? '✅ "$title" başarıyla eklendi'
+                              : '✅ "$title" güncellendi',
+                        ),
+                        backgroundColor: const Color(0xFF00897B),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        margin: const EdgeInsets.all(16),
+                      ),
+                    );
                 }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF00897B),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
-              icon: Icon(existing == null ? Icons.add_rounded : Icons.save_rounded, color: Colors.white, size: 18),
+              icon: Icon(
+                existing == null ? Icons.add_rounded : Icons.save_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
               label: Text(
                 existing == null ? 'Ekle' : 'Kaydet',
-                style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600),
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
@@ -1141,7 +1222,9 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Hizmeti Sil'),
-        content: Text('"${service.title}" hizmetini silmek istediğinize emin misiniz?'),
+        content: Text(
+          '"${service.title}" hizmetini silmek istediğinize emin misiniz?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -1172,7 +1255,9 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
             content: Text('🗑️ "${service.title}" silindi'),
             backgroundColor: Colors.red.shade400,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             margin: const EdgeInsets.all(16),
           ),
         );
@@ -1197,7 +1282,8 @@ class _ToolCard extends StatefulWidget {
   State<_ToolCard> createState() => _ToolCardState();
 }
 
-class _ToolCardState extends State<_ToolCard> with SingleTickerProviderStateMixin {
+class _ToolCardState extends State<_ToolCard>
+    with SingleTickerProviderStateMixin {
   bool _isHovered = false;
   late final AnimationController _entryController;
   late final Animation<double> _slideAnimation;
@@ -1213,9 +1299,10 @@ class _ToolCardState extends State<_ToolCard> with SingleTickerProviderStateMixi
     _slideAnimation = Tween<double>(begin: 30, end: 0).animate(
       CurvedAnimation(parent: _entryController, curve: Curves.easeOutCubic),
     );
-    _fadeAnimation = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _entryController, curve: Curves.easeOut),
-    );
+    _fadeAnimation = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _entryController, curve: Curves.easeOut));
     _entryController.forward();
   }
 
@@ -1232,10 +1319,7 @@ class _ToolCardState extends State<_ToolCard> with SingleTickerProviderStateMixi
       builder: (context, child) {
         return Transform.translate(
           offset: Offset(0, _slideAnimation.value),
-          child: Opacity(
-            opacity: _fadeAnimation.value,
-            child: child,
-          ),
+          child: Opacity(opacity: _fadeAnimation.value, child: child),
         );
       },
       child: MouseRegion(
@@ -1274,7 +1358,9 @@ class _ToolCardState extends State<_ToolCard> with SingleTickerProviderStateMixi
                     duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: widget.tool.color.withValues(alpha: _isHovered ? 0.15 : 0.08),
+                      color: widget.tool.color.withValues(
+                        alpha: _isHovered ? 0.15 : 0.08,
+                      ),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
@@ -1365,7 +1451,8 @@ class _OnlineServiceCard extends StatefulWidget {
   State<_OnlineServiceCard> createState() => _OnlineServiceCardState();
 }
 
-class _OnlineServiceCardState extends State<_OnlineServiceCard> with SingleTickerProviderStateMixin {
+class _OnlineServiceCardState extends State<_OnlineServiceCard>
+    with SingleTickerProviderStateMixin {
   bool _isHovered = false;
   late final AnimationController _entryController;
   late final Animation<double> _slideAnimation;
@@ -1392,7 +1479,8 @@ class _OnlineServiceCardState extends State<_OnlineServiceCard> with SingleTicke
     'map': Icons.map_rounded,
   };
 
-  IconData get _serviceIcon => _iconMap[widget.service.iconName] ?? Icons.language_rounded;
+  IconData get _serviceIcon =>
+      _iconMap[widget.service.iconName] ?? Icons.language_rounded;
 
   Color get _serviceColor {
     try {
@@ -1412,9 +1500,10 @@ class _OnlineServiceCardState extends State<_OnlineServiceCard> with SingleTicke
     _slideAnimation = Tween<double>(begin: 30, end: 0).animate(
       CurvedAnimation(parent: _entryController, curve: Curves.easeOutCubic),
     );
-    _fadeAnimation = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _entryController, curve: Curves.easeOut),
-    );
+    _fadeAnimation = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _entryController, curve: Curves.easeOut));
     _entryController.forward();
   }
 
@@ -1433,10 +1522,7 @@ class _OnlineServiceCardState extends State<_OnlineServiceCard> with SingleTicke
       builder: (context, child) {
         return Transform.translate(
           offset: Offset(0, _slideAnimation.value),
-          child: Opacity(
-            opacity: _fadeAnimation.value,
-            child: child,
-          ),
+          child: Opacity(opacity: _fadeAnimation.value, child: child),
         );
       },
       child: MouseRegion(
@@ -1452,12 +1538,16 @@ class _OnlineServiceCardState extends State<_OnlineServiceCard> with SingleTicke
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: _isHovered ? color.withValues(alpha: 0.4) : Colors.grey.shade200,
+                color: _isHovered
+                    ? color.withValues(alpha: 0.4)
+                    : Colors.grey.shade200,
                 width: _isHovered ? 1.5 : 1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: _isHovered ? color.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.04),
+                  color: _isHovered
+                      ? color.withValues(alpha: 0.12)
+                      : Colors.black.withValues(alpha: 0.04),
                   blurRadius: _isHovered ? 16 : 8,
                   offset: Offset(0, _isHovered ? 6 : 2),
                 ),
@@ -1499,11 +1589,16 @@ class _OnlineServiceCardState extends State<_OnlineServiceCard> with SingleTicke
                             ),
                             if (widget.service.type == 'sso')
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.amber.shade50,
                                   borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.amber.shade200),
+                                  border: Border.all(
+                                    color: Colors.amber.shade200,
+                                  ),
                                 ),
                                 child: Text(
                                   'SSO',
@@ -1540,7 +1635,11 @@ class _OnlineServiceCardState extends State<_OnlineServiceCard> with SingleTicke
                       borderRadius: BorderRadius.circular(8),
                       child: Padding(
                         padding: const EdgeInsets.all(6),
-                        child: Icon(Icons.edit_rounded, size: 16, color: Colors.grey.shade400),
+                        child: Icon(
+                          Icons.edit_rounded,
+                          size: 16,
+                          color: Colors.grey.shade400,
+                        ),
                       ),
                     ),
                     InkWell(
@@ -1548,7 +1647,11 @@ class _OnlineServiceCardState extends State<_OnlineServiceCard> with SingleTicke
                       borderRadius: BorderRadius.circular(8),
                       child: Padding(
                         padding: const EdgeInsets.all(6),
-                        child: Icon(Icons.delete_rounded, size: 16, color: Colors.red.shade300),
+                        child: Icon(
+                          Icons.delete_rounded,
+                          size: 16,
+                          color: Colors.red.shade300,
+                        ),
                       ),
                     ),
                   ] else
@@ -1556,7 +1659,9 @@ class _OnlineServiceCardState extends State<_OnlineServiceCard> with SingleTicke
                       duration: const Duration(milliseconds: 200),
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: _isHovered ? color.withValues(alpha: 0.1) : Colors.grey.shade100,
+                        color: _isHovered
+                            ? color.withValues(alpha: 0.1)
+                            : Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Icon(

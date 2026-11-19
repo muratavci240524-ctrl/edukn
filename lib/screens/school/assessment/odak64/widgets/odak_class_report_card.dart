@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../student_report_card_dialog.dart';
 import '../models/odak_models.dart';
+import '../repository/odak_repository.dart' show OdakExamData;
 import '../services/odak_engine.dart';
 import '../services/odak_pdf_service.dart';
 import '../services/odak_excel_service.dart';
@@ -14,6 +16,7 @@ class OdakClassReportCard extends StatelessWidget {
   final List<String> subjects;
   final String examName;
   final String? schoolName;
+  final OdakExamData? examData;
   final String brand;
 
   const OdakClassReportCard({
@@ -23,8 +26,92 @@ class OdakClassReportCard extends StatelessWidget {
     required this.subjects,
     this.examName = '',
     this.schoolName,
+    this.examData,
     this.brand = 'ODAK-64',
   });
+
+  void _openStudentReportCard(BuildContext context, OdakRankedStudent ranked) {
+    final sr = ranked.result.toStudentResult();
+    final allResults = examData?.results ??
+        [
+          for (final g in OdakClassGroup.visibleGroups(analyzer.groups))
+            for (final s in g.students) s.result,
+        ];
+
+    if (allResults.isNotEmpty &&
+        (sr.rankInstitution <= 0 || sr.rankGeneral <= 0 || sr.rankBranch <= 0)) {
+      int cmpExam(OdakExamResult a, OdakExamResult b) {
+        if ((a.examScore - b.examScore).abs() > 1e-6) {
+          return b.examScore.compareTo(a.examScore);
+        }
+        if ((a.totalNet - b.totalNet).abs() > 1e-6) {
+          return b.totalNet.compareTo(a.totalNet);
+        }
+        return a.totalWrong.compareTo(b.totalWrong);
+      }
+
+      final sortedAll = [...allResults]..sort(cmpExam);
+      final instIdx =
+          sortedAll.indexWhere((r) => r.student.id == ranked.student.id);
+      if (instIdx >= 0) {
+        if (sr.rankInstitution <= 0) sr.rankInstitution = instIdx + 1;
+        if (sr.rankGeneral <= 0) sr.rankGeneral = instIdx + 1;
+      }
+
+      final targetBranch = ranked.student.branch.trim().toLowerCase();
+      final sortedBranch = sortedAll
+          .where((r) => r.student.branch.trim().toLowerCase() == targetBranch)
+          .toList();
+      final brIdx =
+          sortedBranch.indexWhere((r) => r.student.id == ranked.student.id);
+      if (brIdx >= 0 && sr.rankBranch <= 0) {
+        sr.rankBranch = brIdx + 1;
+      }
+    }
+
+    final targetBranch = ranked.student.branch.trim().toLowerCase();
+    final branchCount = allResults
+        .where((r) => r.student.branch.trim().toLowerCase() == targetBranch)
+        .length;
+
+    final allSubjects = <String>[
+      if (examData != null) ...examData!.subjects,
+      ...subjects,
+      ...ranked.result.subjects.keys,
+    ];
+    final uniqueSubjects = <String>[];
+    for (final s in allSubjects) {
+      if (s.isNotEmpty && !uniqueSubjects.contains(s)) {
+        uniqueSubjects.add(s);
+      }
+    }
+
+    final isRankingVisible =
+        examData?.exam.sharingSettings['isRankingVisible'] ?? true;
+    final trialExamId =
+        (!ranked.result.isMerged && (examData?.exam.id.isNotEmpty ?? false))
+            ? examData!.exam.id
+            : null;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StudentReportCardDialog(
+          student: sr,
+          examName: examName.isNotEmpty
+              ? examName
+              : (examData?.exam.name ?? 'Deneme Sınavı'),
+          subjects: uniqueSubjects,
+          outcomes: examData?.outcomes ?? analyzer.outcomes,
+          totalStudents: allResults.length,
+          schoolStudents: allResults.length,
+          branchStudents: branchCount > 0 ? branchCount : group.students.length,
+          isRankingVisible: isRankingVisible == true,
+          trialExamId: trialExamId,
+          schoolTypeName: schoolName,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -104,7 +191,11 @@ class OdakClassReportCard extends StatelessWidget {
               child: Column(
                 children: [
                   for (final s in group.students)
-                    _StudentRow(ranked: s, risky: riskyIds.contains(s.student.id)),
+                    _StudentRow(
+                      ranked: s,
+                      risky: riskyIds.contains(s.student.id),
+                      onOpenReportCard: () => _openStudentReportCard(context, s),
+                    ),
                 ],
               ),
             ),
@@ -119,6 +210,7 @@ class OdakClassReportCard extends StatelessWidget {
                       classId: group.id,
                       subject: s,
                       analyzer: analyzer,
+                      onOpenReportCard: (st) => _openStudentReportCard(context, st),
                     ),
                   for (final lk in OdakClassGroup.linkedTracks(group, analyzer.groups))
                     for (final s in lk.filterSubjects(subjects)) ...[
@@ -138,6 +230,7 @@ class OdakClassReportCard extends StatelessWidget {
                         classId: lk.id,
                         subject: s,
                         analyzer: analyzer,
+                        onOpenReportCard: (st) => _openStudentReportCard(context, st),
                       ),
                     ],
                 ],
@@ -154,12 +247,14 @@ class _SubjectReport extends StatelessWidget {
   final String classId;
   final String subject;
   final OdakAnalyzer analyzer;
+  final ValueChanged<OdakRankedStudent>? onOpenReportCard;
 
   const _SubjectReport({
     super.key,
     required this.classId,
     required this.subject,
     required this.analyzer,
+    this.onOpenReportCard,
   });
 
   @override
@@ -298,12 +393,23 @@ class _SubjectReport extends StatelessWidget {
                               'Başarı %${(r.rate * 100).round()} • '
                               'Sınıf ort. %${(r.classRate * 100).round()}',
                             ),
-                            trailing: Text(
-                              '-%${r.gapPercent.round()}',
-                              style: TextStyle(
-                                color: Colors.red.shade700,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '-%${r.gapPercent.round()}',
+                                  style: TextStyle(
+                                    color: Colors.red.shade700,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                if (r.ranked != null && onOpenReportCard != null) ...[
+                                  const SizedBox(width: 8),
+                                  _ReportCardIconButton(
+                                    onTap: () => onOpenReportCard!(r.ranked!),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                       ],
@@ -445,8 +551,13 @@ class _Empty extends StatelessWidget {
 class _StudentRow extends StatelessWidget {
   final OdakRankedStudent ranked;
   final bool risky;
+  final VoidCallback? onOpenReportCard;
 
-  const _StudentRow({required this.ranked, required this.risky});
+  const _StudentRow({
+    required this.ranked,
+    required this.risky,
+    this.onOpenReportCard,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -482,11 +593,57 @@ class _StudentRow extends StatelessWidget {
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
               ),
             ),
-          Text(
-            ranked.score.toStringAsFixed(1),
-            style: const TextStyle(fontWeight: FontWeight.bold),
+          SizedBox(
+            width: 44,
+            child: Tooltip(
+              message: [
+                'Odak Puanı: ${ranked.score.toStringAsFixed(2)}',
+                if (ranked.result.examScore > 0)
+                  'Genel Sınav Puanı: ${ranked.result.examScore.toStringAsFixed(2)}',
+                'Toplam Net: ${ranked.result.totalNet.toStringAsFixed(2)}',
+              ].join(' • '),
+              child: Text(
+                ranked.score.toStringAsFixed(1),
+                textAlign: TextAlign.right,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
           ),
+          if (onOpenReportCard != null) ...[
+            const SizedBox(width: 10),
+            _ReportCardIconButton(onTap: onOpenReportCard!),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+class _ReportCardIconButton extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _ReportCardIconButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: 'Sınav Karnesini Gör',
+      child: Material(
+        color: scheme.primary.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Icon(
+              Icons.assignment_ind_rounded,
+              size: 17,
+              color: scheme.primary,
+            ),
+          ),
+        ),
       ),
     );
   }

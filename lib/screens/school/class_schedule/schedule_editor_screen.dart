@@ -14,6 +14,7 @@ import '../../../services/excel_service.dart';
 import '../../../models/school/dynamic_course_group_model.dart';
 import '../../../services/dynamic_group_service.dart';
 import '../../../services/course_track_resolver.dart';
+import '../../../services/user_permission_service.dart';
 
 // ==================== PROGRAM DİZENLEME EKRANI ====================
 class ScheduleEditorScreen extends StatefulWidget {
@@ -40,6 +41,18 @@ class ScheduleEditorScreen extends StatefulWidget {
 }
 
 class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
+  /// Ders Programı detay yetkisi (Eğitim İşlemleri › Ders Programı › detay).
+  /// Detay anahtarı kullanıcı yetkisinde tanımlı değilse üst başlık (Ders Programı) yetkisine bakılır.
+  bool _dpPerm(String nestedKey) =>
+      UserPermissionService.hasSchoolTypeSubModuleAccess(
+        'egitim',
+        'ders_programi',
+        null,
+        nestedKey,
+      );
+
+  bool _dpPermAny(List<String> nestedKeys) => nestedKeys.any(_dpPerm);
+
   List<Map<String, dynamic>> _classes = [];
   List<Map<String, dynamic>> _allClasses = []; // Filtrelenmemiş tüm sınıflar
   List<Map<String, dynamic>> _lessonHours = [];
@@ -3621,6 +3634,7 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
             },
           ),
           // Yayınla / Yayında Butonu
+          if (_dpPermAny(const ['ders_programi_yayinla', 'dp_yayindan_kaldir']))
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
             child: _isSchedulePublished
@@ -3672,6 +3686,12 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
               }
             },
             itemBuilder: (context) => [
+              if (_dpPermAny(const [
+                'dp_cikti_tekli_sinif',
+                'dp_cikti_tekli_ogretmen',
+                'dp_cikti_sinif_carsaf',
+                'dp_cikti_ogretmen_carsaf',
+              ]))
               const PopupMenuItem(
                 value: 'print',
                 child: Row(
@@ -3682,6 +3702,7 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
                   ],
                 ),
               ),
+              if (_dpPerm('dp_donem_kopyala'))
               PopupMenuItem(
                 value: 'copy',
                 child: Row(
@@ -3692,6 +3713,7 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
                   ],
                 ),
               ),
+              if (_dpPerm('dp_program_temizle'))
               PopupMenuItem(
                 value: 'clear',
                 child: Row(
@@ -3702,6 +3724,14 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
                   ],
                 ),
               ),
+              if (_dpPermAny(const [
+                'dp_oto_ayar_blok',
+                'dp_oto_ayar_saat_kacin',
+                'dp_oto_ayar_birlestirme',
+                'dp_oto_ayar_kapali_saat',
+                'dp_oto_ayar_ogretmen_max',
+                'dp_oto_ayar_yarim_gun',
+              ]))
               PopupMenuItem(
                 value: 'settings',
                 child: Row(
@@ -3712,6 +3742,7 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
                   ],
                 ),
               ),
+              if (_dpPerm('ders_programi_dagitim'))
               PopupMenuItem(
                 value: 'auto_distribute',
                 child: Row(
@@ -3722,6 +3753,9 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
                   ],
                 ),
               ),
+              if (_dpPerm(_isSchedulePublished
+                  ? 'dp_yayindan_kaldir'
+                  : 'ders_programi_yayinla'))
               PopupMenuItem(
                 value: _isSchedulePublished ? 'unpublish' : 'publish',
                 child: Row(

@@ -6,6 +6,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/assessment/external_exam_model.dart';
 import '../../models/assessment/external_exam_registration_model.dart';
 import '../../services/external_exam_service.dart';
+import '../../services/external_exam_result_service.dart';
+import '../../services/external_exam_karne_pdf_service.dart';
+import '../../services/external_exam_outcome_karne.dart';
+import '../../models/assessment/external_exam_result_model.dart';
+import '../../widgets/external_exam_karne_card.dart';
 import '../../constants/turkey_address_data.dart';
 import 'dart:ui' as ui;
 import 'dart:convert';
@@ -494,7 +499,21 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 768;
 
-    return Scaffold(
+    // Tarayıcının / telefonun geri tuşu: başvuru, düzenleme, giriş belgesi ve başarı ekranlarında
+    // uygulamadan çıkmak yerine ana işlem ekranına döner. Açık pencereler (sorgulama vb.) önce kapanır.
+    final atLanding = _portalState == PortalState.landing && !_submitted;
+    return PopScope(
+      canPop: atLanding,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        setState(() {
+          _submitted = false;
+          _isEditing = false;
+          _editingRegId = null;
+          _portalState = PortalState.landing;
+        });
+      },
+      child: Scaffold(
       backgroundColor: const Color(0xFFF1F5F9), // Light beautiful gray/blue base
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: _primaryColor))
@@ -503,6 +522,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
               : _submitted
                   ? _buildSuccessState()
                   : _buildPortalBody(isMobile),
+      ),
     );
   }
 
@@ -519,24 +539,26 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
 
   Widget _buildLandingView(bool isMobile) {
     final isCompact = MediaQuery.of(context).size.width < 650;
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      child: Column(
+    // Tüm ekranlarda (bilgisayar, tablet, mobil) tek ekrana sığan, kaymayan sıkı tasarım.
+    final dense = true;
+    final page = Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           // Premium Hero Header
-          _buildPortalHeroHeader(isMobile),
+          _buildPortalHeroHeader(isMobile, dense: dense),
 
           // Portal Options Layout
           Padding(
             padding: EdgeInsets.symmetric(
               horizontal: isMobile ? 16 : 32,
-              vertical: 40,
+              vertical: dense ? 14 : 40,
             ),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1080),
                 child: Column(
                   children: [
+                    if (!dense) ...[
                     Text(
                       'Lütfen yapmak istediğiniz işlemi seçin',
                       style: GoogleFonts.inter(
@@ -556,11 +578,12 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 36),
+                    ],
 
                     // Regulation button (kept at top)
-                    _buildWideRegulationButton(isMobile),
+                    _buildWideRegulationButton(isMobile, dense: dense),
 
-                    const SizedBox(height: 24),
+                    SizedBox(height: dense ? 10 : 24),
 
                     // Option cards
                     Builder(
@@ -576,6 +599,8 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                               gradientColors: [const Color(0xFFFF9800), const Color(0xFFF57C00)],
                               buttonText: 'Başvuru Ekranına Git',
                               isStretched: !isCompact,
+                              dense: dense,
+                              horizontal: isCompact,
                               onTap: () {
                                 setState(() {
                                   _isEditing = false;
@@ -610,6 +635,8 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                               gradientColors: [const Color(0xFF3B82F6), const Color(0xFF1D4ED8)],
                               buttonText: 'Başvuruyu Güncelle',
                               isStretched: !isCompact,
+                              dense: dense,
+                              horizontal: isCompact,
                               onTap: () => _showTcLookupDialog(isEdit: true),
                             ),
                           );
@@ -624,6 +651,8 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                               gradientColors: [const Color(0xFF10B981), const Color(0xFF047857)],
                               buttonText: 'Belgeyi Sorgula',
                               isStretched: !isCompact,
+                              dense: dense,
+                              horizontal: isCompact,
                               onTap: () => _showTcLookupDialog(isEdit: false),
                             ),
                           );
@@ -649,7 +678,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                         if (isCompact) {
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 16), child: c)).toList(),
+                            children: cards.map((c) => Padding(padding: EdgeInsets.only(bottom: dense ? 8 : 16), child: c)).toList(),
                           );
                         } else {
                           // Row - Equal Width Cards
@@ -675,27 +704,54 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                       },
                     ),
 
-                    const SizedBox(height: 24),
+                    SizedBox(height: dense ? 10 : 24),
                     // Results button placed after cards
-                    _buildWideResultsButton(isMobile),
-                    const SizedBox(height: 24),
+                    _buildWideResultsButton(isMobile, dense: dense),
+                    if (dense) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        'Lütfen yapmak istediğiniz işlemi seçin',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blueGrey.shade500,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ] else
+                      const SizedBox(height: 24),
                   ],
                 ),
               ),
             ),
           ),
         ],
+      );
+    if (!dense) {
+      return SingleChildScrollView(physics: const BouncingScrollPhysics(), child: page);
+    }
+    // Tek sayfa: içerik ekrana sığmazsa otomatik küçülür, asla kaymaz.
+    return LayoutBuilder(
+      builder: (context, cons) => SizedBox(
+        width: cons.maxWidth,
+        height: cons.maxHeight,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.center,
+          child: SizedBox(width: cons.maxWidth, child: page),
+        ),
       ),
     );
   }
 
-  Widget _buildWideRegulationButton(bool isMobile) {
+  Widget _buildWideRegulationButton(bool isMobile, {bool dense = false}) {
     if (_exam == null) return const SizedBox.shrink();
     final showRegButton = _exam!.showRegulation &&
         _exam!.regulationUrl != null &&
         _exam!.regulationUrl!.isNotEmpty;
     if (!showRegButton) return const SizedBox.shrink();
     return _buildWideButton(
+      dense: dense,
       title: 'SINAV YÖNERGESİ VE KILAVUZU',
       subtitle: 'Sınav kuralları, katılım şartları ve detayları incelemek için tıklayınız.',
       icon: Icons.menu_book_rounded,
@@ -712,11 +768,12 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
     );
   }
 
-  Widget _buildWideResultsButton(bool isMobile) {
+  Widget _buildWideResultsButton(bool isMobile, {bool dense = false}) {
     if (_exam == null) return const SizedBox.shrink();
     final showResButton = _exam!.showResults;
     if (!showResButton) return const SizedBox.shrink();
     return _buildWideButton(
+      dense: dense,
       title: 'SINAV SONUÇLARI SORGULAMA',
       subtitle: 'Sınav sonuçları, puan durumları ve burs derecelerini öğrenmek için tıklayınız.',
       icon: Icons.workspace_premium_rounded,
@@ -726,22 +783,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
         final publishDate = _exam!.regulationPublishDate;
         final isPublished = publishDate != null && now.isAfter(publishDate);
         if (isPublished) {
-          showDialog(
-            context: context,
-            builder: (ctx) => _buildPremiumDialog(
-              title: 'Sınav Sonuçları',
-              content: Text(
-                'Sınav sonuçları açıklanmıştır! Sonuç belgenizi almak ve kayıt işlemleri hakkında detaylı bilgi edinmek için lütfen kurumumuz ile iletişime geçiniz.',
-                style: GoogleFonts.inter(height: 1.5),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: Text('Kapat', style: GoogleFonts.inter(color: _accentColor, fontWeight: FontWeight.bold)),
-                ),
-              ],
-            ),
-          );
+          _showResultLookupDialog();
         } else {
           String msg = 'Sınav sonuçları henüz açıklanmamıştır.';
           if (publishDate != null) {
@@ -765,6 +807,167 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
           );
         }
       },
+    );
+  }
+
+  /// Sonuç sorgulama: T.C. kimlik no ile karne (puan, sıralama, burs durumu) gösterir.
+  void _showResultLookupDialog() {
+    final tcCtrl = TextEditingController();
+    ExternalExamResult? found;
+    bool loading = false;
+    bool notFound = false;
+    String? error;
+    final resultService = ExternalExamResultService();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) {
+          Future<void> search() async {
+            final tc = tcCtrl.text.trim();
+            // Başvurusuz eklenen adaylar için sonuç, optik dosyadaki T.C. ya da okul no ile
+            // sorgulanabilir; bu yüzden sağlama (algoritma) kontrolü yapılmaz.
+            if (!RegExp(r'^\d{5,11}$').hasMatch(tc)) {
+              setD(() => error = 'Lütfen T.C. Kimlik Numaranızı (veya okul numaranızı) girin.');
+              return;
+            }
+            setD(() {
+              loading = true;
+              error = null;
+              notFound = false;
+            });
+            try {
+              final r = await resultService.getResult(_examId, tc);
+              setD(() {
+                found = r;
+                notFound = r == null;
+                loading = false;
+              });
+            } catch (e) {
+              setD(() {
+                loading = false;
+                error = 'Sonuç sorgulanırken hata oluştu. Lütfen tekrar deneyin.';
+              });
+            }
+          }
+
+          return Dialog(
+            backgroundColor: const Color(0xFFF1F5F9),
+            insetPadding: const EdgeInsets.all(16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 640, maxHeight: 860),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 8, 0),
+                    child: Row(
+                      children: [
+                        if (found != null)
+                          IconButton(
+                            tooltip: 'Geri',
+                            onPressed: () => setD(() {
+                              found = null;
+                              notFound = false;
+                              error = null;
+                            }),
+                            icon: const Icon(Icons.arrow_back_rounded),
+                          ),
+                        const Icon(Icons.workspace_premium_rounded, color: _tealColor),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text('Sınav Sonucu Sorgulama', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
+                        IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
+                      ],
+                    ),
+                  ),
+                  if (found == null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: tcCtrl,
+                            keyboardType: TextInputType.number,
+                            maxLength: 11,
+                            onSubmitted: (_) => search(),
+                            decoration: InputDecoration(
+                              counterText: '',
+                              labelText: 'Öğrenci T.C. Kimlik No',
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              errorText: error,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        FilledButton(
+                          onPressed: loading ? null : search,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _tealColor,
+                            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+                          ),
+                          child: loading
+                              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Text('Sorgula'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                      child: found != null
+                          ? Column(
+                              children: [
+                                ExternalExamKarneCard(exam: _exam!, result: found!, schoolName: _schoolName),
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 10,
+                                  runSpacing: 10,
+                                  alignment: WrapAlignment.center,
+                                  children: [
+                                    FilledButton.icon(
+                                      onPressed: () => ExternalExamOutcomeKarne.open(ctx, _exam!, found!),
+                                      icon: const Icon(Icons.track_changes_rounded),
+                                      label: const Text('Kazanım Karnesini Gör'),
+                                      style: FilledButton.styleFrom(backgroundColor: _tealColor),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: () => ExternalExamOutcomeKarne.printWithChoice(
+                                        ctx,
+                                        _exam!,
+                                        [found!],
+                                        schoolName: _schoolName,
+                                      ),
+                                      icon: const Icon(Icons.print_rounded),
+                                      label: const Text('Yazdır'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            )
+                          : Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(
+                                notFound
+                                    ? 'Bu T.C. Kimlik Numarasına ait sınav sonucu bulunamadı. Sınava katıldıysanız lütfen kurumumuzla iletişime geçiniz.'
+                                    : 'Sonucunuzu görmek için T.C. Kimlik Numaranızı girip "Sorgula" butonuna basın.',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.inter(color: notFound ? Colors.red.shade700 : Colors.grey.shade600, height: 1.5),
+                              ),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -823,6 +1026,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
     required IconData icon,
     required List<Color> gradientColors,
     required VoidCallback onTap,
+    bool dense = false,
   }) {
     return Container(
       width: double.infinity,
@@ -832,7 +1036,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(dense ? 14 : 20),
         boxShadow: [
           BoxShadow(
             color: gradientColors.last.withValues(alpha: 0.25),
@@ -847,18 +1051,18 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
           onTap: onTap,
           borderRadius: BorderRadius.circular(20),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            padding: EdgeInsets.symmetric(horizontal: dense ? 16 : 24, vertical: dense ? 10 : 20),
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: EdgeInsets.all(dense ? 8 : 12),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(dense ? 10 : 14),
                   ),
-                  child: Icon(icon, color: Colors.white, size: 28),
+                  child: Icon(icon, color: Colors.white, size: dense ? 20 : 28),
                 ),
-                const SizedBox(width: 18),
+                SizedBox(width: dense ? 12 : 18),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -866,17 +1070,17 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                       Text(
                         title,
                         style: GoogleFonts.inter(
-                          fontSize: 14,
+                          fontSize: dense ? 12.5 : 14,
                           fontWeight: FontWeight.w900,
                           color: Colors.white,
                           letterSpacing: 0.5,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: dense ? 2 : 4),
                       Text(
                         subtitle,
                         style: GoogleFonts.inter(
-                          fontSize: 12,
+                          fontSize: dense ? 11 : 12,
                           color: Colors.white.withValues(alpha: 0.85),
                         ),
                       ),
@@ -895,7 +1099,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
   
 
 
-  Widget _buildPortalHeroHeader(bool isMobile) {
+  Widget _buildPortalHeroHeader(bool isMobile, {bool dense = false}) {
     return Container(
       width: double.infinity,
       decoration: const BoxDecoration(
@@ -906,8 +1110,8 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
         ),
       ),
       padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 24 : 48,
-        vertical: isMobile ? 40 : 64,
+        horizontal: isMobile ? 20 : 48,
+        vertical: dense ? (isMobile ? 14 : 18) : (isMobile ? 40 : 64),
       ),
       child: Center(
         child: ConstrainedBox(
@@ -925,7 +1129,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                     letterSpacing: 1.5,
                   ),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: dense ? 6 : 12),
               ],
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -950,22 +1154,22 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: dense ? 8 : 20),
               Text(
                 _exam?.title ?? 'Sınav Kayıt Portalı',
                 style: GoogleFonts.inter(
-                  fontSize: isMobile ? 26 : 38,
+                  fontSize: isMobile ? (dense ? 20 : 26) : (dense ? 28 : 38),
                   fontWeight: FontWeight.w900,
                   color: Colors.white,
                   letterSpacing: -0.5,
                   height: 1.2,
                 ),
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: dense ? 6 : 12),
               Text(
                 'Lütfen bu portal aracılığıyla başvurunuzu oluşturun, düzenleyin veya yerleştiğiniz salon kodunu öğrenerek giriş belgenizi indirin.',
                 style: GoogleFonts.inter(
-                  fontSize: isMobile ? 13 : 15,
+                  fontSize: isMobile ? (dense ? 11.5 : 13) : 15,
                   color: Colors.grey.shade400,
                   height: 1.5,
                 ),
@@ -985,11 +1189,61 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
     required String buttonText,
     required VoidCallback onTap,
     bool isStretched = false,
+    bool dense = false,
+    bool horizontal = false,
   }) {
+    if (horizontal) {
+      // Mobil: tek satırlık sıkı kart (ikon + başlık/açıklama + küçük buton).
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(9),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: gradientColors, begin: Alignment.topLeft, end: Alignment.bottomRight),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(icon, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(title, style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
+                  const SizedBox(height: 2),
+                  Text(description, maxLines: 2, overflow: TextOverflow.ellipsis, style: GoogleFonts.inter(fontSize: 10.5, color: Colors.blueGrey.shade600, height: 1.3)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: onTap,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: gradientColors.last,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                minimumSize: const Size(0, 34),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                elevation: 0,
+              ),
+              child: Text(buttonText.split(' ').last, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 11.5)),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(dense ? 16 : 24),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
@@ -998,44 +1252,44 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
           ),
         ],
       ),
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.all(dense ? 14 : 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Icon Box
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(dense ? 9 : 16),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: gradientColors,
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(dense ? 11 : 16),
             ),
-            child: Icon(icon, color: Colors.white, size: 28),
+            child: Icon(icon, color: Colors.white, size: dense ? 20 : 28),
           ),
-          const SizedBox(height: 20),
+          SizedBox(height: dense ? 8 : 20),
           Text(
             title,
             style: GoogleFonts.inter(
-              fontSize: 18,
+              fontSize: dense ? 15 : 18,
               fontWeight: FontWeight.bold,
               color: const Color(0xFF1E293B),
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: dense ? 4 : 8),
           Text(
             description,
             style: GoogleFonts.inter(
-              fontSize: 13,
+              fontSize: dense ? 11.5 : 13,
               color: Colors.blueGrey.shade600,
               height: 1.4,
             ),
           ),
           // Adjust spacing to reduce cramped layout on edit card
-          const SizedBox(height: 12),
-          if (isStretched) const Spacer() else const SizedBox(height: 24),
+          SizedBox(height: dense ? 8 : 12),
+          if (isStretched) const Spacer() else SizedBox(height: dense ? 12 : 24),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -1043,9 +1297,9 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
               style: ElevatedButton.styleFrom(
                 backgroundColor: gradientColors.last,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                padding: EdgeInsets.symmetric(vertical: dense ? 8 : 14),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(dense ? 10 : 14),
                 ),
                 elevation: 0,
               ),
@@ -1053,7 +1307,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                 buttonText,
                 style: GoogleFonts.inter(
                   fontWeight: FontWeight.bold,
-                  fontSize: 14,
+                  fontSize: dense ? 12.5 : 14,
                 ),
               ),
             ),

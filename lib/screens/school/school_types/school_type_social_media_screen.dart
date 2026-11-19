@@ -14,6 +14,7 @@ import '../../../services/term_service.dart';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:ui_web' as ui;
 import '../../../widgets/user_avatar.dart';
+import '../../../widgets/edukn_app_bar.dart';
 import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class SchoolTypeSocialMediaScreen extends StatefulWidget {
@@ -83,12 +84,20 @@ class _SchoolTypeSocialMediaScreenState
           Expanded(
             child: TextField(
               controller: _searchController,
-              onChanged: (v) => setState(() => _searchText = v.trim().toLowerCase()),
+              onChanged: (v) =>
+                  setState(() => _searchText = v.trim().toLowerCase()),
               style: GoogleFonts.inter(fontSize: 13),
               decoration: InputDecoration(
                 hintText: 'Medya paylaşımı ara...',
-                hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.blueGrey.shade400),
-                prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Colors.indigo),
+                hintStyle: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: Colors.blueGrey.shade400,
+                ),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  size: 20,
+                  color: Colors.indigo,
+                ),
                 suffixIcon: _searchText.isEmpty
                     ? null
                     : IconButton(
@@ -122,19 +131,29 @@ class _SchoolTypeSocialMediaScreenState
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.date_range_rounded,
-                      size: 20, color: _range != null ? Colors.white : Colors.indigo),
+                  Icon(
+                    Icons.date_range_rounded,
+                    size: 20,
+                    color: _range != null ? Colors.white : Colors.indigo,
+                  ),
                   if (_range != null) ...[
                     const SizedBox(width: 6),
                     Text(
                       '${df.format(_range!.start)} - ${df.format(_range!.end)}',
                       style: GoogleFonts.inter(
-                          fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
                     ),
                     const SizedBox(width: 4),
                     GestureDetector(
                       onTap: () => setState(() => _range = null),
-                      child: const Icon(Icons.close_rounded, size: 16, color: Colors.white),
+                      child: const Icon(
+                        Icons.close_rounded,
+                        size: 16,
+                        color: Colors.white,
+                      ),
                     ),
                   ],
                 ],
@@ -171,23 +190,39 @@ class _SchoolTypeSocialMediaScreenState
       final role = (data?['role'] ?? '').toString().toLowerCase();
       final type = (data?['type'] ?? '').toString().toLowerCase();
 
-      final isTeacher = role.contains('ogretmen') || role.contains('öğretmen') || role.contains('teacher');
-      final isGlobalAdmin = role == 'admin' || role == 'manager' || role == 'genel_mudur' || type == 'admin';
+      final isTeacher =
+          role.contains('ogretmen') ||
+          role.contains('öğretmen') ||
+          role.contains('teacher');
+      final isGlobalAdmin =
+          role == 'admin' ||
+          role == 'manager' ||
+          role == 'genel_mudur' ||
+          type == 'admin';
 
       List<Map<String, dynamic>> loadedTypes = [];
 
       for (var d in snapshot.docs) {
         final stId = d.id;
-        final stName = d.data()['name'] ?? d.data()['schoolTypeName'] ?? d.data()['typeName'] ?? d.data()['schoolName'] ?? 'Bilinmeyen Okul Türü';
+        final stName =
+            d.data()['name'] ??
+            d.data()['schoolTypeName'] ??
+            d.data()['typeName'] ??
+            d.data()['schoolName'] ??
+            'Bilinmeyen Okul Türü';
 
         if (!isGlobalAdmin) {
           bool hasAccess = false;
-          if (userSchoolTypeId != null && userSchoolTypeId == stId) hasAccess = true;
+          if (userSchoolTypeId != null && userSchoolTypeId == stId)
+            hasAccess = true;
           if (userSchoolTypeIds.contains(stId)) hasAccess = true;
-          final schoolTypePerms = data?['schoolTypePermissions'] as Map<String, dynamic>?;
-          if (schoolTypePerms != null && schoolTypePerms.containsKey(stId)) hasAccess = true;
+          final schoolTypePerms =
+              data?['schoolTypePermissions'] as Map<String, dynamic>?;
+          if (schoolTypePerms != null && schoolTypePerms.containsKey(stId))
+            hasAccess = true;
 
-          if (!hasAccess) continue; // Skip school types the user is not assigned to
+          if (!hasAccess)
+            continue; // Skip school types the user is not assigned to
         }
 
         loadedTypes.add({'id': stId, 'name': stName});
@@ -224,7 +259,9 @@ class _SchoolTypeSocialMediaScreenState
         builder: (context) => CreateSocialMediaPostScreen(
           schoolTypeId: widget.schoolTypeId.isNotEmpty
               ? widget.schoolTypeId
-              : (_selectedFilterSchoolTypeId == 'GENEL' ? '' : _selectedFilterSchoolTypeId),
+              : (_selectedFilterSchoolTypeId == 'GENEL'
+                    ? ''
+                    : _selectedFilterSchoolTypeId),
           schoolTypeName: widget.schoolTypeName.isNotEmpty
               ? widget.schoolTypeName
               : (_getSchoolTypeName(_selectedFilterSchoolTypeId)),
@@ -235,7 +272,8 @@ class _SchoolTypeSocialMediaScreenState
   }
 
   String _getSchoolTypeName(String? typeId) {
-    if (typeId == null || typeId.isEmpty || typeId == 'GENEL') return 'Genel Paylaşımlar';
+    if (typeId == null || typeId.isEmpty || typeId == 'GENEL')
+      return 'Genel Paylaşımlar';
     final found = _schoolTypes.firstWhere(
       (st) => st['id'] == typeId,
       orElse: () => {'name': 'Genel Paylaşımlar'},
@@ -296,7 +334,9 @@ class _SchoolTypeSocialMediaScreenState
       // Tek bir okul türüne özel yapılmış gönderiler Genel'de HİÇBİR ŞEKİLDE ÇIKMAZ!
       if (isSingleSchoolType) return false;
       // Birden fazla okul türüne, bağımsız birime veya genel kuruma yapılanlar Genel'de ÇIKAR.
-      return isMultipleSchoolTypes || isGeneralOrInstitutionWide || hasNonSchoolUnit;
+      return isMultipleSchoolTypes ||
+          isGeneralOrInstitutionWide ||
+          hasNonSchoolUnit;
     } else {
       // Belirli bir okul türü seçildiyse (ör. ABC Ortaokulu): Sadece o okul türünün ID'sini barındıranlar ÇIKAR.
       return targetedSchoolTypeIds.contains(filterId);
@@ -318,55 +358,16 @@ class _SchoolTypeSocialMediaScreenState
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
+      appBar: EduknAppBar(
+        institutionId: widget.institutionId,
+        title: 'Sosyal Medya & Paylaşımlar',
+        subtitle: widget.schoolTypeName.isNotEmpty
+            ? widget.schoolTypeName
+            : (_getSchoolTypeName(_selectedFilterSchoolTypeId)),
+      ),
       body: SafeArea(
         child: NestedScrollView(
           headerSliverBuilder: (context, innerBoxIsScrolled) => [
-            // Standardized AppBar matching announcement screen typography & back button
-            SliverAppBar(
-              pinned: true,
-              backgroundColor: Colors.indigo,
-              elevation: 0,
-              automaticallyImplyLeading: false,
-              title: Row(
-                children: [
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(
-                      Icons.arrow_back_ios_new_rounded,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.schoolTypeName.isNotEmpty
-                            ? widget.schoolTypeName
-                            : (_getSchoolTypeName(_selectedFilterSchoolTypeId)),
-                        style: GoogleFonts.inter(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        'Sosyal Medya & Paylaşımlar',
-                        style: GoogleFonts.inter(
-                          color: Colors.white.withValues(alpha: 0.85),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              actions: const [], // Mükerrer butonu kaldırıldı - FAB kullanılmaktadır
-            ),
-
             // Header section: School Type Categorization Dropdown + Read/Past View Mode Switcher
             SliverPersistentHeader(
               pinned: true,
@@ -375,7 +376,10 @@ class _SchoolTypeSocialMediaScreenState
                 maxHeight: _shouldShowSchoolTypeFilter ? 167.0 : 117.0,
                 child: Container(
                   color: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -393,24 +397,43 @@ class _SchoolTypeSocialMediaScreenState
                               fontWeight: FontWeight.w600,
                             ),
                             decoration: InputDecoration(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
-                              prefixIcon: const Icon(Icons.school_rounded, color: Colors.indigo, size: 18),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 0,
+                              ),
+                              prefixIcon: const Icon(
+                                Icons.school_rounded,
+                                color: Colors.indigo,
+                                size: 18,
+                              ),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(14),
-                                borderSide: BorderSide(color: Colors.indigo.shade100, width: 1.5),
+                                borderSide: BorderSide(
+                                  color: Colors.indigo.shade100,
+                                  width: 1.5,
+                                ),
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(14),
-                                borderSide: BorderSide(color: Colors.indigo.shade100, width: 1.5),
+                                borderSide: BorderSide(
+                                  color: Colors.indigo.shade100,
+                                  width: 1.5,
+                                ),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(14),
-                                borderSide: const BorderSide(color: Colors.indigo, width: 2),
+                                borderSide: const BorderSide(
+                                  color: Colors.indigo,
+                                  width: 2,
+                                ),
                               ),
                               filled: true,
                               fillColor: Colors.indigo.withValues(alpha: 0.02),
                             ),
-                            initialValue: _selectedFilterSchoolTypeId == 'GENEL' && _isTeacher && _schoolTypes.isNotEmpty
+                            initialValue:
+                                _selectedFilterSchoolTypeId == 'GENEL' &&
+                                    _isTeacher &&
+                                    _schoolTypes.isNotEmpty
                                 ? _schoolTypes.first['id']
                                 : _selectedFilterSchoolTypeId,
                             hint: Text(
@@ -422,23 +445,35 @@ class _SchoolTypeSocialMediaScreenState
                               ),
                             ),
                             isExpanded: true,
-                            icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.indigo, size: 22),
+                            icon: const Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: Colors.indigo,
+                              size: 22,
+                            ),
                             items: [
                               if (!_isTeacher)
                                 DropdownMenuItem(
                                   value: 'GENEL',
                                   child: Text(
                                     'Genel Paylaşımlar (Tüm Kurum)',
-                                    style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                                    style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
-                              ..._schoolTypes.map((type) => DropdownMenuItem(
-                                value: type['id'] as String,
-                                child: Text(
-                                  type['name'] as String,
-                                  style: GoogleFonts.inter(fontWeight: FontWeight.w500),
-                                ),
-                              )).toList(),
+                              ..._schoolTypes
+                                  .map(
+                                    (type) => DropdownMenuItem(
+                                      value: type['id'] as String,
+                                      child: Text(
+                                        type['name'] as String,
+                                        style: GoogleFonts.inter(
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
                             ],
                             onChanged: (val) {
                               if (val != null) {
@@ -489,21 +524,27 @@ class _SchoolTypeSocialMediaScreenState
             ),
           ],
           body: SafeStreamBuilder<QuerySnapshot>(
-            stream: Stream.fromFuture(TermService().getSelectedTermId()).asyncExpand((termId) {
-              Query query = FirebaseFirestore.instance
-                  .collection('social_media_posts')
-                  .where('institutionId', isEqualTo: widget.institutionId);
+            stream: Stream.fromFuture(TermService().getSelectedTermId())
+                .asyncExpand((termId) {
+                  Query query = FirebaseFirestore.instance
+                      .collection('social_media_posts')
+                      .where('institutionId', isEqualTo: widget.institutionId);
 
-              if (widget.schoolTypeId.isNotEmpty) {
-                query = query.where('schoolTypeId', isEqualTo: widget.schoolTypeId);
-              }
+                  if (widget.schoolTypeId.isNotEmpty) {
+                    query = query.where(
+                      'schoolTypeId',
+                      isEqualTo: widget.schoolTypeId,
+                    );
+                  }
 
-              if (termId != null && termId.isNotEmpty) {
-                query = query.where('termId', isEqualTo: termId);
-              }
+                  if (termId != null && termId.isNotEmpty) {
+                    query = query.where('termId', isEqualTo: termId);
+                  }
 
-              return query.orderBy('createdAt', descending: true).snapshots();
-            }),
+                  return query
+                      .orderBy('createdAt', descending: true)
+                      .snapshots();
+                }),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
@@ -529,16 +570,20 @@ class _SchoolTypeSocialMediaScreenState
               for (final doc in snapshot.data!.docs) {
                 final data = doc.data() as Map<String, dynamic>;
                 final readByList = List<String>.from(data['readBy'] ?? []);
-                final isRead = currentUserEmail.isNotEmpty && readByList.contains(currentUserEmail);
+                final isRead =
+                    currentUserEmail.isNotEmpty &&
+                    readByList.contains(currentUserEmail);
                 if (!isRead) {
                   _sessionUnreadDocIds.add(doc.id);
                 }
               }
 
               // Filter documents by school type categorization & read status
-              List<QueryDocumentSnapshot> posts = snapshot.data!.docs.where((doc) {
+              List<QueryDocumentSnapshot> posts = snapshot.data!.docs.where((
+                doc,
+              ) {
                 final data = doc.data() as Map<String, dynamic>;
-                
+
                 // Institution check
                 if (data['institutionId'] != null &&
                     data['institutionId'] != widget.institutionId) {
@@ -553,19 +598,30 @@ class _SchoolTypeSocialMediaScreenState
                 // Yeni / Geçmiş: paylaşım tarihinden itibaren 3 gün 'Yeni', sonrası 'Geçmiş'
                 // Arama (baslik, aciklama, paylasan) ve tarih araligi filtresi
                 if (_searchText.isNotEmpty) {
-                  final hay = ("${data['title'] ?? ''} ${data['caption'] ?? ''} ${data['creatorName'] ?? ''}").toLowerCase();
+                  final hay =
+                      ("${data['title'] ?? ''} ${data['caption'] ?? ''} ${data['creatorName'] ?? ''}")
+                          .toLowerCase();
                   if (!hay.contains(_searchText)) return false;
                 }
                 if (_range != null) {
                   final ts = data['createdAt'] as Timestamp?;
                   if (ts == null) return false;
                   final dt = ts.toDate();
-                  final end = DateTime(_range!.end.year, _range!.end.month, _range!.end.day, 23, 59, 59);
-                  if (dt.isBefore(_range!.start) || dt.isAfter(end)) return false;
+                  final end = DateTime(
+                    _range!.end.year,
+                    _range!.end.month,
+                    _range!.end.day,
+                    23,
+                    59,
+                    59,
+                  );
+                  if (dt.isBefore(_range!.start) || dt.isAfter(end))
+                    return false;
                 }
 
                 final createdTs = data['createdAt'] as Timestamp?;
-                final isRecent = createdTs == null ||
+                final isRecent =
+                    createdTs == null ||
                     DateTime.now().difference(createdTs.toDate()).inDays < 3;
                 if (!_isSearching && _viewMode == 'new' && !isRecent) {
                   return false;
@@ -586,8 +642,8 @@ class _SchoolTypeSocialMediaScreenState
                         _viewMode == 'new'
                             ? Icons.mark_chat_read_rounded
                             : (_viewMode == 'past'
-                                ? Icons.history_toggle_off_rounded
-                                : Icons.find_in_page_rounded),
+                                  ? Icons.history_toggle_off_rounded
+                                  : Icons.find_in_page_rounded),
                         size: 64,
                         color: Colors.indigo.shade200,
                       ),
@@ -596,8 +652,8 @@ class _SchoolTypeSocialMediaScreenState
                         _viewMode == 'new'
                             ? 'Son 3 gün içinde yeni paylaşım yok'
                             : (_viewMode == 'past'
-                                ? 'Geçmiş paylaşım bulunmuyor'
-                                : 'Henüz paylaşım bulunmuyor'),
+                                  ? 'Geçmiş paylaşım bulunmuyor'
+                                  : 'Henüz paylaşım bulunmuyor'),
                         style: GoogleFonts.inter(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -684,7 +740,10 @@ class _SchoolTypeSocialMediaScreenState
             fontSize: 14,
           ),
         ),
-        icon: const Icon(Icons.add_photo_alternate_rounded, color: Colors.white),
+        icon: const Icon(
+          Icons.add_photo_alternate_rounded,
+          color: Colors.white,
+        ),
         backgroundColor: Colors.indigo,
         elevation: 4,
       ),
@@ -716,7 +775,7 @@ class _SchoolTypeSocialMediaScreenState
                     color: Colors.black.withValues(alpha: 0.06),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
-                  )
+                  ),
                 ]
               : [],
         ),
@@ -788,8 +847,17 @@ class _PostCardState extends State<PostCard> {
     final data = await UserPermissionService.loadUserData();
     final role = (data?['role'] ?? '').toString().toLowerCase();
     final type = (data?['type'] ?? '').toString().toLowerCase();
-    final isTeacher = role.contains('ogretmen') || role.contains('öğretmen') || role.contains('teacher');
-    final isManager = role == 'admin' || role == 'manager' || role == 'genel_mudur' || type == 'admin' || role.contains('mudur') || role.contains('müdür');
+    final isTeacher =
+        role.contains('ogretmen') ||
+        role.contains('öğretmen') ||
+        role.contains('teacher');
+    final isManager =
+        role == 'admin' ||
+        role == 'manager' ||
+        role == 'genel_mudur' ||
+        type == 'admin' ||
+        role.contains('mudur') ||
+        role.contains('müdür');
 
     if (mounted) {
       setState(() {
@@ -808,8 +876,8 @@ class _PostCardState extends State<PostCard> {
             .collection('social_media_posts')
             .doc(widget.postId)
             .update({
-          'readBy': FieldValue.arrayUnion([email]),
-        });
+              'readBy': FieldValue.arrayUnion([email]),
+            });
       } catch (e) {
         debugPrint('Auto mark read error: $e');
       }
@@ -848,14 +916,15 @@ class _PostCardState extends State<PostCard> {
           .collection('social_media_posts')
           .doc(widget.postId)
           .update({'isPinned': !currentStatus});
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            currentStatus ? 'Sabitleme kaldırıldı' : 'Gönderi sabitlendi',
-            style: GoogleFonts.inter(),
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              currentStatus ? 'Sabitleme kaldırıldı' : 'Gönderi sabitlendi',
+              style: GoogleFonts.inter(),
+            ),
           ),
-        ),
-      );
+        );
     } catch (e) {
       debugPrint('Pin error: $e');
     }
@@ -867,13 +936,17 @@ class _PostCardState extends State<PostCard> {
           .collection('social_media_posts')
           .doc(widget.postId)
           .delete();
-      if (mounted) ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Gönderi silindi', style: GoogleFonts.inter())));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gönderi silindi', style: GoogleFonts.inter()),
+          ),
+        );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Hata: $e', style: GoogleFonts.inter())));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e', style: GoogleFonts.inter())),
+        );
     }
   }
 
@@ -948,8 +1021,14 @@ class _PostCardState extends State<PostCard> {
                 showDialog(
                   context: context,
                   builder: (ctx) => AlertDialog(
-                    title: Text('Emin misiniz?', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-                    content: Text('Bu gönderi kalıcı olarak silinecek.', style: GoogleFonts.inter()),
+                    title: Text(
+                      'Emin misiniz?',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+                    ),
+                    content: Text(
+                      'Bu gönderi kalıcı olarak silinecek.',
+                      style: GoogleFonts.inter(),
+                    ),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(ctx),
@@ -963,7 +1042,10 @@ class _PostCardState extends State<PostCard> {
                         style: TextButton.styleFrom(
                           foregroundColor: Colors.red,
                         ),
-                        child: Text('Sil', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                        child: Text(
+                          'Sil',
+                          style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+                        ),
                       ),
                     ],
                   ),
@@ -1032,7 +1114,11 @@ class _PostCardState extends State<PostCard> {
       if (uri.host.contains('youtu.be') && uri.pathSegments.isNotEmpty) {
         return uri.pathSegments.last;
       }
-    } catch (silentError) { debugPrint('[school_type_social_media_screen] hata yutuldu: $silentError'); }
+    } catch (silentError) {
+      debugPrint(
+        '[school_type_social_media_screen] hata yutuldu: $silentError',
+      );
+    }
 
     RegExp regExp = RegExp(
       r'.*(?:(?:youtu\.be\/|v\/|vi\/|u\/\w\/|embed\/|e\/)|(?:(?:watch)?\?v(?:i)?=|\&v(?:i)?=))([^#\&\?]*).*',
@@ -1091,7 +1177,11 @@ class _PostCardState extends State<PostCard> {
             h = c.maxHeight;
             w = h * 16 / 9;
           }
-          return SizedBox(width: w, height: h, child: ClipRect(child: child));
+          return SizedBox(
+            width: w,
+            height: h,
+            child: ClipRect(child: child),
+          );
         },
       ),
     );
@@ -1134,7 +1224,8 @@ class _PostCardState extends State<PostCard> {
               // açar; bunu daha geniş bir tasarım boyutunda çizip küçülterek
               // masaüstü görünümüne yaklaştırıyoruz.
               final ua = html.window.navigator.userAgent.toLowerCase();
-              final touchMode = ua.contains('mobile') ||
+              final touchMode =
+                  ua.contains('mobile') ||
                   ua.contains('android') ||
                   ua.contains('iphone') ||
                   (html.window.navigator.maxTouchPoints ?? 0) > 0;
@@ -1166,7 +1257,11 @@ class _PostCardState extends State<PostCard> {
             });
             return wrapper;
           });
-        } catch (silentError) { debugPrint('[school_type_social_media_screen] hata yutuldu: $silentError'); }
+        } catch (silentError) {
+          debugPrint(
+            '[school_type_social_media_screen] hata yutuldu: $silentError',
+          );
+        }
 
         return _fitVideoBox(
           Stack(
@@ -1311,7 +1406,9 @@ class _PostCardState extends State<PostCard> {
     final creatorEmail = data['createdBy'] ?? '';
 
     final readByList = List<String>.from(data['readBy'] ?? []);
-    final isRead = widget.currentUserEmail != null && readByList.contains(widget.currentUserEmail);
+    final isRead =
+        widget.currentUserEmail != null &&
+        readByList.contains(widget.currentUserEmail);
 
     // School type & recipient tagging labels
     final postSchoolTypeId = (data['schoolTypeId'] ?? '').toString();
@@ -1359,7 +1456,10 @@ class _PostCardState extends State<PostCard> {
                   children: [
                     // School Type Chip Tag
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.indigo.shade50,
                         borderRadius: BorderRadius.circular(8),
@@ -1368,7 +1468,11 @@ class _PostCardState extends State<PostCard> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.school_rounded, size: 12, color: Colors.indigo.shade700),
+                          Icon(
+                            Icons.school_rounded,
+                            size: 12,
+                            color: Colors.indigo.shade700,
+                          ),
                           const SizedBox(width: 4),
                           Text(
                             schoolTagLabel,
@@ -1384,29 +1488,44 @@ class _PostCardState extends State<PostCard> {
                     const SizedBox(width: 6),
                     // Target Audience Badge
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
-                        color: isPublic ? Colors.teal.shade50 : Colors.purple.shade50,
+                        color: isPublic
+                            ? Colors.teal.shade50
+                            : Colors.purple.shade50,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: isPublic ? Colors.teal.shade200 : Colors.purple.shade200,
+                          color: isPublic
+                              ? Colors.teal.shade200
+                              : Colors.purple.shade200,
                         ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            isPublic ? Icons.public_rounded : Icons.groups_rounded,
+                            isPublic
+                                ? Icons.public_rounded
+                                : Icons.groups_rounded,
                             size: 12,
-                            color: isPublic ? Colors.teal.shade700 : Colors.purple.shade700,
+                            color: isPublic
+                                ? Colors.teal.shade700
+                                : Colors.purple.shade700,
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            isPublic ? 'Tüm Okul' : '${recipientsList.length} Alıcı Grubu',
+                            isPublic
+                                ? 'Tüm Okul'
+                                : '${recipientsList.length} Alıcı Grubu',
                             style: GoogleFonts.inter(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
-                              color: isPublic ? Colors.teal.shade800 : Colors.purple.shade800,
+                              color: isPublic
+                                  ? Colors.teal.shade800
+                                  : Colors.purple.shade800,
                             ),
                           ),
                         ],
@@ -1418,7 +1537,10 @@ class _PostCardState extends State<PostCard> {
                     // Unread Status Badge ("YENİ")
                     if (!isRead)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.amber.shade500,
                           borderRadius: BorderRadius.circular(8),
@@ -1494,7 +1616,8 @@ class _PostCardState extends State<PostCard> {
                             widget.currentUserEmail == creatorEmail))
                       IconButton(
                         icon: const Icon(Icons.more_horiz, size: 20),
-                        onPressed: () => _showPostOptions(isPinned, creatorEmail),
+                        onPressed: () =>
+                            _showPostOptions(isPinned, creatorEmail),
                       ),
                   ],
                 ),
@@ -1717,7 +1840,10 @@ class _PostCardState extends State<PostCard> {
                         ),
                         TextSpan(
                           text: caption,
-                          style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade800),
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            color: Colors.grey.shade800,
+                          ),
                         ),
                       ],
                     ),
@@ -1727,7 +1853,10 @@ class _PostCardState extends State<PostCard> {
                 const SizedBox(height: 4),
                 Text(
                   _formatTimeAgo(date),
-                  style: GoogleFonts.inter(color: Colors.blueGrey.shade400, fontSize: 10),
+                  style: GoogleFonts.inter(
+                    color: Colors.blueGrey.shade400,
+                    fontSize: 10,
+                  ),
                 ),
                 const SizedBox(height: 8),
               ],
@@ -1881,7 +2010,11 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => math.max(maxHeight, minHeight);
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
     return SizedBox.expand(child: child);
   }
 

@@ -20,6 +20,7 @@ class TeacherHaberlesmeScreen extends StatelessWidget {
       schoolTypeId: schoolTypeId ?? '',
       schoolTypeName: schoolTypeName ?? '',
       isTeacher: true,
+      showAppBar: true,
     );
   }
 }

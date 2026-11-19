@@ -671,8 +671,9 @@ class _CopyStudentsDialogState extends State<CopyStudentsDialog> {
       final sourceData = sourceClassDoc.data();
       final sourceSchoolTypeId = sourceData?['schoolTypeId'];
       final sourceClassLevel = sourceData?['classLevel'];
+      final sourceTermId = sourceData?['termId'];
 
-      // Aynı okul türü ve sınıf seviyesindeki FARKLI TİPTEKİ sınıfları getir
+      // Aynı okul türü, dönem ve sınıf seviyesindeki FARKLI TİPTEKİ sınıfları getir
       final snapshot = await FirebaseFirestore.instance
           .collection('classes')
           .where('schoolTypeId', isEqualTo: sourceSchoolTypeId)
@@ -680,18 +681,26 @@ class _CopyStudentsDialogState extends State<CopyStudentsDialog> {
           .where('isActive', isEqualTo: true)
           .get();
 
-      final classes = snapshot.docs
-          .where((doc) {
-            // Kaynak sınıfı ve "Ders Sınıfı" tipindeki sınıfları hariç tut
-            return doc.id != widget.sourceClassId &&
-                doc.data()['classTypeName'] != 'Ders Sınıfı';
-          })
-          .map((doc) {
-            final data = doc.data();
-            data['id'] = doc.id;
-            return data;
-          })
-          .toList();
+      final seenNames = <String>{};
+      final classes = <Map<String, dynamic>>[];
+      for (final doc in snapshot.docs) {
+        if (doc.id == widget.sourceClassId ||
+            doc.data()['classTypeName'] == 'Ders Sınıfı') {
+          continue;
+        }
+        if (sourceTermId != null && doc.data()['termId'] != sourceTermId) {
+          continue;
+        }
+        final data = doc.data();
+        final normName = (data['className'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        if (normName.isNotEmpty && seenNames.add(normName)) {
+          data['id'] = doc.id;
+          classes.add(data);
+        }
+      }
 
       if (mounted) {
         setState(() {

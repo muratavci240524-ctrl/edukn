@@ -46,7 +46,13 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      // 1. Get current active/selected term
+      // 1. Önce mevcut mükerrer/boş şubeleri temizle
+      await TermService().deduplicateAndCleanClasses(
+        institutionId: widget.institutionId,
+        schoolTypeId: widget.schoolTypeId,
+      );
+
+      // 1b. Get current active/selected term
       final selectedTermId = await TermService().getSelectedTermId();
       final activeTermId = await TermService().getActiveTermId();
       _currentTermId = selectedTermId ?? activeTermId;
@@ -69,7 +75,7 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
         return bYear.compareTo(aYear);
       });
 
-      // 3. Fetch classes for this school type in current term
+      // 3. Fetch classes for this school type in current term (aktif ve tekilleştirilmiş)
       final classesSnapshot = await FirebaseFirestore.instance
           .collection('classes')
           .where('institutionId', isEqualTo: widget.institutionId)
@@ -77,11 +83,19 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
           .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
           .get();
 
-      final classesList = classesSnapshot.docs.map((doc) {
+      final seenClassNames = <String>{};
+      final classesList = <Map<String, dynamic>>[];
+      for (final doc in classesSnapshot.docs) {
         final data = doc.data();
+        if (data['isActive'] == false) continue;
+        final normName = (data['className'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        if (normName.isEmpty || !seenClassNames.add(normName)) continue;
         data['id'] = doc.id;
-        return data;
-      }).toList();
+        classesList.add(data);
+      }
 
       classesList.sort((a, b) => (a['className'] ?? '').toString().compareTo((b['className'] ?? '').toString()));
 
@@ -93,11 +107,14 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
           .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
           .get();
 
-      final studentsList = studentsSnapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        return data;
-      }).toList();
+      final studentsList = studentsSnapshot.docs
+          .where((doc) => doc.data()['isActive'] != false)
+          .map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            return data;
+          })
+          .toList();
 
       studentsList.sort((a, b) => (a['fullName'] ?? '').toString().compareTo((b['fullName'] ?? '').toString()));
 
@@ -231,7 +248,17 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
       // 1. Get chosen students
       final selectedStudents = _students.where((s) => _selectedStudentIds.contains(s['id'])).toList();
 
-      // 2. Load target term classes to map class IDs
+      // Yalnızca seçili öğrencilerin gerçekten bulunduğu şubeleri belirle (boş şubeleri atlatıp mükerrer boş şube oluşturma)
+      final usedSourceClassIds = selectedStudents
+          .map((s) => (s['classId'] ?? '').toString().trim())
+          .where((id) => id.isNotEmpty)
+          .toSet();
+      final usedSourceClassNames = selectedStudents
+          .map((s) => (s['className'] ?? '').toString().trim().toLowerCase())
+          .where((name) => name.isNotEmpty)
+          .toSet();
+
+      // 2. Load target term classes to map class IDs (aktif olanları tercih et ve normalize isimle eşleştir)
       final targetClassesQuery = await FirebaseFirestore.instance
           .collection('classes')
           .where('institutionId', isEqualTo: widget.institutionId)
@@ -239,42 +266,73 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
           .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
           .get();
 
+      // normClassName -> classDocId
       final targetClassesMap = <String, String>{};
+      // classDocId -> displayClassName
+      final targetClassDisplayNames = <String, String>{};
       for (var doc in targetClassesQuery.docs) {
         final data = doc.data();
-        final cName = data['className']?.toString() ?? '';
-        if (cName.isNotEmpty) {
-          targetClassesMap[cName] = doc.id;
+        if (data['isActive'] == false) continue;
+        final cName = (data['className'] ?? '').toString().trim();
+        final normName = cName.toLowerCase();
+        if (normName.isNotEmpty) {
+          targetClassesMap[normName] = doc.id;
+          targetClassDisplayNames[doc.id] = cName;
         }
       }
 
       final classMapping = <String, String>{};
-      final graduatedClassId = 'mezun';
+      final classNameMapping = <String, String>{};
+      const graduatedClassId = 'mezun';
 
-      // 3. Promote classes if checked
+      // 3. Promote classes if checked (yalnızca seçili öğrencisi olan şubeler için, hedef dönemde zaten varsa mevcut şubeyi kullan)
       if (_promoteWithClasses) {
         for (var classObj in _classes) {
-          final currentClassName = classObj['className']?.toString() ?? '';
-          final currentClassLevel = classObj['classLevel']?.toString() ?? '';
-          
-          final nextLevel = getNextLevel(currentClassLevel, widget.schoolTypeName);
-          if (nextLevel == 'Mezun') {
-            classMapping[classObj['id']] = graduatedClassId;
+          final srcId = (classObj['id'] ?? '').toString();
+          final currentClassName = (classObj['className'] ?? '').toString().trim();
+          final normCurrentName = currentClassName.toLowerCase();
+
+          // Bu şubeden seçili hiçbir öğrenci yoksa boş şube oluşturma
+          if (!usedSourceClassIds.contains(srcId) &&
+              !usedSourceClassNames.contains(normCurrentName)) {
             continue;
           }
 
-          final nextClassName = getNextClassName(currentClassName, currentClassLevel, nextLevel);
+          final currentClassLevel = (classObj['classLevel'] ?? '').toString().trim();
+          final nextLevel = getNextLevel(currentClassLevel, widget.schoolTypeName);
+          if (nextLevel == 'Mezun') {
+            classMapping[srcId] = graduatedClassId;
+            classNameMapping[normCurrentName] = graduatedClassId;
+            continue;
+          }
+
+          final nextClassName = getNextClassName(
+            currentClassName,
+            currentClassLevel,
+            nextLevel,
+          ).trim();
+          final normNextName = nextClassName.toLowerCase();
 
           String targetClassId;
-          if (targetClassesMap.containsKey(nextClassName)) {
-            targetClassId = targetClassesMap[nextClassName]!;
+          if (targetClassesMap.containsKey(normNextName)) {
+            // Hedef dönemde bu şube (örn. 701 veya 801) zaten açılmış! Mükerrer şube oluşturma, mevcut olanı kullan.
+            targetClassId = targetClassesMap[normNextName]!;
           } else {
-            // Create upgraded class
+            // Create upgraded class (classLevel'ı int olarak kaydet ve shortName'i güncelle)
             final newClassData = Map<String, dynamic>.from(classObj);
             newClassData.remove('id');
             newClassData['termId'] = _targetTermId;
             newClassData['className'] = nextClassName;
-            newClassData['classLevel'] = nextLevel;
+            final currentShort = (classObj['shortName'] ?? currentClassName)
+                .toString()
+                .trim();
+            newClassData['shortName'] = getNextClassName(
+              currentShort.isEmpty ? currentClassName : currentShort,
+              currentClassLevel,
+              nextLevel,
+            ).trim();
+            newClassData['classLevel'] = int.tryParse(nextLevel) ?? nextLevel;
+            newClassData['isActive'] = true;
             newClassData['createdAt'] = FieldValue.serverTimestamp();
             newClassData['updatedAt'] = FieldValue.serverTimestamp();
             newClassData['copiedFrom'] = _currentTermId;
@@ -283,11 +341,33 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
                 .collection('classes')
                 .add(newClassData);
             targetClassId = newClassRef.id;
-            targetClassesMap[nextClassName] = targetClassId;
+            targetClassesMap[normNextName] = targetClassId;
+            targetClassDisplayNames[targetClassId] = nextClassName;
             classesCount++;
           }
 
-          classMapping[classObj['id']] = targetClassId;
+          classMapping[srcId] = targetClassId;
+          classNameMapping[normCurrentName] = targetClassId;
+        }
+      }
+
+      // Hedef dönemde mevcut öğrencileri çek (aynı öğrencinin mükerrer kopyalanmasını önlemek için)
+      final targetStudentsSnap = await FirebaseFirestore.instance
+          .collection('students')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('termId', isEqualTo: _targetTermId)
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .get();
+      final existingTargetStudentsByKey = <String, DocumentReference>{};
+      for (final doc in targetStudentsSnap.docs) {
+        final d = doc.data();
+        if (d['isActive'] == false) continue;
+        final tc = (d['tcNo'] ?? '').toString().trim();
+        final sNo = (d['studentNo'] ?? '').toString().trim();
+        final fName = (d['fullName'] ?? '').toString().trim().toLowerCase();
+        if (tc.isNotEmpty) existingTargetStudentsByKey['tc:$tc'] = doc.reference;
+        if (sNo.isNotEmpty && fName.isNotEmpty) {
+          existingTargetStudentsByKey['no:$sNo|$fName'] = doc.reference;
         }
       }
 
@@ -296,36 +376,66 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
         final studentData = Map<String, dynamic>.from(student);
         studentData.remove('id');
         studentData['termId'] = _targetTermId;
-        studentData['createdAt'] = FieldValue.serverTimestamp();
         studentData['updatedAt'] = FieldValue.serverTimestamp();
         studentData['copiedFrom'] = _currentTermId;
 
-        final currentLevel = studentData['classLevel']?.toString() ?? '';
+        final currentLevel = (studentData['classLevel'] ?? '').toString().trim();
         final nextLevel = getNextLevel(currentLevel, widget.schoolTypeName);
 
         studentData['classLevel'] = nextLevel;
 
-        final currentClassId = studentData['classId']?.toString() ?? '';
+        final currentClassId = (studentData['classId'] ?? '').toString().trim();
+        final currentClassNameNorm = (studentData['className'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        final mappedTargetClassId =
+            classMapping[currentClassId] ??
+            classNameMapping[currentClassNameNorm];
+
         if (nextLevel == 'Mezun') {
           studentData['classId'] = null;
           studentData['className'] = 'Mezun';
           studentData['isActive'] = false;
-        } else if (_promoteWithClasses && classMapping.containsKey(currentClassId)) {
-          final targetClassId = classMapping[currentClassId]!;
-          studentData['classId'] = targetClassId;
-          
-          final className = targetClassesMap.entries
-              .firstWhere((entry) => entry.value == targetClassId, orElse: () => const MapEntry('', ''))
-              .key;
-          studentData['className'] = className.isNotEmpty ? className : null;
+        } else if (_promoteWithClasses && mappedTargetClassId != null) {
+          studentData['classId'] = mappedTargetClassId;
+          studentData['className'] =
+              targetClassDisplayNames[mappedTargetClassId] ??
+              studentData['className'];
         } else {
           studentData['classId'] = null;
           studentData['className'] = null;
         }
 
-        await FirebaseFirestore.instance.collection('students').add(studentData);
+        final tc = (studentData['tcNo'] ?? '').toString().trim();
+        final sNo = (studentData['studentNo'] ?? '').toString().trim();
+        final fName = (studentData['fullName'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        final existingRef =
+            (tc.isNotEmpty ? existingTargetStudentsByKey['tc:$tc'] : null) ??
+            (sNo.isNotEmpty && fName.isNotEmpty
+                ? existingTargetStudentsByKey['no:$sNo|$fName']
+                : null);
+
+        if (existingRef != null) {
+          await existingRef.update(studentData);
+        } else {
+          studentData['createdAt'] = FieldValue.serverTimestamp();
+          await FirebaseFirestore.instance
+              .collection('students')
+              .add(studentData);
+        }
         studentsCount++;
       }
+
+      // İşlem sonunda hedef dönemde oluşabilecek mükerrer/boş şubeleri temizle
+      await TermService().deduplicateAndCleanClasses(
+        institutionId: widget.institutionId,
+        schoolTypeId: widget.schoolTypeId,
+        termId: _targetTermId,
+      );
 
       setState(() => _isProcessing = false);
       if (mounted) {
@@ -660,7 +770,12 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      // 1. Get current active/selected term
+      // 1. Önce mükerrer/boş şubeleri temizle
+      await TermService().deduplicateAndCleanClasses(
+        institutionId: widget.institutionId,
+      );
+
+      // 1b. Get current active/selected term
       final selectedTermId = await TermService().getSelectedTermId();
       final activeTermId = await TermService().getActiveTermId();
       _currentTermId = selectedTermId ?? activeTermId;
@@ -697,7 +812,7 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
         return bYear.compareTo(aYear);
       });
 
-      // 4. Fetch classes for this school type in current term (for filtering)
+      // 4. Fetch classes for this school type in current term (aktif ve tekilleştirilmiş)
       final classesSnapshot = await FirebaseFirestore.instance
           .collection('classes')
           .where('institutionId', isEqualTo: widget.institutionId)
@@ -705,11 +820,19 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
           .where('schoolTypeId', isEqualTo: widget.sourceSchoolTypeId)
           .get();
 
-      final classesList = classesSnapshot.docs.map((doc) {
+      final seenClassNames = <String>{};
+      final classesList = <Map<String, dynamic>>[];
+      for (final doc in classesSnapshot.docs) {
         final actualData = doc.data();
+        if (actualData['isActive'] == false) continue;
+        final normName = (actualData['className'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        if (normName.isEmpty || !seenClassNames.add(normName)) continue;
         actualData['id'] = doc.id;
-        return actualData;
-      }).toList();
+        classesList.add(actualData);
+      }
 
       classesList.sort((a, b) => (a['className'] ?? '').toString().compareTo((b['className'] ?? '').toString()));
 
@@ -721,11 +844,14 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
           .where('schoolTypeId', isEqualTo: widget.sourceSchoolTypeId)
           .get();
 
-      final studentsList = studentsSnapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        return data;
-      }).toList();
+      final studentsList = studentsSnapshot.docs
+          .where((doc) => doc.data()['isActive'] != false)
+          .map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            return data;
+          })
+          .toList();
 
       studentsList.sort((a, b) => (a['fullName'] ?? '').toString().compareTo((b['fullName'] ?? '').toString()));
 

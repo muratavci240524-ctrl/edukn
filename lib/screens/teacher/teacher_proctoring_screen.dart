@@ -7,18 +7,19 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/user_permission_service.dart';
 import '../school/tools/butterfly_exam/butterfly_attendance_screen.dart';
+import '../school/tools/butterfly_exam/butterfly_exam_hub_screen.dart';
+import '../school/tools/butterfly_exam/butterfly_exam_wizard_screen.dart';
 import '../../models/school/butterfly_exam_model.dart';
 
 class TeacherProctoringScreen extends StatefulWidget {
   final String institutionId;
 
-  const TeacherProctoringScreen({
-    Key? key,
-    required this.institutionId,
-  }) : super(key: key);
+  const TeacherProctoringScreen({Key? key, required this.institutionId})
+    : super(key: key);
 
   @override
-  State<TeacherProctoringScreen> createState() => _TeacherProctoringScreenState();
+  State<TeacherProctoringScreen> createState() =>
+      _TeacherProctoringScreenState();
 }
 
 class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
@@ -64,7 +65,9 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
           });
         }
       }
-    } catch (silentError) { debugPrint('[teacher_proctoring_screen] hata yutuldu: $silentError'); }
+    } catch (silentError) {
+      debugPrint('[teacher_proctoring_screen] hata yutuldu: $silentError');
+    }
   }
 
   Future<void> _loadData({bool isBackground = false}) async {
@@ -74,7 +77,9 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
       if (authUid == null) return;
 
       final userData = await UserPermissionService.loadUserData();
-      final String instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final String instId = (userData?['institutionId'] ?? widget.institutionId)
+          .toString()
+          .toUpperCase();
       final instIds = [instId, instId.toLowerCase()].toSet().toList();
 
       // Takvimle aynı validTeacherIds mantığı — tüm ID varyantları
@@ -102,17 +107,24 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
       for (final inst in instIds) {
         for (int i = 0; i < validTeacherIds.length; i += 10) {
           final chunk = validTeacherIds.skip(i).take(10).toList();
-          queries.add(FirebaseFirestore.instance
-              .collection('proctoringSlots')
-              .where('institutionId', isEqualTo: inst)
-              .where('teacherId', whereIn: chunk)
-              .where('isPublished', isEqualTo: true)
-              .get()
-              .catchError((_) => FirebaseFirestore.instance
-                  .collection('proctoringSlots')
-                  .where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID')
-                  .limit(1)
-                  .get()));
+          queries.add(
+            FirebaseFirestore.instance
+                .collection('proctoringSlots')
+                .where('institutionId', isEqualTo: inst)
+                .where('teacherId', whereIn: chunk)
+                .where('isPublished', isEqualTo: true)
+                .get()
+                .catchError(
+                  (_) => FirebaseFirestore.instance
+                      .collection('proctoringSlots')
+                      .where(
+                        FieldPath.documentId,
+                        isEqualTo: 'NO_MATCH_DUMMY_ID',
+                      )
+                      .limit(1)
+                      .get(),
+                ),
+          );
         }
       }
 
@@ -143,26 +155,32 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                 .limit(1)
                 .get()
                 .then((snap) {
-              if (snap.docs.isNotEmpty) {
-                final sData = snap.docs.first.data();
-                final raw = (sData['manualSlots'] ?? sData['timeSlots']) as List? ?? [];
-                if (raw.isNotEmpty) {
-                  examManualSlotsMap[eId] = raw.map((e) {
-                    if (e is Map) {
-                      return {
-                        'start': (e['start'] ?? e['startTime'] ?? '').toString(),
-                        'end': (e['end'] ?? e['endTime'] ?? '').toString(),
-                      };
+                  if (snap.docs.isNotEmpty) {
+                    final sData = snap.docs.first.data();
+                    final raw =
+                        (sData['manualSlots'] ?? sData['timeSlots']) as List? ??
+                        [];
+                    if (raw.isNotEmpty) {
+                      examManualSlotsMap[eId] = raw.map((e) {
+                        if (e is Map) {
+                          return {
+                            'start': (e['start'] ?? e['startTime'] ?? '')
+                                .toString(),
+                            'end': (e['end'] ?? e['endTime'] ?? '').toString(),
+                          };
+                        }
+                        return {'start': '', 'end': ''};
+                      }).toList();
                     }
-                    return {'start': '', 'end': ''};
-                  }).toList();
-                }
-              }
-            }).catchError((_) {}),
+                  }
+                })
+                .catchError((_) {}),
           );
         }
         try {
-          await Future.wait(settingsFutures).timeout(const Duration(seconds: 3));
+          await Future.wait(
+            settingsFutures,
+          ).timeout(const Duration(seconds: 3));
         } catch (_) {}
 
         // Listeyi güncel saatlerle zenginleştir
@@ -195,28 +213,40 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
         if (bv is Timestamp) db = bv.toDate();
         if (bv is String) db = DateTime.tryParse(bv);
         if (da != null && db != null) {
-          final c = da.compareTo(db);
+          final c = db.compareTo(da); // Yeniden eskiye
           if (c != 0) return c;
         }
-        return (a['slotIndex'] as int? ?? 0).compareTo(b['slotIndex'] as int? ?? 0);
+        return (a['slotIndex'] as int? ?? 0).compareTo(
+          b['slotIndex'] as int? ?? 0,
+        );
       });
 
       _cachedMyProctoring = List.from(list);
 
       // Diske yaz
-      SharedPreferences.getInstance().then((prefs) {
-        try {
-          prefs.setString(
-              'edukn_proctoring_${authUid}_${widget.institutionId}',
-              json.encode(list.map((e) {
-                final copy = Map<String, dynamic>.from(e);
-                copy.forEach((k, v) {
-                  if (v is Timestamp) copy[k] = {'__ts': v.millisecondsSinceEpoch};
-                });
-                return copy;
-              }).toList()));
-        } catch (silentError) { debugPrint('[teacher_proctoring_screen] hata yutuldu: $silentError'); }
-      }).catchError((_) {});
+      SharedPreferences.getInstance()
+          .then((prefs) {
+            try {
+              prefs.setString(
+                'edukn_proctoring_${authUid}_${widget.institutionId}',
+                json.encode(
+                  list.map((e) {
+                    final copy = Map<String, dynamic>.from(e);
+                    copy.forEach((k, v) {
+                      if (v is Timestamp)
+                        copy[k] = {'__ts': v.millisecondsSinceEpoch};
+                    });
+                    return copy;
+                  }).toList(),
+                ),
+              );
+            } catch (silentError) {
+              debugPrint(
+                '[teacher_proctoring_screen] hata yutuldu: $silentError',
+              );
+            }
+          })
+          .catchError((_) {});
 
       if (mounted) {
         setState(() {
@@ -231,15 +261,110 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
   }
 
   String _getMonthName(int month) {
-    const months = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+    const months = [
+      'Oca',
+      'Şub',
+      'Mar',
+      'Nis',
+      'May',
+      'Haz',
+      'Tem',
+      'Ağu',
+      'Eyl',
+      'Eki',
+      'Kas',
+      'Ara',
+    ];
     return months[month - 1];
+  }
+
+  bool get _canCreatePlan => UserPermissionService.canCreateExamPlan();
+
+  Future<void> _openExamPlanner({bool directWizard = false}) async {
+    final userData =
+        UserPermissionService.getCachedUserData() ??
+        await UserPermissionService.loadUserData();
+    final instId = (userData?['institutionId'] ?? widget.institutionId)
+        .toString()
+        .toUpperCase();
+    String schoolTypeId = '';
+    String schoolTypeName = 'Okul';
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('school_types')
+          .where('institutionId', isEqualTo: instId)
+          .where('isActive', isEqualTo: true)
+          .get();
+      final userSchoolTypes =
+          (userData?['schoolTypes'] as List?)
+              ?.map((e) => e.toString())
+              .toSet() ??
+          const <String>{};
+      QueryDocumentSnapshot<Map<String, dynamic>>? matched;
+      for (final d in snap.docs) {
+        final data = d.data();
+        final typeKey = (data['schoolType'] ?? '').toString();
+        final typeName = (data['schoolTypeName'] ?? data['typeName'] ?? '')
+            .toString();
+        if (userSchoolTypes.contains(d.id) ||
+            userSchoolTypes.contains(typeKey) ||
+            userSchoolTypes.contains(typeName)) {
+          matched = d;
+          break;
+        }
+      }
+      final chosen = matched ?? (snap.docs.isNotEmpty ? snap.docs.first : null);
+      if (chosen != null) {
+        final data = chosen.data();
+        schoolTypeId = chosen.id;
+        schoolTypeName =
+            (data['schoolTypeName'] ??
+                    data['typeName'] ??
+                    data['schoolType'] ??
+                    'Okul')
+                .toString();
+      }
+    } catch (_) {}
+
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => directWizard
+            ? ButterflyExamWizardScreen(
+                institutionId: instId,
+                schoolTypeId: schoolTypeId,
+                schoolTypeName: schoolTypeName,
+              )
+            : ButterflyExamHubScreen(
+                institutionId: instId,
+                schoolTypeId: schoolTypeId,
+                schoolTypeName: schoolTypeName,
+                isTeacher: true,
+              ),
+      ),
+    );
+    if (mounted) {
+      _loadData();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final canCreatePlan = _canCreatePlan;
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: EduknAppBar(title: 'Gözetmenlik Görevlerim'),
+      appBar: EduknAppBar(
+        title: 'Gözetmenlik Görevlerim',
+        actions: [
+          if (canCreatePlan)
+            IconButton(
+              tooltip: 'Sınav ve Gözetmenlik Planları',
+              icon: const Icon(Icons.dashboard_customize_rounded, size: 22),
+              onPressed: () => _openExamPlanner(directWizard: false),
+            ),
+        ],
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -251,15 +376,23 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [Colors.purple.shade50, Colors.indigo.shade50],
+                          colors: [
+                            Colors.purple.shade50,
+                            Colors.indigo.shade50,
+                          ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.purple.shade200.withValues(alpha: 0.5)),
+                        border: Border.all(
+                          color: Colors.purple.shade200.withValues(alpha: 0.5),
+                        ),
                       ),
                       child: Row(
                         children: [
@@ -269,31 +402,192 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Icon(Icons.supervised_user_circle_rounded, size: 18, color: Colors.purple.shade700),
+                            child: Icon(
+                              Icons.supervised_user_circle_rounded,
+                              size: 18,
+                              color: Colors.purple.shade700,
+                            ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Gözetmenlik Görevlerim',
-                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.purple.shade800.withValues(alpha: 0.8))),
+                                Text(
+                                  'Gözetmenlik Görevlerim',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.purple.shade800.withValues(
+                                      alpha: 0.8,
+                                    ),
+                                  ),
+                                ),
                                 const SizedBox(height: 2),
-                                Text('${_myProctoring.length} görev listeleniyor',
-                                    style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: Color(0xFF4C1D95)),
-                                    overflow: TextOverflow.ellipsis),
+                                Text(
+                                  '${_myProctoring.length} görev listeleniyor',
+                                  style: const TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF4C1D95),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ],
                             ),
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                            decoration: BoxDecoration(color: Colors.purple.shade600, borderRadius: BorderRadius.circular(20)),
-                            child: const Text('Sınav', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.white)),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.purple.shade600,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text(
+                              'Sınav',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
                           ),
                         ],
                       ),
                     ),
                   ),
+
+                  // ─ Yetkili Öğretmen Sınav & Gözetmenlik Planlama Kısayolu ─
+                  if (canCreatePlan)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFC7D2FE)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(
+                                0xFF4F46E5,
+                              ).withValues(alpha: 0.06),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEEF2FF),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(
+                                    Icons.add_task_rounded,
+                                    size: 18,
+                                    color: Color(0xFF4F46E5),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                const Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Sınav & Gözetmenlik Planlama Yetkisi Aktif',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF1E293B),
+                                        ),
+                                      ),
+                                      SizedBox(height: 2),
+                                      Text(
+                                        'Yeni kelebek sınav oturma düzeni ve gözetmenlik planı hazırlayabilirsiniz.',
+                                        style: TextStyle(
+                                          fontSize: 11.5,
+                                          color: Color(0xFF64748B),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: const Color(0xFF4F46E5),
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
+                                    onPressed: () =>
+                                        _openExamPlanner(directWizard: true),
+                                    icon: const Icon(
+                                      Icons.add_rounded,
+                                      size: 18,
+                                    ),
+                                    label: const Text(
+                                      'Yeni Plan Hazırla',
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF4F46E5),
+                                    side: const BorderSide(
+                                      color: Color(0xFFC7D2FE),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                  onPressed: () =>
+                                      _openExamPlanner(directWizard: false),
+                                  icon: const Icon(
+                                    Icons.list_alt_rounded,
+                                    size: 17,
+                                  ),
+                                  label: const Text(
+                                    'Tüm Planlar',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
 
                   // ─ Boş durum ─
                   if (_myProctoring.isEmpty)
@@ -310,20 +604,34 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                           children: [
                             Container(
                               padding: const EdgeInsets.all(18),
-                              decoration: BoxDecoration(color: Colors.purple.shade50, shape: BoxShape.circle),
-                              child: Icon(Icons.supervised_user_circle_rounded, size: 44, color: Colors.purple.shade200),
+                              decoration: BoxDecoration(
+                                color: Colors.purple.shade50,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.supervised_user_circle_rounded,
+                                size: 44,
+                                color: Colors.purple.shade200,
+                              ),
                             ),
                             const SizedBox(height: 14),
                             const Text(
                               'Yayınlanmış gözetmenlik göreviniz bulunmuyor',
                               textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1E293B),
+                              ),
                             ),
                             const SizedBox(height: 6),
                             const Text(
                               'Sınav gözetmenlik çizelgesi yayınlandığında görevleriniz burada görünecek.',
                               textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 12, color: Colors.grey),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
                             ),
                           ],
                         ),
@@ -358,7 +666,9 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
       builder: (_) => const Center(
         child: Card(
           elevation: 6,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(16))),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(16)),
+          ),
           child: Padding(
             padding: EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             child: Column(
@@ -366,7 +676,10 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
               children: [
                 CircularProgressIndicator(color: Color(0xFF4F46E5)),
                 SizedBox(height: 14),
-                Text('Yoklama listesi hazırlanıyor...', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                Text(
+                  'Yoklama listesi hazırlanıyor...',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
               ],
             ),
           ),
@@ -401,12 +714,19 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
             const SnackBar(
               content: Row(
                 children: [
-                  Icon(Icons.info_outline_rounded, color: Colors.white, size: 20),
+                  Icon(
+                    Icons.info_outline_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       'Yoklama alabilmek için öncelikle sınav uygulama yönergesini okuyup onaylamanız gerekmektedir.',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 ],
@@ -453,7 +773,10 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
       if (mounted) {
         Navigator.pop(context); // Dialog'u kapat
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Yoklama yüklenemedi: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Yoklama yüklenemedi: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -475,23 +798,42 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
     }
 
     final now = DateTime.now();
-    final isToday = examDate != null &&
+    final isToday =
+        examDate != null &&
         examDate.year == now.year &&
         examDate.month == now.month &&
         examDate.day == now.day;
-    final isPast = examDate != null && !isToday && examDate.isBefore(DateTime(now.year, now.month, now.day));
+    final isPast =
+        examDate != null &&
+        !isToday &&
+        examDate.isBefore(DateTime(now.year, now.month, now.day));
 
-    final accentColor = isToday ? const Color(0xFF16A34A) : isPast ? Colors.grey.shade600 : const Color(0xFF7C3AED);
-    final bgColor = isToday ? const Color(0xFFDCFCE7) : isPast ? Colors.grey.shade100 : const Color(0xFFF5F3FF);
-    final borderColor = isToday ? const Color(0xFF86EFAC) : isPast ? Colors.grey.shade300 : const Color(0xFFDDD6FE);
+    final accentColor = isToday
+        ? const Color(0xFF16A34A)
+        : isPast
+        ? Colors.grey.shade600
+        : const Color(0xFF7C3AED);
+    final bgColor = isToday
+        ? const Color(0xFFDCFCE7)
+        : isPast
+        ? Colors.grey.shade100
+        : const Color(0xFFF5F3FF);
+    final borderColor = isToday
+        ? const Color(0xFF86EFAC)
+        : isPast
+        ? Colors.grey.shade300
+        : const Color(0xFFDDD6FE);
 
-    final hasExamId = data['examId'] != null && data['examId'].toString().isNotEmpty;
+    final hasExamId =
+        data['examId'] != null && data['examId'].toString().isNotEmpty;
 
     return Card(
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: isToday ? 2 : 0,
-      shadowColor: isToday ? Colors.green.withValues(alpha: 0.2) : Colors.transparent,
+      shadowColor: isToday
+          ? Colors.green.withValues(alpha: 0.2)
+          : Colors.transparent,
       color: isPast ? Colors.grey.shade50 : Colors.white,
       child: Container(
         padding: const EdgeInsets.all(16),
@@ -508,17 +850,30 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                 Container(
                   width: 56,
                   height: 56,
-                  decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        examDate != null ? DateFormat('dd').format(examDate) : '??',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: accentColor),
+                        examDate != null
+                            ? DateFormat('dd').format(examDate)
+                            : '??',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: accentColor,
+                        ),
                       ),
                       Text(
                         examDate != null ? _getMonthName(examDate.month) : '',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: accentColor),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: accentColor,
+                        ),
                       ),
                     ],
                   ),
@@ -530,27 +885,59 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(examName,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                          overflow: TextOverflow.ellipsis),
+                      Text(
+                        examName,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       if (className.isNotEmpty) ...[
                         const SizedBox(height: 3),
-                        Row(children: [
-                          Icon(Icons.class_rounded, size: 13, color: Colors.grey.shade500),
-                          const SizedBox(width: 4),
-                          Text(className, style: TextStyle(fontSize: 12.5, color: Colors.grey.shade700)),
-                        ]),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.class_rounded,
+                              size: 13,
+                              color: Colors.grey.shade500,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              className,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
-                      if (slotLabel.isNotEmpty || (startTime.isNotEmpty && endTime.isNotEmpty)) ...[
+                      if (slotLabel.isNotEmpty ||
+                          (startTime.isNotEmpty && endTime.isNotEmpty)) ...[
                         const SizedBox(height: 3),
-                        Row(children: [
-                          Icon(Icons.access_time_rounded, size: 13, color: Colors.grey.shade500),
-                          const SizedBox(width: 4),
-                          Text(
-                            [if (slotLabel.isNotEmpty) slotLabel, if (startTime.isNotEmpty && endTime.isNotEmpty) '$startTime – $endTime'].join(' · '),
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                          ),
-                        ]),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.access_time_rounded,
+                              size: 13,
+                              color: Colors.grey.shade500,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              [
+                                if (slotLabel.isNotEmpty) slotLabel,
+                                if (startTime.isNotEmpty && endTime.isNotEmpty)
+                                  '$startTime – $endTime',
+                              ].join(' · '),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ],
                   ),
@@ -559,27 +946,73 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                 // Durum badge
                 if (isToday)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
-                        color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF86EFAC))),
-                    child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.fiber_manual_record, size: 8, color: Color(0xFF15803D)),
-                      SizedBox(width: 4),
-                      Text('Bugün', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF15803D))),
-                    ]),
+                      color: const Color(0xFFDCFCE7),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF86EFAC)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.fiber_manual_record,
+                          size: 8,
+                          color: Color(0xFF15803D),
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          'Bugün',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF15803D),
+                          ),
+                        ),
+                      ],
+                    ),
                   )
                 else if (isPast)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(8)),
-                    child: const Text('Tamamlandı', style: TextStyle(fontSize: 10.5, color: Colors.grey, fontWeight: FontWeight.w500)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'Tamamlandı',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   )
                 else
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
-                        color: const Color(0xFFF5F3FF), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFDDD6FE))),
-                    child: const Text('Planlandı', style: TextStyle(fontSize: 10.5, color: Color(0xFF7C3AED), fontWeight: FontWeight.w600)),
+                      color: const Color(0xFFF5F3FF),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFDDD6FE)),
+                    ),
+                    child: const Text(
+                      'Planlandı',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        color: Color(0xFF7C3AED),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
               ],
             ),
@@ -595,10 +1028,16 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.meeting_room_rounded, size: 15, color: Colors.grey.shade600),
+                      Icon(
+                        Icons.meeting_room_rounded,
+                        size: 15,
+                        color: Colors.grey.shade600,
+                      ),
                       const SizedBox(width: 5),
                       Text(
-                        className.isNotEmpty ? 'Salon: $className' : 'Salon Sınavı',
+                        className.isNotEmpty
+                            ? 'Salon: $className'
+                            : 'Salon Sınavı',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -610,19 +1049,28 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (data['instructions'] is List && (data['instructions'] as List).isNotEmpty) ...[
+                      if (data['instructions'] is List &&
+                          (data['instructions'] as List).isNotEmpty) ...[
                         OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
                             foregroundColor: const Color(0xFF4F46E5),
                             side: const BorderSide(color: Color(0xFFC7D2FE)),
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
                             visualDensity: VisualDensity.compact,
                           ),
                           icon: const Icon(Icons.gavel_rounded, size: 15),
                           label: const Text(
                             'Yönerge',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           onPressed: () => _openInstructionsFromCard(data),
                         ),
@@ -630,17 +1078,29 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                       ],
                       FilledButton.icon(
                         style: FilledButton.styleFrom(
-                          backgroundColor: isToday ? const Color(0xFF16A34A) : const Color(0xFF4F46E5),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          backgroundColor: isToday
+                              ? const Color(0xFF16A34A)
+                              : const Color(0xFF4F46E5),
+                          disabledBackgroundColor: Colors.grey.shade200,
+                          disabledForegroundColor: Colors.grey.shade500,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                           visualDensity: VisualDensity.compact,
                         ),
                         icon: const Icon(Icons.fact_check_rounded, size: 16),
                         label: const Text(
                           'Yoklama Al',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                        onPressed: () => _openAttendance(data),
+                        onPressed: isPast ? null : () => _openAttendance(data),
                       ),
                     ],
                   ),
@@ -665,10 +1125,16 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
     final tId = userData?['teacherId']?.toString();
     final staffId = userData?['staffId']?.toString();
 
-    if (docId != null && docId.isNotEmpty && approvals.containsKey(docId)) return true;
-    if (authUserId != null && authUserId.isNotEmpty && approvals.containsKey(authUserId)) return true;
-    if (tId != null && tId.isNotEmpty && approvals.containsKey(tId)) return true;
-    if (staffId != null && staffId.isNotEmpty && approvals.containsKey(staffId)) return true;
+    if (docId != null && docId.isNotEmpty && approvals.containsKey(docId))
+      return true;
+    if (authUserId != null &&
+        authUserId.isNotEmpty &&
+        approvals.containsKey(authUserId))
+      return true;
+    if (tId != null && tId.isNotEmpty && approvals.containsKey(tId))
+      return true;
+    if (staffId != null && staffId.isNotEmpty && approvals.containsKey(staffId))
+      return true;
 
     return false;
   }
@@ -676,14 +1142,17 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
   Future<void> _openInstructionsFromCard(Map<String, dynamic> data) async {
     final examId = data['examId']?.toString();
     final instructionsRaw = data['instructions'];
-    List<dynamic> list = instructionsRaw is List ? List.from(instructionsRaw) : [];
+    List<dynamic> list = instructionsRaw is List
+        ? List.from(instructionsRaw)
+        : [];
 
     ExamDistribution? dist;
     if (examId != null && examId.isNotEmpty) {
       try {
         final db = FirebaseFirestore.instance;
         var snap = await db.collection('butterfly_exams').doc(examId).get();
-        if (!snap.exists) snap = await db.collection('seating_plans').doc(examId).get();
+        if (!snap.exists)
+          snap = await db.collection('seating_plans').doc(examId).get();
         if (snap.exists && snap.data() != null) {
           dist = ExamDistribution.fromMap(snap.data()!, snap.id);
           if (dist.instructions.isNotEmpty) {
@@ -739,7 +1208,10 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
                 child: Row(
                   children: [
                     Container(
@@ -748,7 +1220,11 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                         color: const Color(0xFFEEF2FF),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.gavel_rounded, color: Color(0xFF4F46E5), size: 20),
+                      child: const Icon(
+                        Icons.gavel_rounded,
+                        color: Color(0xFF4F46E5),
+                        size: 20,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -757,11 +1233,20 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                         children: [
                           const Text(
                             'Sınav Uygulama Yönergesi',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1E293B)),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: Color(0xFF1E293B),
+                            ),
                           ),
                           Text(
-                            exam != null ? '${exam.title} • ${exam.lessonName}' : 'Gözetmen öğretmenlerin uyması gereken kurallar',
-                            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                            exam != null
+                                ? '${exam.title} • ${exam.lessonName}'
+                                : 'Gözetmen öğretmenlerin uyması gereken kurallar',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF64748B),
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -781,7 +1266,10 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
               if (showApprovalPrompt)
                 Container(
                   margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFEF3C7),
                     borderRadius: BorderRadius.circular(12),
@@ -789,7 +1277,11 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.info_rounded, color: Color(0xFFD97706), size: 20),
+                      Icon(
+                        Icons.info_rounded,
+                        color: Color(0xFFD97706),
+                        size: 20,
+                      ),
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -813,7 +1305,10 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, idx) {
                     return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF8FAFC),
                         borderRadius: BorderRadius.circular(12),
@@ -823,21 +1318,32 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFF4F46E5),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
                               '${idx + 1}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
                               instructions[idx].toString(),
-                              style: const TextStyle(fontSize: 13, color: Color(0xFF1E293B), height: 1.4),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF1E293B),
+                                height: 1.4,
+                              ),
                             ),
                           ),
                         ],
@@ -853,7 +1359,9 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    border: const Border(top: BorderSide(color: Color(0xFFE2E8F0), width: 1.2)),
+                    border: const Border(
+                      top: BorderSide(color: Color(0xFFE2E8F0), width: 1.2),
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: const Color(0xFF64748B).withValues(alpha: 0.1),
@@ -864,7 +1372,11 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
                   ),
                   child: SafeArea(
                     top: false,
-                    child: _buildTeacherActionInDialog(exam, ctx, onApproved: onApproved),
+                    child: _buildTeacherActionInDialog(
+                      exam,
+                      ctx,
+                      onApproved: onApproved,
+                    ),
                   ),
                 ),
             ],
@@ -874,7 +1386,11 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
     );
   }
 
-  Widget _buildTeacherActionInDialog(ExamDistribution exam, BuildContext sheetCtx, {VoidCallback? onApproved}) {
+  Widget _buildTeacherActionInDialog(
+    ExamDistribution exam,
+    BuildContext sheetCtx, {
+    VoidCallback? onApproved,
+  }) {
     final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     final isApproved = _isTeacherApprovedForExam(exam);
     final approvals = exam.instructionApprovals;
@@ -895,7 +1411,9 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
     if (rawAt is DateTime) approvedAt = rawAt;
 
     if (isApproved) {
-      final dateStr = approvedAt != null ? DateFormat('dd.MM.yyyy HH:mm').format(approvedAt) : '';
+      final dateStr = approvedAt != null
+          ? DateFormat('dd.MM.yyyy HH:mm').format(approvedAt)
+          : '';
       return Container(
         width: double.infinity,
         height: 48,
@@ -907,7 +1425,11 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.check_circle_rounded, color: Color(0xFF059669), size: 20),
+            const Icon(
+              Icons.check_circle_rounded,
+              color: Color(0xFF059669),
+              size: 20,
+            ),
             const SizedBox(width: 8),
             Text(
               'Yönergeyi Okudunuz ve Onayladınız ${dateStr.isNotEmpty ? '($dateStr)' : ''}',
@@ -930,14 +1452,17 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
           backgroundColor: const Color(0xFF10B981),
           foregroundColor: Colors.white,
           elevation: 2,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
         icon: const Icon(Icons.check_circle_outline_rounded, size: 20),
         label: const Text(
           'Okudum, Onaylıyorum',
           style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
         ),
-        onPressed: () => _approveExamInstructions(exam, sheetCtx, onApproved: onApproved),
+        onPressed: () =>
+            _approveExamInstructions(exam, sheetCtx, onApproved: onApproved),
       ),
     );
   }
@@ -967,12 +1492,16 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
       final examId = exam.id ?? '';
       if (examId.isNotEmpty) {
         final db = FirebaseFirestore.instance;
-        await db.collection('butterfly_exams').doc(examId).set({
-          'instructionApprovals': updateMap,
-        }, SetOptions(merge: true)).catchError((_) {});
-        await db.collection('seating_plans').doc(examId).set({
-          'instructionApprovals': updateMap,
-        }, SetOptions(merge: true)).catchError((_) {});
+        await db
+            .collection('butterfly_exams')
+            .doc(examId)
+            .set({'instructionApprovals': updateMap}, SetOptions(merge: true))
+            .catchError((_) {});
+        await db
+            .collection('seating_plans')
+            .doc(examId)
+            .set({'instructionApprovals': updateMap}, SetOptions(merge: true))
+            .catchError((_) {});
       }
 
       exam.instructionApprovals.addAll(updateMap);
@@ -984,7 +1513,9 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('✅ Sınav yönergesi okundu ve onaylandı olarak sisteme işlendi.'),
+            content: Text(
+              '✅ Sınav yönergesi okundu ve onaylandı olarak sisteme işlendi.',
+            ),
             backgroundColor: Color(0xFF10B981),
           ),
         );
@@ -996,7 +1527,10 @@ class _TeacherProctoringScreenState extends State<TeacherProctoringScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Onay işlemi kaydedilemedi: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Onay işlemi kaydedilemedi: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }

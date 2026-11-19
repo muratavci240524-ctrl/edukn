@@ -21,6 +21,9 @@ import 'screens/school/terms_screen.dart';
 import 'screens/hr/hr_home_screen.dart';
 import 'screens/school/school_types/school_type_announcements_screen.dart';
 import 'package:edukn/screens/support_services/support_services_hub_screen.dart';
+import 'screens/support_services/health/health_screen.dart';
+import 'screens/support_services/security/security_gate_screen.dart';
+import 'screens/support_services/inventory/inventory_screen.dart';
 import 'screens/school/settings/permission_definition_screen.dart';
 import 'screens/school/settings/app_settings_screen.dart';
 import 'screens/school/settings/sms_integration_screen.dart';
@@ -38,6 +41,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'screens/school/school_types/chat/call/call_service.dart';
 import 'screens/school/school_types/chat/call/call_screen_dialog.dart';
 import 'services/pwa_update_service.dart';
+import 'services/splash/splash_service.dart';
+import 'services/user_permission_service.dart';
+import 'widgets/edukn_logo.dart';
+import 'widgets/read_only_permission_wrapper.dart';
 // --- BİTTİ ---
 
 // --- Firebase'i uygulama başlamadan önce başlat ---
@@ -55,12 +62,16 @@ void main() async {
 
     if (kIsWeb) {
       try {
-        // Web için Firestore Cache ve Persistence Ayarları
+        // Web'de IndexedDB persistent target cache (persistenceEnabled: true),
+        // Firebase JS SDK 12.12.0'da oturum geçişi ve hot-restart sırasında
+        // WatchChangeAggregator (ID: ca9 / b815) çökmesine yol açtığı için
+        // bellek içi (in-memory) önbellek kullanılır.
         FirebaseFirestore.instance.settings = const Settings(
-          persistenceEnabled: true,
-          cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+          persistenceEnabled: false,
         );
-        debugPrint('✅ Firestore Web ayarları uygulandı (persistence=true, cache=UNLIMITED).');
+        debugPrint(
+          '✅ Firestore Web ayarları uygulandı (persistence=false, memoryCache).',
+        );
       } catch (e) {
         debugPrint('⚠️ Firestore Settings hatası: $e');
       }
@@ -71,17 +82,20 @@ void main() async {
 
     // 🔐 Firebase App Check — Bot ve yetkisiz erişime karşı koruma (Arka Planda Başlatılır)
     if (!kDebugMode) {
-      FirebaseAppCheck.instance.activate(
-        webProvider: ReCaptchaV3Provider(
-          '6Levx0gtAAAAALvp-sRrS-PFzvHMtAZ1TMdL6cvq',
-        ),
-        androidProvider: AndroidProvider.debug,
-        appleProvider: AppleProvider.debug,
-      ).then((_) {
-        debugPrint('✅ App Check aktif!');
-      }).catchError((e) {
-        debugPrint('⚠️ App Check aktifleştirilemedi: $e');
-      });
+      FirebaseAppCheck.instance
+          .activate(
+            webProvider: ReCaptchaV3Provider(
+              '6Levx0gtAAAAALvp-sRrS-PFzvHMtAZ1TMdL6cvq',
+            ),
+            androidProvider: AndroidProvider.debug,
+            appleProvider: AppleProvider.debug,
+          )
+          .then((_) {
+            debugPrint('✅ App Check aktif!');
+          })
+          .catchError((e) {
+            debugPrint('⚠️ App Check aktifleştirilemedi: $e');
+          });
     } else {
       debugPrint('ℹ️ Debug modunda App Check devre dışı bırakıldı.');
     }
@@ -100,15 +114,21 @@ void _verifyAuthTokenInBackground() async {
   try {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser != null) {
-      debugPrint('🔄 Mevcut kullanıcı bulundu, Auth Token arka planda doğrulanıyor...');
+      debugPrint(
+        '🔄 Mevcut kullanıcı bulundu, Auth Token arka planda doğrulanıyor...',
+      );
       await currentUser.getIdTokenResult(true);
       debugPrint('✅ Auth Token başarıyla doğrulandı.');
     }
   } catch (e) {
-    debugPrint('❌ Auth Token yenileme hatası! Oturum geçersiz. Çıkış yapılıyor: $e');
+    debugPrint(
+      '❌ Auth Token yenileme hatası! Oturum geçersiz. Çıkış yapılıyor: $e',
+    );
     try {
       await FirebaseAuth.instance.signOut();
-    } catch (silentError) { debugPrint('[main] hata yutuldu: $silentError'); }
+    } catch (silentError) {
+      debugPrint('[main] hata yutuldu: $silentError');
+    }
   }
 }
 
@@ -130,10 +150,10 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     // NotificationService'e navigatorKey'i bağla
     NotificationService.navigatorKey = navigatorKey;
-    
+
     // PWA Sürüm Güncelleme servisini başlat
     PwaUpdateService.initialize(navigatorKey);
-    
+
     return _buildApp(context);
   }
 
@@ -142,9 +162,11 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       navigatorKey: navigatorKey,
       builder: (context, child) {
-        return _GlobalKeyboardUnfocusWrapper(child: child!);
+        return ReadOnlyGlobalGuard(
+          child: _GlobalKeyboardUnfocusWrapper(child: child!),
+        );
       },
-      title: 'eduKN Yönetim Paneli',
+      title: EduKnBrand.appTitle,
       debugShowCheckedModeBanner: false, // DEBUG etiketini kaldır
       // Türkçe dil desteği
       locale: const Locale('tr', 'TR'),
@@ -176,7 +198,10 @@ class MyApp extends StatelessWidget {
         appBarTheme: AppBarTheme(
           backgroundColor: cardBackgroundColor, // Beyaz appbar
           elevation: 1, // Hafif bir gölge
-          iconTheme: const IconThemeData(color: Colors.indigo, size: 20), // Beyaz appbar için varsayılan indigo
+          iconTheme: const IconThemeData(
+            color: Colors.indigo,
+            size: 20,
+          ), // Beyaz appbar için varsayılan indigo
           actionsIconTheme: const IconThemeData(color: Colors.indigo, size: 20),
           titleTextStyle: GoogleFonts.inter(
             color: Colors.black87,
@@ -234,97 +259,257 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      routes: {
-        '/': (context) => SchoolLoginScreen(),
-        '/school-login': (context) => SchoolLoginScreen(),
-        '/school-dashboard': (context) =>
-            SchoolDashboardV2Screen(), // Yeni sürüm (Deneme)
-        '/profile-settings': (context) => ProfileSettingsScreen(),
-        '/student-registration': (context) => StudentRegistrationScreen(),
-        '/pre-registration': (context) => PreRegistrationScreen(),
-        '/accounting': (context) => AccountingDashboardScreen(),
-        '/terms': (context) => TermsScreen(),
-        '/school-types': (context) => SchoolTypesScreen(),
-        '/user-management': (context) => UserManagementScreen(),
-        '/school-type-stats': (context) => SchoolTypeStatsScreen(),
-        '/admin-login': (context) => AdminLoginScreen(),
-        '/admin-dashboard': (context) => AdminDashboardScreen(),
-        '/hr': (context) => const HrHomeScreen(),
-        '/announcements': (context) => const SchoolTypeAnnouncementsScreen(),
-        '/support-services': (context) => const SupportServicesHubScreen(),
-        '/permission-definition': (context) =>
-            const PermissionDefinitionScreen(),
-        '/app-settings': (context) => const AppSettingsScreen(),
-        '/sms-settings': (context) => const SmsIntegrationScreen(),
-        '/sinav-basvuru': (context) => const ExternalExamRegisterScreen(),
-        '/kvkk-detail': (context) => const KvkkDetailScreen(),
-        // Not: /yoklama-al-{examId} dinamik rotası onGenerateRoute'da handle edilir
-        '/parent-student-selection': (context) => ParentStudentSelectionScreen(
-          institutionId: '',
-          parentTcNo: '',
-          students: [],
-        ),
-      },
-      onGenerateRoute: (settings) {
-        final uri = Uri.parse(settings.name ?? '');
-        final path = uri.path;
-
-        // Extract routes map for query parameter handling
-        final Map<String, WidgetBuilder> appRoutes = {
-          '/': (context) => SchoolLoginScreen(),
-          '/school-login': (context) => SchoolLoginScreen(),
-          '/school-dashboard': (context) => SchoolDashboardV2Screen(),
-          '/profile-settings': (context) => ProfileSettingsScreen(),
-          '/student-registration': (context) => StudentRegistrationScreen(),
-          '/pre-registration': (context) => PreRegistrationScreen(),
-          '/accounting': (context) => AccountingDashboardScreen(),
-          '/terms': (context) => TermsScreen(),
-          '/school-types': (context) => SchoolTypesScreen(),
-          '/user-management': (context) => UserManagementScreen(),
-          '/school-type-stats': (context) => SchoolTypeStatsScreen(),
-          '/admin-login': (context) => AdminLoginScreen(),
-          '/admin-dashboard': (context) => AdminDashboardScreen(),
-          '/hr': (context) => const HrHomeScreen(),
-          '/announcements': (context) => const SchoolTypeAnnouncementsScreen(),
-          '/support-services': (context) => const SupportServicesHubScreen(),
-          '/permission-definition': (context) =>
-              const PermissionDefinitionScreen(),
-          '/app-settings': (context) => const AppSettingsScreen(),
-          '/sms-settings': (context) => const SmsIntegrationScreen(),
-          '/sinav-basvuru': (context) => const ExternalExamRegisterScreen(),
-          '/kvkk-detail': (context) => const KvkkDetailScreen(),
-          '/parent-student-selection': (context) =>
-              ParentStudentSelectionScreen(
-                institutionId: '',
-                parentTcNo: '',
-                students: [],
-              ),
-        };
-
-        // Yoklama sayfası: /yoklama-al-{examId}
-        if (path.startsWith('/yoklama-al-')) {
-          final examId = path.replaceFirst('/yoklama-al-', '');
-          return MaterialPageRoute(
-            builder: (_) => ExternalExamAttendanceScreen(examId: examId),
-            settings: settings,
-          );
+      onGenerateInitialRoutes: (String initialRouteName) {
+        final effectiveName = initialRouteName.trim().isEmpty
+            ? '/'
+            : initialRouteName;
+        final uri = Uri.parse(effectiveName);
+        if (uri.path != '/' && uri.path != '/school-login') {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            SplashService.hide();
+          });
         }
-
-        if (appRoutes.containsKey(path)) {
-          return MaterialPageRoute(
-            builder: (context) {
-              if (path == '/sinav-basvuru') {
-                final examId = uri.queryParameters['examId'];
-                return ExternalExamRegisterScreen(examId: examId);
-              }
-              return appRoutes[path]!(context);
-            },
-            settings: settings,
-          );
-        }
-        return null;
+        final route =
+            _generateAppRoute(RouteSettings(name: effectiveName)) ??
+            MaterialPageRoute(
+              builder: (_) => SchoolLoginScreen(),
+              settings: const RouteSettings(name: '/'),
+            );
+        return <Route<dynamic>>[route];
       },
+      onGenerateRoute: _generateAppRoute,
     );
+  }
+
+  Widget _wrapNamedRouteWithPermission(String path, Widget page) {
+    final u = UserPermissionService.cachedUserData;
+    switch (path) {
+      case '/student-registration':
+        final canEdit =
+            UserPermissionService.canEditSubModule(
+              'egitim',
+              'ogrenci_kaydi',
+              u,
+            ) ||
+            UserPermissionService.canEditSchoolTypeSubModule(
+              'kayit',
+              'ogrenci_listesi',
+              u,
+            );
+        return ReadOnlyPermissionWrapper(
+          canEdit: canEdit,
+          moduleName: 'Öğrenci Kaydı',
+          child: page,
+        );
+      case '/pre-registration':
+        final canEdit =
+            UserPermissionService.canEditSubModule('egitim', 'on_kayit', u) ||
+            UserPermissionService.canEditSchoolTypeSubModule(
+              'kayit',
+              'on_kayit',
+              u,
+            );
+        return ReadOnlyPermissionWrapper(
+          canEdit: canEdit,
+          moduleName: 'Aday Öğrenci (Ön Kayıt)',
+          child: page,
+        );
+      case '/accounting':
+        return ReadOnlyPermissionWrapper(
+          canEdit: UserPermissionService.canEdit('mali_isler', u),
+          moduleName: 'Mali İşler',
+          child: page,
+        );
+      case '/terms':
+        final canEdit =
+            UserPermissionService.canEditSubModule(
+              'egitim',
+              'donem_islemleri',
+              u,
+            ) ||
+            UserPermissionService.canEditSchoolTypeSubModule(
+              'egitim',
+              'calisma_takvimi',
+              u,
+            );
+        return ReadOnlyPermissionWrapper(
+          canEdit: canEdit,
+          moduleName: 'Dönem İşlemleri',
+          child: page,
+        );
+      case '/user-management':
+        final canEdit =
+            UserPermissionService.canEditSubModule(
+              'sistem_ayarlari',
+              'kullanici_yetkilendirme',
+              u,
+            ) ||
+            UserPermissionService.canEditSchoolTypeSubModule(
+              'ayarlar',
+              'kullanici_yetki',
+              u,
+            );
+        return ReadOnlyPermissionWrapper(
+          canEdit: canEdit,
+          moduleName: 'Kullanıcı Yetkilendirme',
+          child: page,
+        );
+      case '/hr':
+        final canEdit =
+            UserPermissionService.canEdit('insan_kaynaklari', u) ||
+            UserPermissionService.canEditSchoolTypeSubModule(
+              'kayit',
+              'personel_listesi',
+              u,
+            );
+        return ReadOnlyPermissionWrapper(
+          canEdit: canEdit,
+          moduleName: 'İnsan Kaynakları',
+          child: page,
+        );
+      case '/announcements':
+        final canEdit =
+            UserPermissionService.canEditSubModule(
+              'haberlesme',
+              'genel_duyurular',
+              u,
+            ) ||
+            UserPermissionService.canEditSchoolTypeSubModule(
+              'haberlesme',
+              'duyurular',
+              u,
+            );
+        return ReadOnlyPermissionWrapper(
+          canEdit: canEdit,
+          moduleName: 'Duyurular',
+          child: page,
+        );
+      case '/support-services':
+        final canEdit =
+            UserPermissionService.canEdit('hizmetler', u) ||
+            UserPermissionService.canEditSchoolTypeModule('destek', u);
+        return ReadOnlyPermissionWrapper(
+          canEdit: canEdit,
+          moduleName: 'Hizmetler',
+          child: page,
+        );
+      case '/permission-definition':
+        final canEdit =
+            UserPermissionService.canEditSubModule(
+              'sistem_ayarlari',
+              'yetki_tanimlama',
+              u,
+            ) ||
+            UserPermissionService.canEditSchoolTypeSubModule(
+              'ayarlar',
+              'yetki_tanimlama',
+              u,
+            );
+        return ReadOnlyPermissionWrapper(
+          canEdit: canEdit,
+          moduleName: 'Yetki Tanımlama',
+          child: page,
+        );
+      case '/app-settings':
+        final canEdit =
+            UserPermissionService.canEditSubModule(
+              'sistem_ayarlari',
+              'uygulama_ayarlari',
+              u,
+            ) ||
+            UserPermissionService.canEditSchoolTypeSubModule(
+              'ayarlar',
+              'uygulama_ayarlari',
+              u,
+            );
+        return ReadOnlyPermissionWrapper(
+          canEdit: canEdit,
+          moduleName: 'Uygulama Ayarları',
+          child: page,
+        );
+      case '/sms-settings':
+        return ReadOnlyPermissionWrapper(
+          canEdit: UserPermissionService.canEditSubModule(
+            'sistem_ayarlari',
+            'sms_entegrasyonu',
+            u,
+          ),
+          moduleName: 'SMS Entegrasyonu',
+          child: page,
+        );
+      default:
+        return page;
+    }
+  }
+
+  Route<dynamic>? _generateAppRoute(RouteSettings settings) {
+    final uri = Uri.parse(settings.name ?? '/');
+    final path = uri.path.isEmpty ? '/' : uri.path;
+
+    // Extract routes map for query parameter handling
+    final Map<String, WidgetBuilder> appRoutes = {
+      '/': (context) => SchoolLoginScreen(),
+      '/school-login': (context) => SchoolLoginScreen(),
+      '/school-dashboard': (context) => SchoolDashboardV2Screen(),
+      '/profile-settings': (context) => ProfileSettingsScreen(),
+      '/student-registration': (context) => StudentRegistrationScreen(),
+      '/pre-registration': (context) => PreRegistrationScreen(),
+      '/accounting': (context) => AccountingDashboardScreen(),
+      '/terms': (context) => TermsScreen(),
+      '/school-types': (context) => SchoolTypesScreen(),
+      '/user-management': (context) => UserManagementScreen(),
+      '/school-type-stats': (context) => SchoolTypeStatsScreen(),
+      '/admin-login': (context) => const AdminLoginScreen(),
+      '/admin-dashboard': (context) => const AdminDashboardScreen(),
+      '/hr': (context) => const HrHomeScreen(),
+      '/announcements': (context) => const SchoolTypeAnnouncementsScreen(),
+      '/support-services': (context) => const SupportServicesHubScreen(),
+      '/health-portal': (context) =>
+          const HealthScreen(isStandalonePortal: true),
+      '/security-portal': (context) =>
+          const SecurityGateScreen(isStandalonePortal: true),
+      '/warehouse-portal': (context) => const InventoryScreen(
+        isStandalonePortal: true,
+        standaloneMode: 'warehouse',
+      ),
+      '/purchasing-portal': (context) => const InventoryScreen(
+        isStandalonePortal: true,
+        standaloneMode: 'purchasing',
+      ),
+      '/permission-definition': (context) => const PermissionDefinitionScreen(),
+      '/app-settings': (context) => const AppSettingsScreen(),
+      '/sms-settings': (context) => const SmsIntegrationScreen(),
+      '/sinav-basvuru': (context) => const ExternalExamRegisterScreen(),
+      '/kvkk-detail': (context) => const KvkkDetailScreen(),
+      '/parent-student-selection': (context) => ParentStudentSelectionScreen(
+        institutionId: '',
+        parentTcNo: '',
+        students: [],
+      ),
+    };
+
+    // Yoklama sayfası: /yoklama-al-{examId}
+    if (path.startsWith('/yoklama-al-')) {
+      final examId = path.replaceFirst('/yoklama-al-', '');
+      return MaterialPageRoute(
+        builder: (_) => ExternalExamAttendanceScreen(examId: examId),
+        settings: settings,
+      );
+    }
+
+    if (appRoutes.containsKey(path)) {
+      return MaterialPageRoute(
+        builder: (context) {
+          if (path == '/sinav-basvuru') {
+            final examId = uri.queryParameters['examId'];
+            return ExternalExamRegisterScreen(examId: examId);
+          }
+          return _wrapNamedRouteWithPermission(path, appRoutes[path]!(context));
+        },
+        settings: settings,
+      );
+    }
+    return null;
   }
 }
 
@@ -353,34 +538,58 @@ class __GlobalKeyboardUnfocusWrapperState
     Future.microtask(() async {
       try {
         if (Firebase.apps.isEmpty) return;
-        _authSub = FirebaseAuth.instance.authStateChanges().listen((user) async {
+        _authSub = FirebaseAuth.instance.authStateChanges().listen((
+          user,
+        ) async {
           if (user != null) {
-            // FCM token'ı kaydet ve bildirim servisini başlat
-            NotificationService().initialize(uid: user.uid, forcePermissionPrompt: true).catchError((e) {
-              debugPrint('Notification init error: $e');
-            });
-            
-            CallService().registerFcmToken();
+            final capturedUid = user.uid;
+            final emailLower = (user.email ?? '').toLowerCase().trim();
 
-            // Firebase Web SDK: eş zamanlı snapshot stream'ler crash'e yol açıyor.
-            // 3 saniye bekleyerek diğer stream'lerin oturmasını sağlıyoruz.
+            // Firebase Web SDK (12.12.x): giriş anında eş zamanlı Firestore
+            // okuma/yazma ve snapshot stream açılması WatchChangeAggregator
+            // (ID: ca9 / b815) hatasına yol açabildiği için giriş ekranının
+            // ilk okumasını tamamlamasını bekliyoruz.
             await Future.delayed(const Duration(seconds: 3));
             if (!mounted) return;
+            if (FirebaseAuth.instance.currentUser?.uid != capturedUid) return;
+
+            // Süper Admin hesabında okul içi arama / FCM kaydı çalıştırılmaz
+            if (emailLower == 'superadmin@edukn.com') {
+              return;
+            }
+
+            // FCM token'ı kaydet ve bildirim servisini başlat
+            NotificationService()
+                .initialize(uid: capturedUid, forcePermissionPrompt: true)
+                .catchError((e) {
+                  debugPrint('Notification init error: $e');
+                });
+
+            CallService().registerFcmToken();
+
+            await Future.delayed(const Duration(seconds: 1));
+            if (!mounted) return;
+            if (FirebaseAuth.instance.currentUser?.uid != capturedUid) return;
 
             _incomingCallSub?.cancel();
-            _incomingCallSub = CallService().listenForIncomingCalls().listen((incomingCalls) {
-              if (incomingCalls.isNotEmpty && mounted) {
-                final activeCall = incomingCalls.first;
-                final navContext = MyApp.navigatorKey.currentContext;
-                if (navContext != null) {
-                  CallScreenDialog.showCall(
-                    context: navContext,
-                    callSession: activeCall,
-                    isIncoming: true,
-                  );
+            _incomingCallSub = CallService().listenForIncomingCalls().listen(
+              (incomingCalls) {
+                if (incomingCalls.isNotEmpty && mounted) {
+                  final activeCall = incomingCalls.first;
+                  final navContext = MyApp.navigatorKey.currentContext;
+                  if (navContext != null) {
+                    CallScreenDialog.showCall(
+                      context: navContext,
+                      callSession: activeCall,
+                      isIncoming: true,
+                    );
+                  }
                 }
-              }
-            });
+              },
+              onError: (e) {
+                debugPrint('Incoming call stream error: $e');
+              },
+            );
           } else {
             _incomingCallSub?.cancel();
             NotificationService().reset();
@@ -403,8 +612,9 @@ class __GlobalKeyboardUnfocusWrapperState
   @override
   void didChangeMetrics() {
     super.didChangeMetrics();
-    if (kIsWeb) return; // Web'de window.dart assertion hatasını önlemek için atla
-    
+    if (kIsWeb)
+      return; // Web'de window.dart assertion hatasını önlemek için atla
+
     try {
       final dispatcher = WidgetsBinding.instance.platformDispatcher;
       final view =
@@ -417,7 +627,9 @@ class __GlobalKeyboardUnfocusWrapperState
           FocusManager.instance.primaryFocus?.unfocus();
         }
       }
-    } catch (silentError) { debugPrint('[main] hata yutuldu: $silentError'); }
+    } catch (silentError) {
+      debugPrint('[main] hata yutuldu: $silentError');
+    }
   }
 
   @override

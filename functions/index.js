@@ -240,19 +240,27 @@ exports.updateSchoolModules = onCall({ enforceAppCheck: true }, async (request) 
     const { data, auth } = request;
     await verifySuperAdmin(auth);
 
-    const { schoolId, activeModules } = data;
+    const { schoolId, activeModules, disabledSubModules } = data;
     if (!schoolId || activeModules == null) {
         throw new HttpsError("invalid-argument", "Eksik bilgi.");
     }
 
     try {
-        await db.collection("schools").doc(schoolId).update({ activeModules });
+        const updatePayload = { activeModules };
+        if (Array.isArray(disabledSubModules)) {
+            updatePayload.disabledSubModules = disabledSubModules;
+        }
+
+        await db.collection("schools").doc(schoolId).update(updatePayload);
 
         await writeAuditLog({
             action: "UPDATE_MODULES",
             performedBy: auth.uid,
             targetId: schoolId,
-            details: { activeModules },
+            details: {
+                activeModules,
+                ...(Array.isArray(disabledSubModules) && { disabledSubModules }),
+            },
         });
 
         return { status: "success", message: "Okul modülleri güncellendi." };
@@ -1948,3 +1956,7 @@ exports.dailyDutyReminder = onSchedule("0 8 * * *", async (event) => {
     }
 });
 
+
+
+// iyzico sanal pos (Hosted Checkout Form) - bkz. functions/payments.js
+Object.assign(exports, require("./payments"));

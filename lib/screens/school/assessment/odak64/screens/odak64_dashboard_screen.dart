@@ -582,6 +582,7 @@ class _GenerateButton extends StatelessWidget {
           subjects: subjects,
           examName: exam.isEmpty ? '' : exam.first.name,
           schoolTypeName: schoolTypeName,
+          examData: c.examData,
         ),
       ),
     );
@@ -620,6 +621,7 @@ class _GenerateButton extends StatelessWidget {
                       subjects: subjects,
                       examName: exam.isEmpty ? '' : exam.first.name,
                       schoolTypeName: schoolTypeName,
+                      examData: c.examData,
                     ),
                   ),
                 );

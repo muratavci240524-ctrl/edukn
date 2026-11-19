@@ -7,10 +7,10 @@ import 'dart:math' as math;
 import '../../services/user_permission_service.dart';
 import '../../widgets/school_logo.dart';
 
-
 class ProfileSettingsScreen extends StatefulWidget {
   final bool isSchoolSettings; // Okul bilgileri mi yoksa kişisel profil mi?
-  const ProfileSettingsScreen({Key? key, this.isSchoolSettings = false}) : super(key: key);
+  const ProfileSettingsScreen({Key? key, this.isSchoolSettings = false})
+    : super(key: key);
 
   @override
   _ProfileSettingsScreenState createState() => _ProfileSettingsScreenState();
@@ -18,23 +18,23 @@ class ProfileSettingsScreen extends StatefulWidget {
 
 class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   final _formKey = GlobalKey<FormState>();
-  
+
   // Controllers - Okul Bilgileri (Admin için)
   final _schoolNameController = TextEditingController();
   final _schoolAddressController = TextEditingController();
   final _schoolPhoneController = TextEditingController();
   final _schoolEmailController = TextEditingController();
-  
+
   // Controllers - Kullanıcı Bilgileri (Normal kullanıcı için)
   final _fullNameController = TextEditingController();
   final _userPhoneController = TextEditingController();
   final _userEmailController = TextEditingController();
-  
+
   // Controllers - Şifre
   final _currentPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  
+
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isAdmin = false;
@@ -44,7 +44,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   String? _userId;
   Map<String, dynamic>? _schoolData;
   Map<String, dynamic>? _userData;
-  
+
   // İstatistikler
   int studentCount = 0;
   int studentQuota = 0;
@@ -65,8 +65,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     'messages': true,
     'exams': true,
   };
-
-
 
   @override
   void dispose() {
@@ -89,12 +87,12 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       final cached = await UserPermissionService.loadUserData();
 
       if (cached != null && mounted) {
-        final userId  = cached['id']?.toString();
-        final instId  = cached['institutionId']?.toString().toUpperCase();
-        final role    = cached['role']?.toString().toLowerCase();
+        final userId = cached['id']?.toString();
+        final instId = cached['institutionId']?.toString().toUpperCase();
+        final role = cached['role']?.toString().toLowerCase();
         final isAdmin = (role == 'genel_mudur' || role == 'admin');
 
-        _fullNameController.text  = cached['fullName'] ?? '';
+        _fullNameController.text = cached['fullName'] ?? '';
         _userPhoneController.text = cached['phone'] ?? '';
         _userEmailController.text = cached['email'] ?? '';
         _profileImageUrl = cached['profileImageUrl'];
@@ -134,7 +132,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   // Okul istatistiklerini paralel olarak getirir (okul ayarlari ekrani icin)
   Future<void> _loadSchoolDetails(String instId) async {
     try {
-      final instIds = {instId, instId.toLowerCase(), instId.toUpperCase()}.toList();
+      final instIds = {
+        instId,
+        instId.toLowerCase(),
+        instId.toUpperCase(),
+      }.toList();
 
       // 1) Okul dokümanı: institutionId alanıyla bul (doküman ID'si kurum kodu olmayabilir)
       DocumentSnapshot<Map<String, dynamic>>? schoolDoc;
@@ -147,14 +149,20 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         schoolDoc = byField.docs.first;
       } else {
         // 2) Doküman ID'si kurum koduyla aynıysa
-        final byId = await FirebaseFirestore.instance.collection('schools').doc(instId).get();
+        final byId = await FirebaseFirestore.instance
+            .collection('schools')
+            .doc(instId)
+            .get();
         if (byId.exists) {
           schoolDoc = byId;
         } else {
           // 3) Kullanıcı kaydındaki schoolId
           final sid = _userData?['schoolId']?.toString();
           if (sid != null && sid.isNotEmpty) {
-            final bySchoolId = await FirebaseFirestore.instance.collection('schools').doc(sid).get();
+            final bySchoolId = await FirebaseFirestore.instance
+                .collection('schools')
+                .doc(sid)
+                .get();
             if (bySchoolId.exists) schoolDoc = bySchoolId;
           }
         }
@@ -176,16 +184,20 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
       if (schoolDoc != null && schoolDoc.exists && mounted) {
         final data = schoolDoc.data()!;
-        _schoolData  = data;
-        _schoolId    = schoolDoc.id;
-        _schoolNameController.text    = (data['schoolName'] ?? data['name'] ?? '').toString();
-        _schoolAddressController.text = (data['schoolAddress'] ?? data['address'] ?? '').toString();
-        _schoolPhoneController.text   = (data['schoolPhone'] ?? data['phone'] ?? '').toString();
-        _schoolEmailController.text   = (data['schoolEmail'] ?? data['email'] ?? '').toString();
-        _logoUrl      = data['logoUrl']?.toString();
-        studentQuota  = (data['studentQuota'] as num?)?.toInt() ?? 0;
-        isActive      = data['isActive'] ?? false;
-        studentCount  = activeStudents;
+        _schoolData = data;
+        _schoolId = schoolDoc.id;
+        _schoolNameController.text = (data['schoolName'] ?? data['name'] ?? '')
+            .toString();
+        _schoolAddressController.text =
+            (data['schoolAddress'] ?? data['address'] ?? '').toString();
+        _schoolPhoneController.text =
+            (data['schoolPhone'] ?? data['phone'] ?? '').toString();
+        _schoolEmailController.text =
+            (data['schoolEmail'] ?? data['email'] ?? '').toString();
+        _logoUrl = data['logoUrl']?.toString();
+        studentQuota = (data['studentQuota'] as num?)?.toInt() ?? 0;
+        isActive = data['isActive'] ?? false;
+        studentCount = activeStudents;
         final expiresRaw = data['licenseExpiresAt'];
         if (expiresRaw is Timestamp) {
           remainingDays = expiresRaw.toDate().difference(DateTime.now()).inDays;
@@ -197,7 +209,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         studentCount = activeStudents;
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Okul kaydı bulunamadı.'), backgroundColor: Colors.orange),
+          const SnackBar(
+            content: Text('Okul kaydı bulunamadı.'),
+            backgroundColor: Colors.orange,
+          ),
         );
       }
     } catch (e) {
@@ -227,11 +242,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             .get();
       }
       if (q.docs.isNotEmpty && mounted) {
-        final data   = q.docs.first.data();
+        final data = q.docs.first.data();
         final userId = q.docs.first.id;
         final instId = data['institutionId']?.toString().toUpperCase();
-        final role   = data['role']?.toString().toLowerCase();
-        _fullNameController.text  = data['fullName'] ?? '';
+        final role = data['role']?.toString().toLowerCase();
+        _fullNameController.text = data['fullName'] ?? '';
         _userPhoneController.text = data['phone'] ?? '';
         _userEmailController.text = data['email'] ?? '';
         _profileImageUrl = data['profileImageUrl'];
@@ -261,8 +276,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-
-
 
   Future<void> _pickImage({bool isLogo = true}) async {
     final uploadInput = html.FileUploadInputElement()..accept = 'image/*';
@@ -332,35 +345,41 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             .collection('schools')
             .doc(_schoolId)
             .update({
-          'schoolName': _schoolNameController.text.trim(),
-          'schoolAddress': _schoolAddressController.text.trim(),
-          'schoolPhone': _schoolPhoneController.text.trim(),
-          'schoolEmail': _schoolEmailController.text.trim(),
-          'logoUrl': _logoUrl,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+              'schoolName': _schoolNameController.text.trim(),
+              'schoolAddress': _schoolAddressController.text.trim(),
+              'schoolPhone': _schoolPhoneController.text.trim(),
+              'schoolEmail': _schoolEmailController.text.trim(),
+              'logoUrl': _logoUrl,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
         // App bar'lardaki logo anında güncellensin
-        SchoolLogoService.update(institutionId, _logoUrl);
+        SchoolLogoService.update(
+          institutionId,
+          _logoUrl,
+          name: _schoolNameController.text.trim(),
+        );
       } else {
         // KİŞİSEL PROFİLİ GÜNCELLE
-        if (_userId != null) {
+        if (_userId != null && _userId!.isNotEmpty) {
           await FirebaseFirestore.instance
               .collection('users')
               .doc(_userId)
-              .update({
-            'fullName': _fullNameController.text.trim(),
-            'phone': _userPhoneController.text.trim(),
-            'email': _userEmailController.text.trim(),
-            'profileImageUrl': _profileImageUrl,
-            'notificationSettings': _notificationSettings,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+              .set({
+                'fullName': _fullNameController.text.trim(),
+                'phone': _userPhoneController.text.trim(),
+                'email': _userEmailController.text.trim(),
+                'profileImageUrl': _profileImageUrl,
+                'notificationSettings': _notificationSettings,
+                'updatedAt': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true));
         }
-        
+
         // Şifre güncelleme
         if (_newPasswordController.text.isNotEmpty) {
           if (_currentPasswordController.text.isEmpty) {
-            throw Exception('Şifre değişikliği için mevcut şifrenizi girmelisiniz.');
+            throw Exception(
+              'Şifre değişikliği için mevcut şifrenizi girmelisiniz.',
+            );
           }
           if (_newPasswordController.text != _confirmPasswordController.text) {
             throw Exception('Yeni şifreler eşleşmiyor.');
@@ -368,25 +387,74 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           if (_newPasswordController.text.length < 6) {
             throw Exception('Yeni şifre en az 6 karakter olmalıdır.');
           }
+          final newPass = _newPasswordController.text;
           final user = FirebaseAuth.instance.currentUser!;
           final credential = EmailAuthProvider.credential(
             email: user.email!,
             password: _currentPasswordController.text,
           );
           await user.reauthenticateWithCredential(credential);
-          await user.updatePassword(_newPasswordController.text);
+          await user.updatePassword(newPass);
           try {
-            await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-              'passwordStatus': 'degistirildi',
-              'updatedAt': FieldValue.serverTimestamp(),
-            }, SetOptions(merge: true));
+            if (_userId != null && _userId!.isNotEmpty) {
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(_userId)
+                  .set({
+                    'password': newPass,
+                    'passwordStatus': 'degistirildi',
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  }, SetOptions(merge: true));
+            }
             if (user.email != null) {
-              final q = await FirebaseFirestore.instance.collection('users').where('email', isEqualTo: user.email).get();
+              final q = await FirebaseFirestore.instance
+                  .collection('users')
+                  .where('email', isEqualTo: user.email)
+                  .get();
               for (var d in q.docs) {
-                await d.reference.set({'passwordStatus': 'degistirildi', 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+                await d.reference.set({
+                  'password': newPass,
+                  'passwordStatus': 'degistirildi',
+                  'updatedAt': FieldValue.serverTimestamp(),
+                }, SetOptions(merge: true));
               }
             }
-          } catch (silentError) { debugPrint('[profile_settings_screen] hata yutuldu: $silentError'); }
+            final role = (_userData?['role'] ?? '').toString().toLowerCase();
+            final username = (_userData?['username'] ?? '').toString().trim();
+            if ((role == 'student' || role == 'ogrenci' || role == 'öğrenci') &&
+                institutionId.isNotEmpty &&
+                username.isNotEmpty) {
+              final sq = await FirebaseFirestore.instance
+                  .collection('students')
+                  .where('institutionId', isEqualTo: institutionId)
+                  .where('username', isEqualTo: username)
+                  .limit(3)
+                  .get();
+              for (final doc in sq.docs) {
+                await doc.reference.set({
+                  'password': newPass,
+                  'updatedAt': FieldValue.serverTimestamp(),
+                }, SetOptions(merge: true));
+              }
+            } else if ((role == 'parent' || role == 'veli') &&
+                institutionId.isNotEmpty &&
+                username.isNotEmpty) {
+              final pq = await FirebaseFirestore.instance
+                  .collection('parents')
+                  .where('institutionId', isEqualTo: institutionId)
+                  .where('username', isEqualTo: username)
+                  .limit(3)
+                  .get();
+              for (final doc in pq.docs) {
+                await doc.reference.set({
+                  'password': newPass,
+                  'updatedAt': FieldValue.serverTimestamp(),
+                }, SetOptions(merge: true));
+              }
+            }
+          } catch (silentError) {
+            debugPrint('[profile_settings_screen] hata yutuldu: $silentError');
+          }
           _currentPasswordController.clear();
           _newPasswordController.clear();
           _confirmPasswordController.clear();
@@ -395,7 +463,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('✅ Bilgiler başarıyla güncellendi!'), backgroundColor: Colors.green),
+          SnackBar(
+            content: Text('✅ Bilgiler başarıyla güncellendi!'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
@@ -415,12 +486,12 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       return Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final String title = widget.isSchoolSettings ? 'Okul Bilgileri' : 'Profilim';
+    final String title = widget.isSchoolSettings
+        ? 'Okul Bilgileri'
+        : 'Profilim';
 
     return Scaffold(
-      appBar: EduknAppBar(
-        title: title,
-      ),
+      appBar: EduknAppBar(title: title),
       body: Center(
         child: Container(
           constraints: BoxConstraints(maxWidth: 800),
@@ -428,7 +499,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             padding: EdgeInsets.all(24),
             child: Form(
               key: _formKey,
-              child: widget.isSchoolSettings ? _buildSchoolSection() : _buildProfileSection(),
+              child: widget.isSchoolSettings
+                  ? _buildSchoolSection()
+                  : _buildProfileSection(),
             ),
           ),
         ),
@@ -443,17 +516,52 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         // İstatistikler
         Row(
           children: [
-            Expanded(child: _buildStatCard(icon: Icons.check_circle, iconColor: isActive ? Colors.green : Colors.red, title: 'Durum', value: isActive ? 'Aktif' : 'Pasif', bgColor: isActive ? Colors.green.shade50 : Colors.red.shade50)),
+            Expanded(
+              child: _buildStatCard(
+                icon: Icons.check_circle,
+                iconColor: isActive ? Colors.green : Colors.red,
+                title: 'Durum',
+                value: isActive ? 'Aktif' : 'Pasif',
+                bgColor: isActive ? Colors.green.shade50 : Colors.red.shade50,
+              ),
+            ),
             SizedBox(width: 8),
-            Expanded(child: _buildStatCard(icon: Icons.calendar_today, iconColor: Colors.blue, title: 'Lisans', value: remainingDays != null ? '$remainingDays gün' : 'N/A', bgColor: Colors.blue.shade50)),
+            Expanded(
+              child: _buildStatCard(
+                icon: Icons.calendar_today,
+                iconColor: Colors.blue,
+                title: 'Lisans',
+                value: remainingDays != null ? '$remainingDays gün' : 'N/A',
+                bgColor: Colors.blue.shade50,
+              ),
+            ),
             SizedBox(width: 8),
-            Expanded(child: _buildStatCard(icon: Icons.people, iconColor: Colors.purple, title: 'Öğrenci', value: '$studentCount/$studentQuota', bgColor: Colors.purple.shade50)),
+            Expanded(
+              child: _buildStatCard(
+                icon: Icons.people,
+                iconColor: Colors.purple,
+                title: 'Öğrenci',
+                value: '$studentCount/$studentQuota',
+                bgColor: Colors.purple.shade50,
+              ),
+            ),
             SizedBox(width: 8),
-            Expanded(child: _buildStatCard(icon: Icons.badge, iconColor: Colors.teal, title: 'Kurum ID', value: institutionId, bgColor: Colors.teal.shade50)),
+            Expanded(
+              child: _buildStatCard(
+                icon: Icons.badge,
+                iconColor: Colors.teal,
+                title: 'Kurum ID',
+                value: institutionId,
+                bgColor: Colors.teal.shade50,
+              ),
+            ),
           ],
         ),
         SizedBox(height: 32),
-        Text('Okul Logosu', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        Text(
+          'Okul Logosu',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 4),
         Text(
           'Okul logosu başlık ve menülerde yatay olarak görüntülenir. Şeffaf PNG veya JPG yükleyebilirsiniz.',
@@ -473,7 +581,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   ElevatedButton.icon(
                     onPressed: () => _pickImage(isLogo: true),
                     icon: const Icon(Icons.upload, size: 18),
-                    label: Text(_logoUrl != null ? 'Yeni Logo Yükle' : 'Logo Yükle'),
+                    label: Text(
+                      _logoUrl != null ? 'Yeni Logo Yükle' : 'Logo Yükle',
+                    ),
                   ),
                   if (_logoUrl != null && _logoUrl!.isNotEmpty) ...[
                     OutlinedButton.icon(
@@ -485,8 +595,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       onPressed: () {
                         setState(() => _logoUrl = null);
                       },
-                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                      label: const Text('Logoyu Kaldır', style: TextStyle(color: Colors.red)),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        size: 18,
+                        color: Colors.red,
+                      ),
+                      label: const Text(
+                        'Logoyu Kaldır',
+                        style: TextStyle(color: Colors.red),
+                      ),
                     ),
                   ],
                 ],
@@ -495,15 +612,44 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           ),
         ),
         SizedBox(height: 24),
-        TextFormField(controller: _schoolNameController, decoration: _modernInputDecoration(label: 'Okul Adı', icon: Icons.business)),
+        TextFormField(
+          controller: _schoolNameController,
+          decoration: _modernInputDecoration(
+            label: 'Okul Adı',
+            icon: Icons.business,
+          ),
+        ),
         SizedBox(height: 16),
-        TextFormField(controller: _schoolAddressController, decoration: _modernInputDecoration(label: 'Adres', icon: Icons.location_on), maxLines: 2),
+        TextFormField(
+          controller: _schoolAddressController,
+          decoration: _modernInputDecoration(
+            label: 'Adres',
+            icon: Icons.location_on,
+          ),
+          maxLines: 2,
+        ),
         SizedBox(height: 16),
         Row(
           children: [
-            Expanded(child: TextFormField(controller: _schoolPhoneController, decoration: _modernInputDecoration(label: 'Telefon', icon: Icons.phone))),
+            Expanded(
+              child: TextFormField(
+                controller: _schoolPhoneController,
+                decoration: _modernInputDecoration(
+                  label: 'Telefon',
+                  icon: Icons.phone,
+                ),
+              ),
+            ),
             SizedBox(width: 16),
-            Expanded(child: TextFormField(controller: _schoolEmailController, decoration: _modernInputDecoration(label: 'E-posta', icon: Icons.email))),
+            Expanded(
+              child: TextFormField(
+                controller: _schoolEmailController,
+                decoration: _modernInputDecoration(
+                  label: 'E-posta',
+                  icon: Icons.email,
+                ),
+              ),
+            ),
           ],
         ),
         SizedBox(height: 32),
@@ -516,23 +662,48 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Profil Fotoğrafı', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        Text(
+          'Profil Fotoğrafı',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
         SizedBox(height: 12),
         Center(
           child: Column(
             children: [
               _buildImageFrame(_profileImageUrl, Icons.person, isCircle: true),
               SizedBox(height: 12),
-              ElevatedButton.icon(onPressed: () => _pickImage(isLogo: false), icon: Icon(Icons.camera_alt), label: Text('Fotoğrafı Değiştir')),
+              ElevatedButton.icon(
+                onPressed: () => _pickImage(isLogo: false),
+                icon: Icon(Icons.camera_alt),
+                label: Text('Fotoğrafı Değiştir'),
+              ),
             ],
           ),
         ),
         SizedBox(height: 24),
-        TextFormField(controller: _fullNameController, decoration: _modernInputDecoration(label: 'Ad Soyad', icon: Icons.person)),
+        TextFormField(
+          controller: _fullNameController,
+          decoration: _modernInputDecoration(
+            label: 'Ad Soyad',
+            icon: Icons.person,
+          ),
+        ),
         SizedBox(height: 16),
-        TextFormField(controller: _userPhoneController, decoration: _modernInputDecoration(label: 'Telefon', icon: Icons.phone)),
+        TextFormField(
+          controller: _userPhoneController,
+          decoration: _modernInputDecoration(
+            label: 'Telefon',
+            icon: Icons.phone,
+          ),
+        ),
         SizedBox(height: 16),
-        TextFormField(controller: _userEmailController, decoration: _modernInputDecoration(label: 'E-posta (İletişim)', icon: Icons.email)),
+        TextFormField(
+          controller: _userEmailController,
+          decoration: _modernInputDecoration(
+            label: 'E-posta (İletişim)',
+            icon: Icons.email,
+          ),
+        ),
 
         // ── Şifre Değiştirme ──────────────────────────────────────────
         SizedBox(height: 32),
@@ -540,7 +711,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           children: [
             Icon(Icons.lock_outline, color: Colors.indigo, size: 20),
             SizedBox(width: 8),
-            Text('Şifre Değiştir', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(
+              'Şifre Değiştir',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
           ],
         ),
         SizedBox(height: 6),
@@ -572,7 +746,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           label: 'Yeni Şifre (Tekrar)',
           icon: Icons.lock_reset,
           validator: (v) {
-            if (_newPasswordController.text.isNotEmpty && v != _newPasswordController.text) {
+            if (_newPasswordController.text.isNotEmpty &&
+                v != _newPasswordController.text) {
               return 'Şifreler eşleşmiyor';
             }
             return null;
@@ -581,13 +756,32 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
         // ── Bildirim Tercihleri ────────────────────────────
         const SizedBox(height: 32),
-        const Text('Bildirim Tercihleri', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const Text(
+          'Bildirim Tercihleri',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 12),
-        _buildNotificationToggle('announcements', 'Duyurular', Icons.campaign_outlined),
-        _buildNotificationToggle('studies', 'Etüt ve Ek Dersler', Icons.school_outlined),
-        _buildNotificationToggle('homeworks', 'Ödevler', Icons.assignment_outlined),
+        _buildNotificationToggle(
+          'announcements',
+          'Duyurular',
+          Icons.campaign_outlined,
+        ),
+        _buildNotificationToggle(
+          'studies',
+          'Etüt ve Ek Dersler',
+          Icons.school_outlined,
+        ),
+        _buildNotificationToggle(
+          'homeworks',
+          'Ödevler',
+          Icons.assignment_outlined,
+        ),
         _buildNotificationToggle('messages', 'Mesajlar', Icons.forum_outlined),
-        _buildNotificationToggle('exams', 'Sınav Sonuçları', Icons.analytics_outlined),
+        _buildNotificationToggle(
+          'exams',
+          'Sınav Sonuçları',
+          Icons.analytics_outlined,
+        ),
 
         SizedBox(height: 32),
         _buildSaveButton(),
@@ -595,8 +789,12 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     );
   }
 
-
-  Widget _buildImageFrame(String? url, IconData fallbackIcon, {bool isCircle = false, bool isLogo = false}) {
+  Widget _buildImageFrame(
+    String? url,
+    IconData fallbackIcon, {
+    bool isCircle = false,
+    bool isLogo = false,
+  }) {
     final double w = isLogo ? 320 : 120;
     final double h = isLogo ? 110 : 120;
     return Container(
@@ -617,30 +815,43 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   color: Colors.black.withValues(alpha: 0.04),
                   blurRadius: 10,
                   offset: const Offset(0, 3),
-                )
+                ),
               ]
             : null,
       ),
       child: ClipRRect(
-        borderRadius: isCircle ? BorderRadius.circular(60) : BorderRadius.circular(12),
+        borderRadius: isCircle
+            ? BorderRadius.circular(60)
+            : BorderRadius.circular(12),
         child: url != null && url.isNotEmpty
             ? Image.network(
                 url,
                 fit: isLogo ? BoxFit.contain : BoxFit.cover,
                 errorBuilder: (_, __, ___) => Center(
-                  child: Icon(fallbackIcon, size: isLogo ? 36 : 48, color: Colors.grey),
+                  child: Icon(
+                    fallbackIcon,
+                    size: isLogo ? 36 : 48,
+                    color: Colors.grey,
+                  ),
                 ),
               )
             : Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(fallbackIcon, size: isLogo ? 32 : 48, color: Colors.grey.shade400),
+                    Icon(
+                      fallbackIcon,
+                      size: isLogo ? 32 : 48,
+                      color: Colors.grey.shade400,
+                    ),
                     if (isLogo) ...[
                       const SizedBox(height: 6),
                       Text(
                         'Henüz logo yüklenmedi (varsayılan eduKN logosu kullanılır)',
-                        style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -653,35 +864,82 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
   Widget _buildSaveButton() {
     return SizedBox(
-      width: double.infinity, height: 50,
+      width: double.infinity,
+      height: 50,
       child: ElevatedButton(
         onPressed: _isSaving ? null : _saveChanges,
-        style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-        child: _isSaving ? CircularProgressIndicator(color: Colors.white) : Text('Değişiklikleri Kaydet', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.indigo,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: _isSaving
+            ? CircularProgressIndicator(color: Colors.white)
+            : Text(
+                'Değişiklikleri Kaydet',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
       ),
     );
   }
 
-  InputDecoration _modernInputDecoration({required String label, required IconData icon}) {
+  InputDecoration _modernInputDecoration({
+    required String label,
+    required IconData icon,
+  }) {
     return InputDecoration(
-      labelText: label, prefixIcon: Icon(icon, color: Colors.indigo),
-      filled: true, fillColor: Colors.grey.shade50,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.indigo, width: 2)),
+      labelText: label,
+      prefixIcon: Icon(icon, color: Colors.indigo),
+      filled: true,
+      fillColor: Colors.grey.shade50,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade200),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.indigo, width: 2),
+      ),
     );
   }
 
-  Widget _buildStatCard({required IconData icon, required Color iconColor, required String title, required String value, required Color bgColor}) {
+  Widget _buildStatCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String value,
+    required Color bgColor,
+  }) {
     return Container(
       padding: EdgeInsets.all(12),
-      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: iconColor.withValues(alpha: 0.2))),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: iconColor.withValues(alpha: 0.2)),
+      ),
       child: Column(
         children: [
           Icon(icon, color: iconColor, size: 20),
           SizedBox(height: 4),
-          Text(title, style: TextStyle(fontSize: 10, color: Colors.grey.shade700)),
-          Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(
+            title,
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade700),
+          ),
+          Text(
+            value,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );
@@ -691,7 +949,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     return SwitchListTile(
       value: _notificationSettings[key] ?? true,
       onChanged: (val) => setState(() => _notificationSettings[key] = val),
-      title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+      title: Text(
+        title,
+        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+      ),
       secondary: Icon(icon, color: Colors.indigo, size: 20),
       activeThumbColor: Colors.indigo,
       contentPadding: EdgeInsets.zero,
@@ -733,7 +994,9 @@ class _PasswordFieldState extends State<_PasswordField> {
         prefixIcon: Icon(widget.icon, color: Colors.indigo),
         suffixIcon: IconButton(
           icon: Icon(
-            _obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+            _obscure
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
             color: Colors.grey.shade500,
             size: 20,
           ),
@@ -771,7 +1034,8 @@ class _PasswordFieldState extends State<_PasswordField> {
 // ─────────────────────────────────────────────────────────────────────
 class PhotoCropDialog extends StatefulWidget {
   final String imageDataUrl;
-  const PhotoCropDialog({Key? key, required this.imageDataUrl}) : super(key: key);
+  const PhotoCropDialog({Key? key, required this.imageDataUrl})
+    : super(key: key);
 
   @override
   State<PhotoCropDialog> createState() => _PhotoCropDialogState();
@@ -782,7 +1046,7 @@ class _PhotoCropDialogState extends State<PhotoCropDialog> {
 
   double _imgNaturalWidth = 0;
   double _imgNaturalHeight = 0;
-  double _scale = 1.0;       // mevcut zoom
+  double _scale = 1.0; // mevcut zoom
   Offset _offset = Offset.zero; // görüntü kayması (piksel)
   Offset _dragStart = Offset.zero;
   Offset _offsetAtDragStart = Offset.zero;
@@ -845,12 +1109,14 @@ class _PhotoCropDialogState extends State<PhotoCropDialog> {
     // offset = (0,0) → görüntü tam ortada
     final scaledW = _imgNaturalWidth * _scale;
     final scaledH = _imgNaturalHeight * _scale;
-    final imgLeft = (_cropSize - scaledW) / 2 + _offset.dx; // crop alanındaki sol kenar
-    final imgTop  = (_cropSize - scaledH) / 2 + _offset.dy; // crop alanındaki üst kenar
+    final imgLeft =
+        (_cropSize - scaledW) / 2 + _offset.dx; // crop alanındaki sol kenar
+    final imgTop =
+        (_cropSize - scaledH) / 2 + _offset.dy; // crop alanındaki üst kenar
 
     // Kaynak dikdörtgeni (orijinal görüntü koordinatlarında)
     final srcX = -imgLeft / _scale;
-    final srcY = -imgTop  / _scale;
+    final srcY = -imgTop / _scale;
     final srcW = _cropSize / _scale;
     final srcH = _cropSize / _scale;
 
@@ -860,7 +1126,10 @@ class _PhotoCropDialogState extends State<PhotoCropDialog> {
       srcY.clamp(0, _imgNaturalHeight),
       srcW.clamp(0, _imgNaturalWidth - srcX.clamp(0, _imgNaturalWidth)),
       srcH.clamp(0, _imgNaturalHeight - srcY.clamp(0, _imgNaturalHeight)),
-      0, 0, outSize.toDouble(), outSize.toDouble(),
+      0,
+      0,
+      outSize.toDouble(),
+      outSize.toDouble(),
     );
 
     return canvas.toDataUrl('image/jpeg', 0.88);
@@ -963,14 +1232,19 @@ class _PhotoCropDialogState extends State<PhotoCropDialog> {
                   borderRadius: BorderRadius.circular(8),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(8),
-                    onTap: _ready ? () {
-                      final minScale = math.max(_cropSize / _imgNaturalWidth, _cropSize / _imgNaturalHeight);
-                      final step = (minScale * 3 - minScale) / 10;
-                      setState(() {
-                        _scale = math.max(minScale, _scale - step);
-                        _offset = _clamp(_offset);
-                      });
-                    } : null,
+                    onTap: _ready
+                        ? () {
+                            final minScale = math.max(
+                              _cropSize / _imgNaturalWidth,
+                              _cropSize / _imgNaturalHeight,
+                            );
+                            final step = (minScale * 3 - minScale) / 10;
+                            setState(() {
+                              _scale = math.max(minScale, _scale - step);
+                              _offset = _clamp(_offset);
+                            });
+                          }
+                        : null,
                     child: const Padding(
                       padding: EdgeInsets.all(8),
                       child: Icon(Icons.remove, color: Colors.indigo, size: 20),
@@ -981,8 +1255,19 @@ class _PhotoCropDialogState extends State<PhotoCropDialog> {
                 Expanded(
                   child: Slider(
                     value: _scale,
-                    min: _ready ? math.max(_cropSize / _imgNaturalWidth, _cropSize / _imgNaturalHeight) : 0.5,
-                    max: _ready ? math.max(_cropSize / _imgNaturalWidth, _cropSize / _imgNaturalHeight) * 3 : 3.0,
+                    min: _ready
+                        ? math.max(
+                            _cropSize / _imgNaturalWidth,
+                            _cropSize / _imgNaturalHeight,
+                          )
+                        : 0.5,
+                    max: _ready
+                        ? math.max(
+                                _cropSize / _imgNaturalWidth,
+                                _cropSize / _imgNaturalHeight,
+                              ) *
+                              3
+                        : 3.0,
                     activeColor: Colors.indigo,
                     onChanged: (v) {
                       setState(() {
@@ -999,14 +1284,19 @@ class _PhotoCropDialogState extends State<PhotoCropDialog> {
                   borderRadius: BorderRadius.circular(8),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(8),
-                    onTap: _ready ? () {
-                      final minScale = math.max(_cropSize / _imgNaturalWidth, _cropSize / _imgNaturalHeight);
-                      final step = (minScale * 3 - minScale) / 10;
-                      setState(() {
-                        _scale = math.min(minScale * 3, _scale + step);
-                        _offset = _clamp(_offset);
-                      });
-                    } : null,
+                    onTap: _ready
+                        ? () {
+                            final minScale = math.max(
+                              _cropSize / _imgNaturalWidth,
+                              _cropSize / _imgNaturalHeight,
+                            );
+                            final step = (minScale * 3 - minScale) / 10;
+                            setState(() {
+                              _scale = math.min(minScale * 3, _scale + step);
+                              _offset = _clamp(_offset);
+                            });
+                          }
+                        : null,
                     child: const Padding(
                       padding: EdgeInsets.all(8),
                       child: Icon(Icons.add, color: Colors.indigo, size: 20),
@@ -1026,7 +1316,9 @@ class _PhotoCropDialogState extends State<PhotoCropDialog> {
                     onPressed: () => Navigator.pop(context, null),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     child: const Text('İptal'),
                   ),
@@ -1048,11 +1340,26 @@ class _PhotoCropDialogState extends State<PhotoCropDialog> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.indigo,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     child: _isCropping
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                        : const Text('Uygula', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text(
+                            'Uygula',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
                 ),
               ],
@@ -1078,7 +1385,8 @@ class _CheckerboardPainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, paint1);
     for (double y = 0; y < size.height; y += cellSize) {
       for (double x = 0; x < size.width; x += cellSize) {
-        final isEven = ((x / cellSize).floor() + (y / cellSize).floor()) % 2 == 0;
+        final isEven =
+            ((x / cellSize).floor() + (y / cellSize).floor()) % 2 == 0;
         if (!isEven) {
           canvas.drawRect(Rect.fromLTWH(x, y, cellSize, cellSize), paint2);
         }
@@ -1095,7 +1403,8 @@ class _CheckerboardPainter extends CustomPainter {
 // ─────────────────────────────────────────────────────────────────────
 class LogoCropDialog extends StatefulWidget {
   final String imageDataUrl;
-  const LogoCropDialog({Key? key, required this.imageDataUrl}) : super(key: key);
+  const LogoCropDialog({Key? key, required this.imageDataUrl})
+    : super(key: key);
 
   @override
   State<LogoCropDialog> createState() => _LogoCropDialogState();
@@ -1107,19 +1416,27 @@ class _LogoCropDialogState extends State<LogoCropDialog> {
 
   double get _cropWidth {
     switch (_aspectRatioIndex) {
-      case 0: return 360.0; // Yatay Geniş
-      case 1: return 360.0; // 16:9
-      case 2: return 240.0; // Kare
-      default: return 360.0;
+      case 0:
+        return 360.0; // Yatay Geniş
+      case 1:
+        return 360.0; // 16:9
+      case 2:
+        return 240.0; // Kare
+      default:
+        return 360.0;
     }
   }
 
   double get _cropHeight {
     switch (_aspectRatioIndex) {
-      case 0: return 138.0; // 360 / 2.6
-      case 1: return 202.0; // 360 / (16/9)
-      case 2: return 240.0; // 240 / 1
-      default: return 138.0;
+      case 0:
+        return 138.0; // 360 / 2.6
+      case 1:
+        return 202.0; // 360 / (16/9)
+      case 2:
+        return 240.0; // 240 / 1
+      default:
+        return 138.0;
     }
   }
 
@@ -1248,7 +1565,11 @@ class _LogoCropDialogState extends State<LogoCropDialog> {
                       color: Colors.indigo.shade50,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.tune, color: Colors.indigo, size: 22),
+                    child: const Icon(
+                      Icons.tune,
+                      color: Colors.indigo,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
@@ -1257,7 +1578,10 @@ class _LogoCropDialogState extends State<LogoCropDialog> {
                       children: [
                         Text(
                           'Okul Logosunu Düzenle',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         Text(
                           'Yatayda konumlandırın, yakınlaştırıp uzaklaştırın.',
@@ -1277,7 +1601,10 @@ class _LogoCropDialogState extends State<LogoCropDialog> {
               // Oran Seçimi & Zemin Seçimi
               Row(
                 children: [
-                  const Text('Format:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Format:',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: SegmentedButton<int>(
@@ -1301,11 +1628,17 @@ class _LogoCropDialogState extends State<LogoCropDialog> {
                   ),
                   const SizedBox(width: 8),
                   Tooltip(
-                    message: _darkPreview ? 'Açık Zemin' : 'Koyu Zemin Önizleme',
+                    message: _darkPreview
+                        ? 'Açık Zemin'
+                        : 'Koyu Zemin Önizleme',
                     child: IconButton(
-                      icon: Icon(_darkPreview ? Icons.light_mode : Icons.dark_mode, size: 20),
+                      icon: Icon(
+                        _darkPreview ? Icons.light_mode : Icons.dark_mode,
+                        size: 20,
+                      ),
                       color: Colors.indigo,
-                      onPressed: () => setState(() => _darkPreview = !_darkPreview),
+                      onPressed: () =>
+                          setState(() => _darkPreview = !_darkPreview),
                     ),
                   ),
                 ],
@@ -1350,7 +1683,9 @@ class _LogoCropDialogState extends State<LogoCropDialog> {
                               Positioned.fill(
                                 child: _darkPreview
                                     ? Container(color: const Color(0xFF1E293B))
-                                    : CustomPaint(painter: const _CheckerboardPainter()),
+                                    : CustomPaint(
+                                        painter: const _CheckerboardPainter(),
+                                      ),
                               ),
                               // Görüntü
                               Transform.translate(
@@ -1389,7 +1724,11 @@ class _LogoCropDialogState extends State<LogoCropDialog> {
                           : null,
                       child: const Padding(
                         padding: EdgeInsets.all(8),
-                        child: Icon(Icons.remove, color: Colors.indigo, size: 20),
+                        child: Icon(
+                          Icons.remove,
+                          color: Colors.indigo,
+                          size: 20,
+                        ),
                       ),
                     ),
                   ),
@@ -1433,9 +1772,15 @@ class _LogoCropDialogState extends State<LogoCropDialog> {
                   TextButton.icon(
                     onPressed: _ready ? _fitAndCenter : null,
                     icon: const Icon(Icons.filter_center_focus, size: 16),
-                    label: const Text('Ortala & Sığdır', style: TextStyle(fontSize: 12)),
+                    label: const Text(
+                      'Ortala & Sığdır',
+                      style: TextStyle(fontSize: 12),
+                    ),
                     style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
                     ),
                   ),
                 ],
@@ -1457,7 +1802,9 @@ class _LogoCropDialogState extends State<LogoCropDialog> {
                       onPressed: () => Navigator.pop(context, null),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       child: const Text('İptal'),
                     ),
@@ -1480,17 +1827,25 @@ class _LogoCropDialogState extends State<LogoCropDialog> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.indigo,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       child: _isCropping
                           ? const SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
                             )
                           : const Text(
                               'Logoyu Uygula',
-                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                     ),
                   ),

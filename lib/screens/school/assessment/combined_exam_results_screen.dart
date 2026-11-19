@@ -85,6 +85,16 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
   String _bestSortMode = 'Başarı %';
   String _worstSortMode = 'Başarı %';
   String? _activeTermId;
+  final ValueNotifier<({String subject, String topic, String stats})?>
+  _hoveredTopicInfo = ValueNotifier(null);
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _searchController.dispose();
+    _hoveredTopicInfo.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -105,8 +115,13 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
 
   Future<void> _loadExams() async {
     try {
-      _activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
-      final stream = _service.getTrialExams(widget.institutionId, termId: _activeTermId);
+      _activeTermId =
+          await TermService().getSelectedTermId() ??
+          await TermService().getActiveTermId();
+      final stream = _service.getTrialExams(
+        widget.institutionId,
+        termId: _activeTermId,
+      );
       stream.listen((exams) {
         if (mounted) {
           setState(() {
@@ -1594,9 +1609,10 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
             'Analiz_Raporu_${tabName}_${DateFormat('dd_MM_yyyy').format(DateTime.now())}',
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('PDF oluşturulurken hata oluştu: $e')),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF oluşturulurken hata oluştu: $e')),
+        );
     }
   }
 
@@ -2946,15 +2962,38 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
                 return DataRow(
                   cells: [
                     DataCell(
-                      Tooltip(
-                        message: e.key,
-                        child: Container(
-                          width: isMobile ? 140 : 500,
-                          child: Text(
-                            e.key,
-                            style: TextStyle(fontSize: 12),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                      MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        onEnter: (_) {
+                          _hoveredTopicInfo.value = (
+                            subject: subject,
+                            topic: e.key,
+                            stats:
+                                'Soru: ${total.toInt()} • Doğru: ${corr.toInt()} • Yanlış: ${wrng.toInt()} • Başarı: %${pct.toStringAsFixed(1)}',
+                          );
+                        },
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            _hoveredTopicInfo.value = (
+                              subject: subject,
+                              topic: e.key,
+                              stats:
+                                  'Soru: ${total.toInt()} • Doğru: ${corr.toInt()} • Yanlış: ${wrng.toInt()} • Başarı: %${pct.toStringAsFixed(1)}',
+                            );
+                          },
+                          child: Tooltip(
+                            message: e.key,
+                            child: Container(
+                              width: isMobile ? 140 : 500,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                e.key,
+                                style: TextStyle(fontSize: 12),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -2985,8 +3024,119 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
             ),
           ),
         ),
+        const SizedBox(height: 10),
+        _buildHoveredTopicFooter(subject),
         SizedBox(height: 24),
       ],
+    );
+  }
+
+  Widget _buildHoveredTopicFooter(String tableSubject) {
+    return ValueListenableBuilder<
+      ({String subject, String topic, String stats})?
+    >(
+      valueListenable: _hoveredTopicInfo,
+      builder: (context, info, _) {
+        final bool matches =
+            info != null &&
+            (info.subject == tableSubject ||
+                _selectedAnalysisSubject != 'Tümü');
+        if (!matches) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.mouse_outlined,
+                  size: 16,
+                  color: Colors.indigo.shade400,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Kısaltılmış konu/kazanım metninin tamamını burada okumak için fareyle tablodaki satırın üzerine gelin.',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Colors.blueGrey.shade600,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEEF2FF),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.indigo.shade200),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade700,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      info.subject,
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'KONU / KAZANIM TAM METNİ',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.indigo.shade900,
+                    ),
+                  ),
+                  Text(
+                    '•  ${info.stats}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.indigo.shade700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 5),
+              SelectableText(
+                info.topic,
+                style: const TextStyle(
+                  fontSize: 12.8,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF0F172A),
+                  height: 1.38,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

@@ -24,9 +24,16 @@ class TrialExam {
   final List<String> selectedBranches; // Filter branches
   final String? resultsJson; // Stores computed results
   final Map<String, dynamic> sharingSettings; // Sharing configuration
-  final Map<String, Map<String, String>> bookletMapping; // NEW: Booklet -> Subject -> MappingString (e.g. "4,3,2,1")
+  final Map<String, Map<String, String>>
+  bookletMapping; // NEW: Booklet -> Subject -> MappingString (e.g. "4,3,2,1")
   final String? termId; // Dönem ID'si
   final int durationMinutes; // Sınav süresi (dakika, 0 = tanımlanmamış)
+  final String? centralExamId; // Genel Merkez denemesi referans ID'si
+  final bool isCentralExam; // Genel Merkez tarafından tanımlandı mı?
+  final String? targetSchoolTypeId; // Hedef okul türü ID'si
+  final int? centralTotalParticipants; // Genel Merkez toplam katılımcı sayısı
+  final DateTime? centralEvaluatedAt; // Genel Merkez birleştirme tarihi
+  final Map<String, dynamic> centralSummary; // Genel Merkez ortalamalar & özet
 
   static AnswerStatus evaluateAnswer(String studentChar, String refChar) {
     studentChar = studentChar.toUpperCase();
@@ -41,7 +48,12 @@ class TrialExam {
     }
 
     // 2. Standard comparison
-    if (studentChar == ' ' || studentChar == '*' || studentChar == '.' || studentChar == '-' || studentChar == '_' || studentChar.isEmpty) {
+    if (studentChar == ' ' ||
+        studentChar == '*' ||
+        studentChar == '.' ||
+        studentChar == '-' ||
+        studentChar == '_' ||
+        studentChar.isEmpty) {
       return AnswerStatus.empty;
     }
 
@@ -75,6 +87,12 @@ class TrialExam {
     this.bookletMapping = const {},
     this.termId,
     this.durationMinutes = 0,
+    this.centralExamId,
+    this.isCentralExam = false,
+    this.targetSchoolTypeId,
+    this.centralTotalParticipants,
+    this.centralEvaluatedAt,
+    this.centralSummary = const {},
   });
 
   Map<String, dynamic> toMap() {
@@ -101,6 +119,14 @@ class TrialExam {
       'bookletMapping': bookletMapping,
       'termId': termId,
       'durationMinutes': durationMinutes,
+      if (centralExamId != null) 'centralExamId': centralExamId,
+      'isCentralExam': isCentralExam,
+      if (targetSchoolTypeId != null) 'targetSchoolTypeId': targetSchoolTypeId,
+      if (centralTotalParticipants != null)
+        'centralTotalParticipants': centralTotalParticipants,
+      if (centralEvaluatedAt != null)
+        'centralEvaluatedAt': Timestamp.fromDate(centralEvaluatedAt!),
+      if (centralSummary.isNotEmpty) 'centralSummary': centralSummary,
     };
   }
 
@@ -148,7 +174,9 @@ class TrialExam {
     // Booklet Mapping Parsing
     Map<String, Map<String, String>> parsedMapping = {};
     if (map['bookletMapping'] != null) {
-      Map<String, dynamic> bm = Map<String, dynamic>.from(map['bookletMapping']);
+      Map<String, dynamic> bm = Map<String, dynamic>.from(
+        map['bookletMapping'],
+      );
       bm.forEach((booklet, subjects) {
         parsedMapping[booklet] = {};
         if (subjects is Map) {
@@ -185,6 +213,16 @@ class TrialExam {
       bookletMapping: parsedMapping,
       termId: map['termId'],
       durationMinutes: (map['durationMinutes'] as num?)?.toInt() ?? 0,
+      centralExamId: map['centralExamId']?.toString(),
+      isCentralExam:
+          map['isCentralExam'] == true || map['centralExamId'] != null,
+      targetSchoolTypeId: map['targetSchoolTypeId']?.toString(),
+      centralTotalParticipants: (map['centralTotalParticipants'] as num?)
+          ?.toInt(),
+      centralEvaluatedAt: (map['centralEvaluatedAt'] as Timestamp?)?.toDate(),
+      centralSummary: map['centralSummary'] is Map
+          ? Map<String, dynamic>.from(map['centralSummary'] as Map)
+          : const {},
     );
   }
 
@@ -208,8 +246,15 @@ class TrialExam {
     bool? isLaunched,
     String? resultsJson,
     Map<String, dynamic>? sharingSettings,
+    Map<String, Map<String, String>>? bookletMapping,
     String? termId,
     int? durationMinutes,
+    String? centralExamId,
+    bool? isCentralExam,
+    String? targetSchoolTypeId,
+    int? centralTotalParticipants,
+    DateTime? centralEvaluatedAt,
+    Map<String, dynamic>? centralSummary,
   }) {
     return TrialExam(
       id: id ?? this.id,
@@ -231,8 +276,16 @@ class TrialExam {
       isLaunched: isLaunched ?? this.isLaunched,
       resultsJson: resultsJson ?? this.resultsJson,
       sharingSettings: sharingSettings ?? this.sharingSettings,
+      bookletMapping: bookletMapping ?? this.bookletMapping,
       termId: termId ?? this.termId,
       durationMinutes: durationMinutes ?? this.durationMinutes,
+      centralExamId: centralExamId ?? this.centralExamId,
+      isCentralExam: isCentralExam ?? this.isCentralExam,
+      targetSchoolTypeId: targetSchoolTypeId ?? this.targetSchoolTypeId,
+      centralTotalParticipants:
+          centralTotalParticipants ?? this.centralTotalParticipants,
+      centralEvaluatedAt: centralEvaluatedAt ?? this.centralEvaluatedAt,
+      centralSummary: centralSummary ?? this.centralSummary,
     );
   }
 }
@@ -344,17 +397,18 @@ class OpticalLineEdit {
   bool get isEmpty => fields.isEmpty && !excluded;
 
   Map<String, dynamic> toMap() => {
-        'line': line,
-        'fp': fingerprint,
-        'fields': fields,
-        'excluded': excluded,
-      };
+    'line': line,
+    'fp': fingerprint,
+    'fields': fields,
+    'excluded': excluded,
+  };
 
   factory OpticalLineEdit.fromMap(Map<String, dynamic> map) => OpticalLineEdit(
-        line: (map['line'] as num?)?.toInt() ?? -1,
-        fingerprint: (map['fp'] ?? '').toString(),
-        fields: (map['fields'] as Map? ?? {})
-            .map((k, v) => MapEntry(k.toString(), v.toString())),
-        excluded: map['excluded'] == true,
-      );
+    line: (map['line'] as num?)?.toInt() ?? -1,
+    fingerprint: (map['fp'] ?? '').toString(),
+    fields: (map['fields'] as Map? ?? {}).map(
+      (k, v) => MapEntry(k.toString(), v.toString()),
+    ),
+    excluded: map['excluded'] == true,
+  );
 }
